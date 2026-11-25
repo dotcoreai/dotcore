@@ -130,15 +130,24 @@ function ChatInspectorPage({ target }: { target: ChatTarget }) {
   );
 }
 
-function renderRouteInspector(
+/**
+ * Renders the console with the route inspector open and waits for its opening focus, which lands
+ * on its close button a frame after it opens and would otherwise pull focus from the chat.
+ */
+async function renderRouteInspector(
   target: ChatTarget,
   views = [routeView("alpha"), routeView("beta")],
   chatClient?: ChatClient,
 ) {
-  return renderConsole(fakeRouteClient(views).client, chatClient, {
+  const router = renderConsole(fakeRouteClient(views).client, chatClient, {
     initialEntry: "/routes?panel=routes%2Froute%3Aroute-beta",
     routesPage: <ChatInspectorPage target={target} />,
   });
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Close inspector" })).toHaveFocus(),
+  );
+
+  return router;
 }
 
 const betaTarget: ChatTarget = { label: "Chat", mode: "chat", route: "beta" };
@@ -326,7 +335,7 @@ describe("Chat", () => {
   it("opens the chat on the inspector's route beside a wide inspector", async () => {
     const user = setupUser();
     setViewportWidth(1440);
-    renderRouteInspector(betaTarget);
+    await renderRouteInspector(betaTarget);
 
     await user.click(inspectorChat());
 
@@ -354,7 +363,7 @@ describe("Chat", () => {
       if (this.hasAttribute("data-inspector-panel")) return new DOMRect(564, 0, 460, 800);
       return new DOMRect();
     });
-    renderRouteInspector(betaTarget);
+    await renderRouteInspector(betaTarget);
 
     await user.click(inspectorChat());
 
@@ -368,7 +377,7 @@ describe("Chat", () => {
   it("closes a narrow inspector before opening the full-screen chat", async () => {
     const user = setupUser();
     setViewportWidth(500);
-    renderRouteInspector(betaTarget);
+    await renderRouteInspector(betaTarget);
 
     await user.click(
       within(screen.getByRole("dialog", { name: "Route beta" })).getByRole("button", {
@@ -389,7 +398,7 @@ describe("Chat", () => {
   it("keeps the conversation and selects the requested route again after a picker change", async () => {
     const user = setupUser();
     const chat = fakeChatClient();
-    renderRouteInspector(betaTarget, undefined, chat.client);
+    await renderRouteInspector(betaTarget, undefined, chat.client);
 
     await user.click(inspectorChat());
     const picker = within(panel()).getByRole("combobox", { name: "Route" });
@@ -416,7 +425,10 @@ describe("Chat", () => {
 
   it("shows a requested route that is no longer available instead of another route", async () => {
     const user = setupUser();
-    renderRouteInspector(betaTarget, [routeView("alpha"), routeView("beta", { available: false })]);
+    await renderRouteInspector(betaTarget, [
+      routeView("alpha"),
+      routeView("beta", { available: false }),
+    ]);
 
     await user.click(inspectorChat());
 
@@ -428,8 +440,8 @@ describe("Chat", () => {
     expect(within(panel()).getByRole("button", { name: "Send" })).toBeDisabled();
   });
 
-  it("disables Chat with the reason when the inspector has no chattable route", () => {
-    renderRouteInspector({ label: "Chat", unavailableReason: "The route is unavailable." });
+  it("disables Chat with the reason when the inspector has no chattable route", async () => {
+    await renderRouteInspector({ label: "Chat", unavailableReason: "The route is unavailable." });
 
     expect(inspectorChat()).toHaveAttribute("aria-disabled", "true");
     expect(inspectorChat()).toHaveAccessibleDescription("The route is unavailable.");
@@ -645,7 +657,7 @@ describe("Chat request kinds", () => {
   it("opens the chat in decision mode from an Ask action, on a mixed route too", async () => {
     const user = setupUser();
     setViewportWidth(1440);
-    renderRouteInspector({ label: "Ask", mode: "decision", route: "mixed" }, [
+    await renderRouteInspector({ label: "Ask", mode: "decision", route: "mixed" }, [
       routeView("gemma", { kinds: [CHAT] }),
       routeView("mixed", { kinds: [CHAT, DECISION] }),
     ]);
