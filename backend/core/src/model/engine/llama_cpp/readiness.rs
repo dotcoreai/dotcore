@@ -75,7 +75,7 @@ async fn probe_response(
     match get_loopback(endpoint.host_port, path).await {
         Ok(response) => Ok(Some(response)),
         Err(EngineProbeError::Transient) => Ok(None),
-        Err(error @ EngineProbeError::Terminal(_)) => Err(error),
+        Err(error) => Err(error),
     }
 }
 
@@ -139,7 +139,7 @@ impl HttpResponse {
             return Ok(false);
         }
         let value: Value = serde_json::from_slice(&self.body).map_err(|error| {
-            probe::terminal(
+            probe::unexpected(
                 anyhow::Error::new(error).context("llama.cpp /health returned invalid JSON"),
             )
         })?;
@@ -153,7 +153,7 @@ impl HttpResponse {
             return Ok(false);
         }
         let value: Value = serde_json::from_slice(&self.body).map_err(|error| {
-            probe::terminal(
+            probe::unexpected(
                 anyhow::Error::new(error).context("llama.cpp /v1/models returned invalid JSON"),
             )
         })?;
@@ -212,7 +212,7 @@ async fn collect_response(
                     return Err(if response.is_empty() {
                         probe::io_error("llama.cpp readiness response read failed", error)
                     } else {
-                        probe::terminal(anyhow::Error::new(error).context(
+                        probe::unexpected(anyhow::Error::new(error).context(
                             "llama.cpp readiness response read failed after response bytes",
                         ))
                     });
@@ -222,18 +222,18 @@ async fn collect_response(
             return if response.is_empty() {
                 Err(EngineProbeError::Transient)
             } else {
-                HttpResponse::parse(&response).map_err(probe::terminal)
+                HttpResponse::parse(&response).map_err(probe::unexpected)
             };
         }
         if response.len() + read > MAX_HTTP_RESPONSE_BYTES {
-            return Err(probe::terminal(anyhow!(
+            return Err(probe::unexpected(anyhow!(
                 "llama.cpp readiness response exceeds size limit"
             )));
         }
         response.extend_from_slice(&buffer[..read]);
 
         if let Some(response) =
-            HttpResponse::parse_if_complete(&response, false).map_err(probe::terminal)?
+            HttpResponse::parse_if_complete(&response, false).map_err(probe::unexpected)?
         {
             return Ok(response);
         }
@@ -407,7 +407,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn readiness_treats_nonempty_truncated_headers_and_body_as_terminal() {
+    async fn readiness_treats_nonempty_truncated_headers_and_body_as_unexpected() {
         for response in [
             b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n".as_slice(),
             b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nok".as_slice(),
@@ -416,12 +416,12 @@ mod tests {
             let result = get_loopback(port, "/health").await;
             server.abort();
 
-            assert!(matches!(result, Err(EngineProbeError::Terminal(_))));
+            assert!(matches!(result, Err(EngineProbeError::Unexpected(_))));
         }
     }
 
     #[tokio::test]
-    async fn readiness_treats_malformed_completed_headers_as_terminal() {
+    async fn readiness_treats_malformed_completed_headers_as_unexpected() {
         let (port, server) = response_server(
             vec![b"HTTP/1.1 200 OK\r\nContent-Length nope\r\n\r\n".to_vec()],
             false,
@@ -430,11 +430,11 @@ mod tests {
         let result = get_loopback(port, "/health").await;
         server.abort();
 
-        assert!(matches!(result, Err(EngineProbeError::Terminal(_))));
+        assert!(matches!(result, Err(EngineProbeError::Unexpected(_))));
     }
 
     #[tokio::test]
-    async fn readiness_treats_oversized_responses_as_terminal() {
+    async fn readiness_treats_oversized_responses_as_unexpected() {
         let mut response = format!(
             "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n",
             MAX_HTTP_RESPONSE_BYTES
@@ -445,7 +445,7 @@ mod tests {
         let result = get_loopback(port, "/health").await;
         server.abort();
 
-        assert!(matches!(result, Err(EngineProbeError::Terminal(_))));
+        assert!(matches!(result, Err(EngineProbeError::Unexpected(_))));
     }
 
     #[test]
@@ -461,14 +461,14 @@ mod tests {
     }
 
     #[test]
-    fn readiness_terminal_errors_preserve_the_parser_source() {
+    fn readiness_unexpected_errors_preserve_the_parser_source() {
         let malformed = HttpResponse {
             status: 200,
             body: br#"{"#.to_vec(),
         };
 
         let error = malformed.is_healthy().expect_err("malformed health JSON");
-        assert!(matches!(error, EngineProbeError::Terminal(_)));
+        assert!(matches!(error, EngineProbeError::Unexpected(_)));
         assert!(
             error.to_string().starts_with(
                 "engine readiness probe failed: llama.cpp /health returned invalid JSON"

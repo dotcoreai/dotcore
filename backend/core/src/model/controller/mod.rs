@@ -790,7 +790,8 @@ pub enum ModelLifecycleError {
     #[error("Engine integration failed: {0}")]
     EngineIntegration(#[source] anyhow::Error),
 
-    /// The engine started but fails readiness in a way retrying cannot fix.
+    /// The engine started but can never serve the deployment, such as with less context than it
+    /// resolved.
     #[error("Engine readiness failed: {0}")]
     EngineReadiness(#[source] anyhow::Error),
 

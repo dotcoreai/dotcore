@@ -583,8 +583,15 @@ pub(crate) enum EngineProbeError {
     #[error("engine readiness is transiently unavailable")]
     Transient,
 
+    /// An unexpected answer or failure of the probe. The engine may still become ready, so the
+    /// controller retries.
     #[error("engine readiness probe failed: {0}")]
-    Terminal(#[source] anyhow::Error),
+    Unexpected(#[source] anyhow::Error),
+
+    /// The engine runs but can never serve the deployment, such as with less context than it
+    /// resolved. The controller fails the deployment instead of retrying.
+    #[error("engine cannot serve the deployment: {0}")]
+    ContextBelowDeployment(#[source] anyhow::Error),
 }
 
 /// Cancellation reason shared by request routing and engine providers.

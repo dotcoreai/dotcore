@@ -131,7 +131,8 @@ sequenceDiagram
 - An engine that stops on its own restarts or fails the deployment by the crash rule
   ([runtime](runtime.md#handling-a-workload-that-stops)).
 - A deployment whose engine starts with less than its resolved context per request fails instead of
-  serving it. Readiness that can never succeed fails the deployment; it is never retried or served.
+  serving it; it is never retried or served. Any other readiness error is retried while the
+  deployment keeps starting.
 - The inference controller records workload resource telemetry on the hosting node for its ready
   local deployments ([storage](storage.md#workload-resource-records)).
 

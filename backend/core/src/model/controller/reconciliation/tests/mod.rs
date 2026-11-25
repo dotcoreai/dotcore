@@ -920,16 +920,19 @@ impl dotcore_artifact::OciImagePreparer for GatedOciPreparer {
     }
 }
 
-/// Binds simulated services whose readiness fails for good, counting its probes.
-struct TerminalReadinessProvider {
+/// Binds simulated services whose readiness probe fails, counting its probes. The failure is an
+/// unexpected probe error when `unexpected`, else one that can never be retried into readiness.
+struct FailingReadinessProvider {
     probes: Arc<AtomicUsize>,
+    unexpected: bool,
 }
 
-struct TerminalReadinessProbe {
+struct FailingReadinessProbe {
     probes: Arc<AtomicUsize>,
+    unexpected: bool,
 }
 
-impl crate::inference::NativeInferenceProvider for TerminalReadinessProvider {
+impl crate::inference::NativeInferenceProvider for FailingReadinessProvider {
     fn bind(
         &self,
         identity: crate::inference::EngineBindingIdentity,
@@ -942,15 +945,16 @@ impl crate::inference::NativeInferenceProvider for TerminalReadinessProvider {
         .bind(identity.clone(), expected_model_id)?;
         Ok(crate::inference::EngineBinding::new(
             identity,
-            Arc::new(TerminalReadinessProbe {
+            Arc::new(FailingReadinessProbe {
                 probes: self.probes.clone(),
+                unexpected: self.unexpected,
             }),
             Arc::clone(base.invoker()),
         ))
     }
 }
 
-impl crate::inference::EngineReadinessProbe for TerminalReadinessProbe {
+impl crate::inference::EngineReadinessProbe for FailingReadinessProbe {
     fn probe<'a>(
         &'a self,
         _cancellation: crate::inference::InferenceCancellation,
@@ -959,9 +963,13 @@ impl crate::inference::EngineReadinessProbe for TerminalReadinessProbe {
         Result<crate::inference::EngineReadiness, crate::inference::EngineProbeError>,
     > {
         self.probes.fetch_add(1, Ordering::SeqCst);
-        Box::pin(ready(Err(crate::inference::EngineProbeError::Terminal(
-            anyhow!("the engine started with less context than the deployment resolved"),
-        ))))
+        Box::pin(ready(Err(if self.unexpected {
+            crate::inference::EngineProbeError::Unexpected(anyhow!("truncated readiness body"))
+        } else {
+            crate::inference::EngineProbeError::ContextBelowDeployment(anyhow!(
+                "the engine started with less context than the deployment resolved"
+            ))
+        })))
     }
 }
 
@@ -6103,7 +6111,7 @@ async fn replacement_session_rejects_suspended_create_and_start_completions() {
 }
 
 #[tokio::test]
-async fn terminal_readiness_failure_records_failed_and_stops_retrying() {
+async fn context_below_deployment_records_failed_and_stops_retrying() {
     let mut site = test_site();
     let desired_deployment =
         test_desired_deployment("fixture-model", ModelDeploymentDesiredState::Present);
@@ -6111,8 +6119,9 @@ async fn terminal_readiness_failure_records_failed_and_stops_retrying() {
     let probes = Arc::new(AtomicUsize::new(0));
     let engine_integrations = Arc::new(
         crate::model::engine::EngineIntegrationRegistry::with_native_provider_and_transports(
-            Arc::new(TerminalReadinessProvider {
+            Arc::new(FailingReadinessProvider {
                 probes: probes.clone(),
+                unexpected: false,
             }),
             crate::model::engine::EngineTransportFactories::local_engines(),
         ),
@@ -6161,6 +6170,63 @@ async fn terminal_readiness_failure_records_failed_and_stops_retrying() {
         probed,
         "a failed deployment is not probed again"
     );
+    assert!(controller.serving_targets().snapshot().targets.is_empty());
+}
+
+#[tokio::test]
+async fn unexpected_readiness_error_leaves_the_deployment_starting_and_probed_again() {
+    let mut site = test_site();
+    let desired_deployment =
+        test_desired_deployment("fixture-model", ModelDeploymentDesiredState::Present);
+    site.model_deployments.push(desired_deployment.clone());
+    let probes = Arc::new(AtomicUsize::new(0));
+    let engine_integrations = Arc::new(
+        crate::model::engine::EngineIntegrationRegistry::with_native_provider_and_transports(
+            Arc::new(FailingReadinessProvider {
+                probes: probes.clone(),
+                unexpected: true,
+            }),
+            crate::model::engine::EngineTransportFactories::local_engines(),
+        ),
+    );
+    let (controller, _authority, current) = leased_controller_for_runtime(
+        site,
+        InMemoryRuntimeBackend::new(dotcore_domain::ExecutionPlatform::linux_amd64()),
+        engine_integrations,
+    );
+
+    // The pass reports the probe error and the next one retries, without failing the deployment.
+    controller
+        .inner
+        .reconcile()
+        .await
+        .expect_err("first pass reports the probe error");
+    let probed = probes.load(Ordering::SeqCst);
+    assert!(probed > 0, "the first pass probes the engine");
+    controller
+        .inner
+        .reconcile()
+        .await
+        .expect_err("second pass reports the probe error");
+
+    assert!(
+        probes.load(Ordering::SeqCst) > probed,
+        "an unexpected probe error is retried by the next pass"
+    );
+    let state = current
+        .snapshot()
+        .expect("current state")
+        .model_deployments
+        .into_iter()
+        .find(|record| record.model_deployment_id == desired_deployment.model_deployment_id)
+        .and_then(|record| record.state)
+        .expect("deployment state");
+    assert_ne!(
+        state.status,
+        ModelDeploymentStatus::Failed as i32,
+        "{state:?}"
+    );
+    assert!(state.failure.is_none(), "{state:?}");
     assert!(controller.serving_targets().snapshot().targets.is_empty());
 }
 

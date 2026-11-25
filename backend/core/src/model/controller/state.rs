@@ -82,8 +82,10 @@ pub(super) async fn resolve_observation_status(
         .probe(cancellation)
         .await
         .map_err(|error| match error {
-            EngineProbeError::Terminal(source) => ModelLifecycleError::EngineReadiness(source),
-            error @ EngineProbeError::Transient => {
+            EngineProbeError::ContextBelowDeployment(source) => {
+                ModelLifecycleError::EngineReadiness(source)
+            }
+            error @ (EngineProbeError::Transient | EngineProbeError::Unexpected(_)) => {
                 ModelLifecycleError::EngineIntegration(error.into())
             }
         })?;

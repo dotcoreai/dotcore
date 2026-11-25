@@ -1676,8 +1676,8 @@ where
     }
 
     /// Records a terminal `Failed` state for a deployment whose engine started but fails readiness
-    /// for good, such as with less context than the deployment resolved, so it stops retrying and is
-    /// never served. Its workload is left running until the deployment is paused or torn down.
+    /// for good because it started with less context than the deployment resolved, so it stops
+    /// retrying and is never served. Its workload is left running until the deployment is paused or torn down.
     fn record_readiness_failure(
         &self,
         desired: &dotcore_proto::dotcore::model::v1::ModelDeploymentDeclaration,
