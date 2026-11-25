@@ -227,13 +227,13 @@ fn an_unknown_or_ambiguous_reference_fails_with_exit_code_1() {
     assert_eq!(text(&unknown.stdout), "");
     assert_eq!(
         text(&unknown.stderr),
-        "no application deployment is named or has id \"nothing\"; see `dotc application list`\n"
+        "no application deployment matches \"nothing\"; see `dotc application list`\n"
     );
     assert_eq!(ambiguous.status.code(), Some(1));
     assert_eq!(text(&ambiguous.stdout), "");
     assert_eq!(
         text(&ambiguous.stderr),
-        "2 application deployments are named \"Chat\": app-1, app-7; pass one of the ids instead\n"
+        "2 application deployments match \"Chat\": app-1 (Chat), app-7 (Chat); pass one of the ids instead\n"
     );
     assert!(
         manager
@@ -241,6 +241,37 @@ fn an_unknown_or_ambiguous_reference_fails_with_exit_code_1() {
             .iter()
             .all(|call| call.rpc != Rpc::RemoveApplicationDeployment),
         "an ambiguous teardown must not reach the manager"
+    );
+}
+
+#[test]
+fn a_name_word_or_an_id_fragment_names_one_deployment_and_a_shared_part_fails() {
+    let manager = FakeManager::start(FakeState::with_applications(vec![
+        local_application_deployment("open-webui-3cfmn", "Team Chat", Running, Present),
+        local_application_deployment("open-webui-7tq2m", "Home Notes", Running, Present),
+    ]));
+
+    let by_word = run(&manager, &["pause", "team"]);
+    let by_fragment = run(&manager, &["pause", "7tq2m"]);
+    let ambiguous = run(&manager, &["resume", "webui", "--yaml"]);
+
+    for (output, name) in [(&by_word, "Team Chat"), (&by_fragment, "Home Notes")] {
+        assert_eq!(text(&output.stderr), "");
+        assert_eq!(output.status.code(), Some(0));
+        assert_eq!(text(&output.stdout), format!("✔ Pausing {name}\n"));
+    }
+    assert_eq!(ambiguous.status.code(), Some(1));
+    assert_eq!(text(&ambiguous.stdout), "");
+    assert_eq!(
+        text(&ambiguous.stderr),
+        "2 application deployments match \"webui\": open-webui-3cfmn (Team Chat), open-webui-7tq2m (Home Notes); pass one of the ids instead\n"
+    );
+    assert_eq!(
+        lifecycle_calls(&manager),
+        [
+            call(Rpc::PauseApplicationDeployment, Some("open-webui-3cfmn")),
+            call(Rpc::PauseApplicationDeployment, Some("open-webui-7tq2m")),
+        ]
     );
 }
 

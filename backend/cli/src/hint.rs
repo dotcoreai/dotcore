@@ -19,7 +19,10 @@ use dotcore_site::{
 };
 use tonic::Code;
 
-use crate::management::{DeploymentGroup, ManagementError, ReferenceError};
+use crate::{
+    management::{DeploymentGroup, ManagementError},
+    reference::{ReferenceError, ReferenceKind},
+};
 
 /// Renders one error's own message followed by its command hint, if it has one.
 pub(crate) fn describe(error: &(dyn Error + 'static)) -> String {
@@ -134,12 +137,23 @@ fn deployment_hint(error: &(dyn Error + 'static)) -> Option<String> {
         };
     }
     if let Some(error) = error.downcast_ref::<ReferenceError>() {
-        return Some(match error {
-            ReferenceError::Unknown { group, .. } => see_list(*group),
-            ReferenceError::Ambiguous { .. } => "; pass one of the ids instead".to_owned(),
-        });
+        return match error {
+            ReferenceError::Unknown {
+                kind: ReferenceKind::Deployment(group),
+                ..
+            } => Some(see_list(*group)),
+            ReferenceError::Unknown { .. } => None,
+            ReferenceError::Ambiguous { kind, .. } => {
+                Some(format!("; pass one of the {} instead", identifiers(*kind)))
+            }
+        };
     }
     None
+}
+
+/// The plural word for what tells the objects of a kind apart, for example `ids`.
+fn identifiers(kind: ReferenceKind) -> &'static str {
+    if kind.has_ids() { "ids" } else { "names" }
 }
 
 /// Names the options that fit the parameter set an unsolvable sizing fit says would solve.

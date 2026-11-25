@@ -1,10 +1,8 @@
 //! The connection that commands open to the running site manager's management API, and the rules
-//! deployment management shares for naming a deployment and reporting what the manager refused.
+//! deployment management shares for reporting what the manager refused.
 //!
 //! The address comes from a flag or the environment and takes an optional `http://` scheme; this
 //! is the only place that decides the transport, so TLS and credentials can be added here alone.
-//! A deployment is named by its id or its name. Names are not unique, so a name matching several
-//! deployments fails with their ids instead of picking one.
 
 mod deployment;
 mod document;
@@ -278,56 +276,6 @@ impl DeploymentGroup {
     }
 }
 
-/// A deployment the operator can name by its id or its name.
-pub(crate) trait Addressable {
-    /// The stable deployment id.
-    fn id(&self) -> &str;
-
-    /// The name shown to the operator, which need not be unique.
-    fn name(&self) -> &str;
-
-    /// The name as the manager stores it, empty when none; it also names the deployment.
-    fn stored_name(&self) -> &str;
-}
-
-/// Finds the deployment an operator reference names: an exact id first, else the one deployment
-/// whose shown or stored name is exactly the reference.
-pub(crate) fn resolve<'a, T: Addressable>(
-    group: DeploymentGroup,
-    reference: &str,
-    deployments: &'a [T],
-) -> Result<&'a T, ReferenceError> {
-    if let Some(deployment) = deployments
-        .iter()
-        .find(|deployment| deployment.id() == reference)
-    {
-        return Ok(deployment);
-    }
-
-    let named = deployments
-        .iter()
-        .filter(|deployment| {
-            deployment.name() == reference
-                || (!deployment.stored_name().is_empty() && deployment.stored_name() == reference)
-        })
-        .collect::<Vec<_>>();
-    match named.as_slice() {
-        [] => Err(ReferenceError::Unknown {
-            group,
-            reference: reference.to_owned(),
-        }),
-        [deployment] => Ok(deployment),
-        several => Err(ReferenceError::Ambiguous {
-            group,
-            reference: reference.to_owned(),
-            ids: several
-                .iter()
-                .map(|deployment| deployment.id().to_owned())
-                .collect(),
-        }),
-    }
-}
-
 /// Builds the mapping of a failed management call to the error shown to the operator, naming
 /// the request in operator words, for example `call_failed(DeploymentGroup::Model, "pause Gemma")`.
 pub(crate) fn call_failed(
@@ -403,23 +351,6 @@ pub(crate) enum ManagementError {
     },
 }
 
-/// An operator reference that names no deployment, or several.
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum ReferenceError {
-    #[error("no {} is named or has id {reference:?}", .group.noun())]
-    Unknown {
-        group: DeploymentGroup,
-        reference: String,
-    },
-
-    #[error("{} {}s are named {reference:?}: {}", .ids.len(), .group.noun(), .ids.join(", "))]
-    Ambiguous {
-        group: DeploymentGroup,
-        reference: String,
-        ids: Vec<String>,
-    },
-}
-
 #[cfg(test)]
 mod tests {
     use clap::{CommandFactory, Parser};
@@ -433,60 +364,10 @@ mod tests {
         manager: ManagerArgs,
     }
 
-    struct Named {
-        id: &'static str,
-        name: &'static str,
-        stored: &'static str,
-    }
-
-    impl Addressable for Named {
-        fn id(&self) -> &str {
-            self.id
-        }
-
-        fn name(&self) -> &str {
-            self.name
-        }
-
-        fn stored_name(&self) -> &str {
-            self.stored
-        }
-    }
-
     fn address(text: &str) -> Result<String, String> {
         text.parse::<ManagerAddress>()
             .map(|address| address.to_string())
             .map_err(|error| error.to_string())
-    }
-
-    fn deployments() -> Vec<Named> {
-        vec![
-            Named {
-                id: "model-1",
-                name: "Gemma",
-                stored: "",
-            },
-            Named {
-                id: "model-2",
-                name: "Qwen",
-                stored: "",
-            },
-            Named {
-                id: "model-3",
-                name: "Qwen",
-                stored: "",
-            },
-            Named {
-                id: "model-4",
-                name: "model-1",
-                stored: "",
-            },
-            Named {
-                id: "app-1",
-                name: "Open WebUI",
-                stored: "open-webui-1",
-            },
-        ]
     }
 
     #[test]
@@ -575,78 +456,6 @@ mod tests {
             .expect_err("address without a port");
         assert_eq!(error.kind(), clap::error::ErrorKind::ValueValidation);
         assert_eq!(error.exit_code(), 2);
-    }
-
-    #[test]
-    fn references_match_an_id_before_a_name() {
-        let deployments = deployments();
-
-        assert_eq!(
-            resolve(DeploymentGroup::Model, "model-2", &deployments)
-                .map(|deployment| deployment.id)
-                .ok(),
-            Some("model-2")
-        );
-        assert_eq!(
-            resolve(DeploymentGroup::Model, "Gemma", &deployments)
-                .map(|deployment| deployment.id)
-                .ok(),
-            Some("model-1")
-        );
-        assert_eq!(
-            resolve(DeploymentGroup::Model, "model-1", &deployments)
-                .map(|deployment| deployment.id)
-                .ok(),
-            Some("model-1"),
-            "an id wins over another deployment named like it"
-        );
-    }
-
-    #[test]
-    fn references_match_the_stored_name_as_well_as_the_shown_name() {
-        let deployments = deployments();
-
-        for reference in ["open-webui-1", "Open WebUI", "app-1"] {
-            assert_eq!(
-                resolve(DeploymentGroup::Application, reference, &deployments)
-                    .map(|deployment| deployment.id)
-                    .ok(),
-                Some("app-1"),
-                "{reference}"
-            );
-        }
-        assert_eq!(
-            resolve(DeploymentGroup::Application, "", &deployments)
-                .err()
-                .expect("an empty stored name never matches")
-                .to_string(),
-            "no application deployment is named or has id \"\""
-        );
-    }
-
-    #[test]
-    fn unknown_and_ambiguous_references_fail_with_the_matching_ids() {
-        let deployments = deployments();
-
-        let unknown = resolve(DeploymentGroup::Model, "gemma", &deployments)
-            .err()
-            .expect("names match exactly");
-        assert_eq!(
-            unknown.to_string(),
-            "no model deployment is named or has id \"gemma\""
-        );
-
-        let ambiguous = resolve(DeploymentGroup::Application, "Qwen", &deployments)
-            .err()
-            .expect("two deployments share the name");
-        assert!(matches!(
-            &ambiguous,
-            ReferenceError::Ambiguous { ids, .. } if ids == &["model-2", "model-3"]
-        ));
-        assert_eq!(
-            ambiguous.to_string(),
-            "2 application deployments are named \"Qwen\": model-2, model-3"
-        );
     }
 
     #[test]

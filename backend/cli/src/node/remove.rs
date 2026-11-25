@@ -9,14 +9,16 @@
 //! connected. Asked for YAML, the command never asks, so it needs `--yes`, and prints the
 //! manager's removal response, which the stopped site's removal reports in the same shape.
 
+use std::path::Path;
+
 use anyhow::Context;
 use clap::Args;
 use dotcore::model::engine::declaration_validator;
 use dotcore_proto::{
     dotcore::site::v1::{
-        ExecutionTarget, ListMachinesRequest, MachineRemovalDeployment,
+        ExecutionTarget, ListMachinesRequest, Machine, MachineRemovalDeployment,
         MachineRemovalDeploymentKind, MachineRemovalPlan, MachineRemovalRefusal,
-        RemoveMachineRequest, RemoveMachineResponse, execution_target::RuntimeBinding,
+        RemoveMachineRequest, RemoveMachineResponse, SiteNode, execution_target::RuntimeBinding,
         remove_machine_response,
     },
     google::protobuf::Empty,
@@ -25,8 +27,8 @@ use dotcore_site::{
     SITE_FILE,
     initial::validation::SiteInputBundleValidator,
     membership::{
-        NodeRemoval, NodeRemovalPlan, OfflineSite, OfflineSiteError, looks_like_node_id,
-        removal_plan,
+        NodeRemoval, NodeRemovalPlan, OfflineSite, OfflineSiteError, list_site_nodes,
+        looks_like_node_id, removal_plan,
     },
 };
 
@@ -35,6 +37,7 @@ use crate::{
     RootPathArgs,
     management::{ManagementError, ManagerArgs, single_line},
     output::{OutputFormat, require_consent, write_yaml},
+    reference::{Referable, ReferenceError, ReferenceKind, resolve},
     terminal::{ConfirmPrompt, Message, PromptError, Terminal, open_terminal},
 };
 
@@ -72,21 +75,21 @@ pub(crate) async fn node_remove(
         "removing a node needs a terminal; run in a terminal or pass --yes to remove it without confirmation",
         "removing a node needs confirmation, which --yaml never asks for; pass --yes to remove it",
     )?;
-    match open_stopped_site(paths)? {
-        Some(site) => remove_from_stopped_site(&site, &arguments, format),
+    let site_dir = paths.site_dir()?;
+    match open_stopped_site(&site_dir)? {
+        Some(site) => remove_from_stopped_site(&site, &site_dir, &arguments, format),
         None => remove_from_running_site(&arguments, format).await,
     }
 }
 
 /// Opens the stopped site under the exclusive lock; `None` when there is no site here or a
 /// running manager holds it, so the removal goes through the manager.
-fn open_stopped_site(paths: &RootPathArgs) -> anyhow::Result<Option<OfflineSite>> {
-    let site_dir = paths.site_dir()?;
+fn open_stopped_site(site_dir: &Path) -> anyhow::Result<Option<OfflineSite>> {
     if !site_dir.join(SITE_FILE).exists() {
         return Ok(None);
     }
     match OfflineSite::open(
-        &site_dir,
+        site_dir,
         &SiteInputBundleValidator::new(
             declaration_validator(),
             dotcore::model::site_declaration_rules(),
@@ -104,11 +107,24 @@ fn open_stopped_site(paths: &RootPathArgs) -> anyhow::Result<Option<OfflineSite>
 /// Plans, confirms and applies the removal on the stopped site.
 fn remove_from_stopped_site(
     site: &OfflineSite,
+    site_dir: &Path,
     arguments: &NodeRemoveArgs,
     format: OutputFormat,
 ) -> anyhow::Result<()> {
+    let nodes = list_site_nodes(site_dir, &dotcore::model::site_declaration_rules())
+        .with_context(|| {
+            format!(
+                "cannot remove a node from the site at {}",
+                site_dir.display()
+            )
+        })?
+        .nodes
+        .into_iter()
+        .map(|listed| listed.node)
+        .collect::<Vec<_>>();
+    let node_id = node_id(&arguments.node, &nodes)?;
     let plan = match site
-        .plan_node_removal(&arguments.node, arguments.forget_deployments)
+        .plan_node_removal(&node_id, arguments.forget_deployments)
         .with_context(|| format!("cannot remove node {:?}", arguments.node))?
     {
         NodeRemoval::Planned(plan) => plan,
@@ -200,8 +216,7 @@ async fn remove_from_running_site(
     }
 }
 
-/// Finds the node id of the machine named by `selector`, its id or its display name. An unknown
-/// id is passed on, so a removal that already finished reports so; an unknown name is an error.
+/// Finds the node id of the running site's machine that `selector` names.
 async fn resolve_node(
     manager: &crate::management::Manager,
     selector: &str,
@@ -213,35 +228,39 @@ async fn resolve_node(
         .map_err(|status| call_failed("list the machines", &status))?
         .into_inner()
         .machines;
-    if machines
-        .iter()
-        .any(|machine| machine.machine_id == selector)
-    {
-        return Ok(selector.to_owned());
+    Ok(node_id(selector, &machines)?)
+}
+
+/// Finds the node id of the node `selector` names among the site's nodes. An unknown selector
+/// shaped like a node id is passed on, so a removal that already finished reports so; any other
+/// unknown selector is an error.
+fn node_id(selector: &str, nodes: &[impl Referable]) -> Result<String, ReferenceError> {
+    match resolve(ReferenceKind::Node, selector, nodes) {
+        Ok(node) => Ok(node.id().to_owned()),
+        Err(ReferenceError::Unknown { .. }) if looks_like_node_id(selector) => {
+            Ok(selector.to_owned())
+        }
+        Err(error) => Err(error),
     }
-    let named = machines
-        .iter()
-        .filter(|machine| machine.display_name == selector)
-        .collect::<Vec<_>>();
-    match named.as_slice() {
-        [machine] => Ok(machine.machine_id.clone()),
-        [] if looks_like_node_id(selector) => Ok(selector.to_owned()),
-        [] => anyhow::bail!(
-            "no node {selector:?} in this site; declared nodes: {}",
-            machines
-                .iter()
-                .map(|machine| format!("{:?} ({})", machine.display_name, machine.machine_id))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        _ => anyhow::bail!(
-            "several nodes are named {selector:?}; select the node to remove by its id: {}",
-            named
-                .iter()
-                .map(|machine| machine.machine_id.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
+}
+
+impl Referable for Machine {
+    fn id(&self) -> &str {
+        &self.machine_id
+    }
+
+    fn name(&self) -> &str {
+        &self.display_name
+    }
+}
+
+impl Referable for SiteNode {
+    fn id(&self) -> &str {
+        &self.node_id
+    }
+
+    fn name(&self) -> &str {
+        &self.display_name
     }
 }
 

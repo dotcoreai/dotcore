@@ -171,13 +171,13 @@ fn an_unknown_or_ambiguous_reference_fails_with_exit_code_1() {
     assert_eq!(text(&unknown.stdout), "");
     assert_eq!(
         text(&unknown.stderr),
-        "no model deployment is named or has id \"nothing\"; see `dotc model list`\n"
+        "no model deployment matches \"nothing\"; see `dotc model list`\n"
     );
     assert_eq!(ambiguous.status.code(), Some(1));
     assert_eq!(text(&ambiguous.stdout), "");
     assert_eq!(
         text(&ambiguous.stderr),
-        "2 model deployments are named \"Gemma\": model-1, model-6; pass one of the ids instead\n"
+        "2 model deployments match \"Gemma\": model-1 (Gemma), model-6 (Gemma); pass one of the ids instead\n"
     );
     assert!(
         manager
@@ -185,6 +185,38 @@ fn an_unknown_or_ambiguous_reference_fails_with_exit_code_1() {
             .iter()
             .all(|call| call.rpc != Rpc::RemoveModelDeployment),
         "an ambiguous teardown must not reach the manager"
+    );
+}
+
+#[test]
+fn a_name_word_or_an_id_fragment_names_one_deployment_and_a_shared_part_fails() {
+    let manager = FakeManager::start(FakeState::with_models(vec![
+        local_model_deployment("qwen3-8-27b-3cfmn", "Qwen 3.8 27B", Ready, Present),
+        local_model_deployment("qwen3-8-8b-7tq2m", "Qwen 3.8 8B", Ready, Present),
+        local_model_deployment("gemma-4-e4b-m2rpw", "", Ready, Present),
+    ]));
+
+    let by_word = run(&manager, &["pause", "e4"]);
+    let by_fragment = run(&manager, &["pause", "7tq2m"]);
+    let ambiguous = run(&manager, &["teardown", "qwen", "--yes", "--yaml"]);
+
+    for (output, name) in [(&by_word, "Gemma 4 E4B"), (&by_fragment, "Qwen 3.8 8B")] {
+        assert_eq!(text(&output.stderr), "");
+        assert_eq!(output.status.code(), Some(0));
+        assert_eq!(text(&output.stdout), format!("✔ Pausing {name}\n"));
+    }
+    assert_eq!(ambiguous.status.code(), Some(1));
+    assert_eq!(text(&ambiguous.stdout), "");
+    assert_eq!(
+        text(&ambiguous.stderr),
+        "2 model deployments match \"qwen\": qwen3-8-27b-3cfmn (Qwen 3.8 27B), qwen3-8-8b-7tq2m (Qwen 3.8 8B); pass one of the ids instead\n"
+    );
+    assert_eq!(
+        lifecycle_calls(&manager),
+        [
+            call(Rpc::PauseModel, Some("gemma-4-e4b-m2rpw")),
+            call(Rpc::PauseModel, Some("qwen3-8-8b-7tq2m")),
+        ]
     );
 }
 
@@ -610,7 +642,7 @@ fn logs_of_an_unknown_deployment_fail_before_reading_any_log() {
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(
         text(&output.stderr),
-        "no model deployment is named or has id \"missing\"; see `dotc model list`\n"
+        "no model deployment matches \"missing\"; see `dotc model list`\n"
     );
     assert!(manager.state().model_logs.reads.is_empty());
 }
@@ -1200,7 +1232,7 @@ fn a_yaml_failure_prints_nothing_on_stdout_and_the_plain_failure_on_stderr() {
     assert_eq!(text(&unknown.stdout), "");
     assert_eq!(
         text(&unknown.stderr),
-        "no model deployment is named or has id \"nothing\"; see `dotc model list`\n"
+        "no model deployment matches \"nothing\"; see `dotc model list`\n"
     );
     assert_eq!(unavailable.status.code(), Some(1));
     assert_eq!(text(&unavailable.stdout), "");

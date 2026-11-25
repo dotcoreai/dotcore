@@ -11,18 +11,19 @@ use serde::Serialize;
 use tonic::Status;
 
 use super::{
-    Addressable, DeploymentDocument, DeploymentGroup, ManagementError, Manager, ManagerArgs,
-    call_failed, resolve, single_line,
+    DeploymentDocument, DeploymentGroup, ManagementError, Manager, ManagerArgs, call_failed,
+    single_line,
 };
 use crate::{
     output::{OutputFormat, present, require_consent, write_yaml},
+    reference::{Referable, ReferenceKind, resolve},
     terminal::{ConfirmPrompt, Message, PromptError, open_terminal},
 };
 
 /// A kind of deployment the management commands handle alike, implemented by the model and the
 /// application deployment messages. The steps are generic over it rather than taking a trait
 /// object because each kind's calls return its own message type.
-pub(crate) trait ManagedDeployment: Addressable + Clone + Serialize {
+pub(crate) trait ManagedDeployment: Referable + Clone + Serialize {
     /// The command group the kind belongs to.
     const GROUP: DeploymentGroup;
 
@@ -101,7 +102,7 @@ pub(crate) async fn find_deployment<T: ManagedDeployment>(
     reference: &str,
 ) -> anyhow::Result<T> {
     let deployments = list_deployments::<T>(manager).await?;
-    Ok(resolve(T::GROUP, reference, &deployments)?.clone())
+    Ok(resolve(ReferenceKind::Deployment(T::GROUP), reference, &deployments)?.clone())
 }
 
 /// Pauses or resumes the referenced deployment and reports the accepted state.

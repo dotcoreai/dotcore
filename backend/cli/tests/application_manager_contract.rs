@@ -115,9 +115,7 @@ fn application_commands_drive_a_simulated_deployment_through_pause_resume_and_te
     assert_eq!(text(&removed_again.stdout), "");
     assert_eq!(
         text(&removed_again.stderr),
-        format!(
-            "no application deployment is named or has id \"{id}\"; see `dotc application list`\n"
-        )
+        format!("no application deployment matches \"{id}\"; see `dotc application list`\n")
     );
 }
 

@@ -33,6 +33,7 @@ mod node;
 mod output;
 mod parameters;
 mod paths;
+mod reference;
 mod runtime_confirmation;
 mod server;
 mod site;

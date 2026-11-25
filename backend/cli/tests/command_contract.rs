@@ -3230,7 +3230,7 @@ fn node_remove_of_an_already_removed_node_id_succeeds_and_an_unknown_name_fails(
     assert_eq!(by_name.status.code(), Some(1));
     assert_eq!(
         text(&by_name.stderr),
-        "cannot remove node \"Worker two\": no node \"Worker two\" in this site; declared nodes: \"CLI test node\" (cli-test-node)\n"
+        "no node matches \"Worker two\"; known nodes: cli-test-node (CLI test node)\n"
     );
 
     let manager = node_remove_command(fixture.site_path(), "CLI test node")
@@ -3326,10 +3326,65 @@ fn node_remove_goes_through_the_running_manager_and_reports_its_outcomes() {
     // An unknown name is an error, never an already removed node.
     let unknown = remove("Worker four", false);
     assert_eq!(unknown.status.code(), Some(1));
-    assert!(
-        text(&unknown.stderr).starts_with("no node \"Worker four\" in this site; declared nodes: "),
-        "{}",
-        text(&unknown.stderr)
+    assert_eq!(
+        text(&unknown.stderr),
+        "no node matches \"Worker four\"; known nodes: node-00000000000000aa (Manager), node-00000000000000cc (Worker three)\n"
+    );
+}
+
+#[test]
+fn node_remove_takes_a_name_word_or_an_id_fragment_and_refuses_a_shared_one() {
+    use support::fake_manager::{Call, FakeMachine, FakeManager, FakeState, Rpc};
+
+    let fake = FakeManager::start(FakeState {
+        machines: vec![
+            FakeMachine::manager("node-00000000000000aa", "Manager"),
+            FakeMachine::worker("node-00000000000000bb", "Worker two"),
+            FakeMachine::worker("node-00000000000000cc", "Worker three"),
+        ],
+        ..FakeState::default()
+    });
+    let no_site = TemporarySite::empty();
+    let remove = |node: &str| {
+        let mut command = node_remove_command(&no_site.root.join("site"), node);
+        command.env("DOTCORE_MANAGEMENT_ADDR", fake.address().to_string());
+        command.output().expect("run node remove")
+    };
+
+    let ambiguous = remove("worker");
+    let by_word = remove("two");
+    let by_fragment = remove("00000000000000cc");
+
+    assert_eq!(ambiguous.status.code(), Some(1));
+    assert!(ambiguous.stdout.is_empty());
+    assert_eq!(
+        text(&ambiguous.stderr),
+        "2 nodes match \"worker\": node-00000000000000bb (Worker two), node-00000000000000cc (Worker three); pass one of the ids instead\n"
+    );
+    for (output, name) in [(&by_word, "Worker two"), (&by_fragment, "Worker three")] {
+        assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+        assert_eq!(text(&output.stdout), format!("✔ Removed {name}\n"));
+    }
+    assert_eq!(
+        fake.calls()
+            .into_iter()
+            .map(|Call { rpc, id }| (rpc, id))
+            .collect::<Vec<_>>(),
+        [
+            (Rpc::ListMachines, None),
+            (Rpc::ListMachines, None),
+            (
+                Rpc::PreviewMachineRemoval,
+                Some("node-00000000000000bb".to_owned())
+            ),
+            (Rpc::RemoveMachine, Some("node-00000000000000bb".to_owned())),
+            (Rpc::ListMachines, None),
+            (
+                Rpc::PreviewMachineRemoval,
+                Some("node-00000000000000cc".to_owned())
+            ),
+            (Rpc::RemoveMachine, Some("node-00000000000000cc".to_owned())),
+        ]
     );
 }
 

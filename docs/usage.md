@@ -20,6 +20,7 @@ Commands print results on stdout and errors on stderr, and ask questions on the 
 
 - In scripts and agents, add `--yaml`: the result is one YAML document on stdout. The command never asks a question, so pass `--yes` where it would ask for confirmation. Commands with no result to print, such as `dotc server start`, `dotc code` and `dotc dev`, refuse `--yaml`.
 - When a command fails, it says what went wrong and which commands can fix it.
+- Name a deployment, node or route by its ID, its name, or any unique part of either: `27b` or `qwen` for `Qwen 3.8 27B`, or the last part of its ID. Case doesn't matter. If several match, the command lists them so you can pick one by ID.
 
 ## Use it from your tools
 
