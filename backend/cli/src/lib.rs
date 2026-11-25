@@ -307,7 +307,7 @@ impl Cli {
     {
         let arguments = arguments.into_iter().map(Into::into).collect::<Vec<_>>();
         Self::reject_missing_action(&arguments)?;
-        let matches = Self::command().try_get_matches_from(arguments)?;
+        let matches = Self::parser().try_get_matches_from(arguments)?;
         let mut cli = <Self as clap::FromArgMatches>::from_arg_matches(&matches)?;
         cli.paths.site_dir_on_command_line =
             matches.value_source("site_dir") == Some(clap::parser::ValueSource::CommandLine);
@@ -317,6 +317,25 @@ impl Cli {
             return Err(Self::command().error(clap::error::ErrorKind::ArgumentConflict, message));
         }
         Ok(cli)
+    }
+
+    /// The clap command, with `--yaml` hidden from the help of the groups that refuse it. Each of
+    /// those groups redeclares the global flag hidden, so it replaces the visible one in them and
+    /// their subcommands.
+    fn parser() -> clap::Command {
+        let hidden_yaml = || {
+            clap::Arg::new("yaml")
+                .long("yaml")
+                .action(clap::ArgAction::SetTrue)
+                .global(true)
+                .hide(true)
+        };
+
+        let mut command = Self::command();
+        for group in ["server", "code", "dev"] {
+            command = command.mut_subcommand(group, |group| group.arg(hidden_yaml()));
+        }
+        command
     }
 
     /// Parses process arguments and exits using clap's standard error contract.
@@ -692,6 +711,25 @@ mod tests {
 
         let error = Cli::try_parse_from(["dotc", "--version"]).expect_err("version");
         assert!(error.to_string().contains(env!("CARGO_PKG_VERSION")));
+    }
+
+    #[test]
+    fn help_offers_yaml_only_where_the_command_takes_it() {
+        let help = |arguments: &[&str]| {
+            let mut all = vec!["dotc"];
+            all.extend(arguments);
+            all.push("--help");
+            Cli::try_parse_from(all).expect_err("help").to_string()
+        };
+
+        for arguments in [
+            &["dev", "workload", "launch"][..],
+            &["server", "start"],
+            &["code"],
+        ] {
+            assert!(!help(arguments).contains("--yaml"), "{arguments:?}");
+        }
+        assert!(help(&["model", "list"]).contains("--yaml"));
     }
 
     #[test]
