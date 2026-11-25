@@ -13,6 +13,8 @@ options:
   - optionId: "kv-cache"
     displayName: "KV cache precision"
     kvCachePrecision: {}
+    visibility: "PARAMETER_VISIBILITY_ADVANCED"
+    description: "Precision of the stored request tokens. A lower precision shrinks the memory each token takes, so more context fits, at a small cost in answer quality."
 artifacts:
   - artifactId: "q3-iq3-s"
     weightQuantization: "IQ3_S"

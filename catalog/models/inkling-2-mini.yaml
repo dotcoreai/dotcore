@@ -16,6 +16,8 @@ options:
   - optionId: "vision"
     displayName: "Vision"
     vision: {}
+    visibility: "PARAMETER_VISIBILITY_BASIC"
+    description: "Lets requests include images. Loads the vision projector next to the model, which uses more memory."
 artifacts:
   - artifactId: "nvfp4"
     weightQuantization: "NVFP4"
