@@ -315,7 +315,7 @@ message UpstreamModelDeploymentSnapshot {
 
 // Generation-scoped configuration of one OpenAI-compatible upstream model.
 message UpstreamModelDesiredConfiguration {
-  // Private model identifier sent in endpoint requests.
+  // Model identifier sent in endpoint requests; it also names the deployment's ID.
   string upstream_model_id = 1;
 
   // Optional POC credential retained in desired site configuration.
