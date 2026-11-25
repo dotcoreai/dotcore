@@ -1016,7 +1016,7 @@ mod tests {
             "profile-one",
         ])
         .expect("minimal direct workload launch");
-        let crate::Command::Dev(command) = cli.command else {
+        let Some(crate::Command::Dev(command)) = cli.command else {
             panic!("expected development command");
         };
         let Some(DevSubcommand::Workload(command)) = command.command else {
@@ -1140,7 +1140,7 @@ mod tests {
             "/cache",
         ])
         .expect("default VRAM observation");
-        let crate::Command::Dev(command) = cli.command else {
+        let Some(crate::Command::Dev(command)) = cli.command else {
             panic!("expected development command");
         };
         let Some(DevSubcommand::Workload(command)) = command.command else {
@@ -1174,7 +1174,7 @@ mod tests {
             "30",
         ])
         .expect("explicit VRAM observation");
-        let crate::Command::Dev(command) = cli.command else {
+        let Some(crate::Command::Dev(command)) = cli.command else {
             panic!("expected development command");
         };
         let Some(DevSubcommand::Workload(command)) = command.command else {

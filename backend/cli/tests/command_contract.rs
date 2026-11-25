@@ -42,6 +42,77 @@ fn version_command_runs_successfully() {
 }
 
 #[test]
+fn skill_prints_a_valid_agent_skill_listing_every_visible_leaf_command_once() {
+    let output = isolated_dotc()
+        .arg("--skill")
+        .output()
+        .expect("run dotc skill");
+    assert!(output.status.success());
+    assert_eq!(text(&output.stderr), "");
+    let skill = text(&output.stdout);
+
+    let (frontmatter, body) = skill
+        .strip_prefix("---\n")
+        .and_then(|rest| rest.split_once("\n---\n"))
+        .expect("frontmatter");
+    let frontmatter: serde_json::Value = serde_yaml_ng::from_str(frontmatter).expect("YAML");
+    let name = frontmatter["name"].as_str().expect("name");
+    assert_eq!(name, "dotc");
+    assert!(name.len() <= 64 && name.chars().all(|c| c.is_ascii_lowercase() || c == '-'));
+    let description = frontmatter["description"].as_str().expect("description");
+    assert!(
+        !description.is_empty() && description.len() <= 1024,
+        "{description}"
+    );
+    assert!(
+        frontmatter["compatibility"]
+            .as_str()
+            .expect("compatibility")
+            .len()
+            <= 500
+    );
+    assert_eq!(
+        frontmatter["metadata"]["version"],
+        serde_json::json!(env!("CARGO_PKG_VERSION"))
+    );
+    assert!(body.lines().count() < 500);
+
+    let mut leaves = Vec::new();
+    collect_visible_leaves(&command_tree(), "dotc", &mut leaves);
+    assert!(leaves.len() > 30, "{leaves:?}");
+    for leaf in &leaves {
+        let lines = body
+            .lines()
+            .filter(|line| {
+                line.strip_prefix(leaf.as_str())
+                    .is_some_and(|rest| rest.is_empty() || rest.starts_with([' ']))
+                    && line.contains(" # ")
+            })
+            .count();
+        assert_eq!(lines, 1, "{leaf}");
+    }
+    assert!(body.contains("\nRun `dotc <command> --help` for flags.\n"));
+}
+
+#[test]
+fn skill_is_exclusive_with_commands_and_other_arguments() {
+    for arguments in [
+        &["--skill", "model", "list"][..],
+        &["--skill", "--yaml"][..],
+        &["--yaml", "--skill"][..],
+    ] {
+        let output = isolated_dotc().args(arguments).output().expect("run dotc");
+        assert_eq!(output.status.code(), Some(2), "{arguments:?}");
+        assert_eq!(text(&output.stdout), "", "{arguments:?}");
+        assert!(
+            text(&output.stderr).contains("--skill cannot be combined with other arguments"),
+            "{arguments:?}: {}",
+            text(&output.stderr)
+        );
+    }
+}
+
+#[test]
 fn config_show_reports_explicit_xdg_and_home_paths_without_mutation() {
     let fixture = TemporarySite::empty();
     let cases = [
@@ -7082,6 +7153,27 @@ const SIMULATED_MODEL_TARGET: &str = "- executionTargetId: model-target\n  siteN
 
 /// Retained execution target bound to the Docker runtime, as a `site.yaml` list item.
 const DOCKER_APPLICATION_TARGET: &str = "- executionTargetId: application-target\n  siteNodeId: retained-node\n  displayName: application-target\n  applicationRuntime: { dockerRuntime: {} }\n";
+
+fn command_tree() -> clap::Command {
+    let mut command = <dotc::Cli as clap::CommandFactory>::command();
+    command.build();
+    command
+}
+
+/// Collects the path of every visible command without visible subcommands.
+fn collect_visible_leaves(command: &clap::Command, path: &str, leaves: &mut Vec<String>) {
+    let mut children = command
+        .get_subcommands()
+        .filter(|child| !child.is_hide_set() && child.get_name() != "help")
+        .peekable();
+    if children.peek().is_none() {
+        leaves.push(path.to_string());
+        return;
+    }
+    for child in children {
+        collect_visible_leaves(child, &format!("{path} {}", child.get_name()), leaves);
+    }
+}
 
 fn text(value: &[u8]) -> String {
     String::from_utf8_lossy(value).into_owned()

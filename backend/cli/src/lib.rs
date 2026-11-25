@@ -37,6 +37,7 @@ mod reference;
 mod runtime_confirmation;
 mod server;
 mod site;
+mod skill;
 mod telemetry;
 pub mod terminal;
 #[cfg(test)]
@@ -51,7 +52,7 @@ pub use paths::RootPathArgs;
     name = "dotc",
     version,
     arg_required_else_help = true,
-    subcommand_required = true
+    override_usage = "dotc [OPTIONS] <COMMAND>\n       dotc --skill"
 )]
 pub struct Cli {
     /// Show the complete cause chain of a failure on a terminal.
@@ -63,11 +64,16 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub yaml: bool,
 
+    /// Print an agent skill describing this CLI and its commands, as Markdown on stdout.
+    #[arg(long)]
+    pub skill: bool,
+
     #[command(flatten)]
     pub paths: RootPathArgs,
 
+    /// The command to run; absent only for `--skill`, which stands alone.
     #[command(subcommand)]
-    pub command: Command,
+    pub command: Option<Command>,
 }
 
 /// Product CLI command groups.
@@ -152,7 +158,10 @@ pub fn build_runtime() -> Result<Runtime> {
 pub async fn dispatch(cli: Cli) -> Result<()> {
     let paths = &cli.paths;
     let format = cli.output_format();
-    match cli.command {
+    let Some(command) = cli.command else {
+        return skill::print(&Cli::parser());
+    };
+    match command {
         Command::Config(command) => command.dispatch(paths, format),
         Command::Server(command) => command.dispatch(paths).await,
         Command::Site(command) => command.dispatch(paths, format).await,
@@ -223,6 +232,16 @@ fn command_words(arguments: impl IntoIterator<Item = std::ffi::OsString>) -> Vec
         }
     }
     words
+}
+
+/// Reports whether anything besides `--skill` was given on the command line. The environment
+/// still supplies the root path options.
+fn skill_has_company(matches: &clap::ArgMatches) -> bool {
+    matches.subcommand_name().is_some()
+        || matches.ids().any(|id| {
+            id.as_str() != "skill"
+                && matches.value_source(id.as_str()) == Some(clap::parser::ValueSource::CommandLine)
+        })
 }
 
 /// Returns the arguments without the root path options and their values.
@@ -313,6 +332,12 @@ impl Cli {
             matches.value_source("site_dir") == Some(clap::parser::ValueSource::CommandLine);
         cli.paths.cache_dir_on_command_line =
             matches.value_source("cache_dir") == Some(clap::parser::ValueSource::CommandLine);
+        if cli.skill && skill_has_company(&matches) {
+            return Err(Self::command().error(
+                clap::error::ErrorKind::ArgumentConflict,
+                "--skill cannot be combined with other arguments",
+            ));
+        }
         if let Some(message) = cli.argument_contract_error() {
             return Err(Self::command().error(clap::error::ErrorKind::ArgumentConflict, message));
         }
@@ -413,10 +438,13 @@ impl Cli {
     }
 
     fn argument_contract_error(&self) -> Option<&'static str> {
-        if self.yaml && !self.command.prints_yaml() {
+        let Some(command) = self.command.as_ref() else {
+            return (!self.skill).then_some("a command is required; see --help");
+        };
+        if self.yaml && !command.prints_yaml() {
             return Some("--yaml is not available for this command");
         }
-        match &self.command {
+        match command {
             Command::Site(command) => command.argument_contract_error(self.yaml),
             Command::Node(command) => command.argument_contract_error(),
             Command::Model(command) => command.argument_contract_error(),
@@ -442,7 +470,7 @@ mod tests {
     #[test]
     fn server_start_is_the_canonical_server_command() {
         let command = Cli::try_parse_from(["dotc", "server", "start"]).expect("server start");
-        assert!(matches!(command.command, super::Command::Server(_)));
+        assert!(matches!(command.command, Some(super::Command::Server(_))));
     }
 
     #[test]
@@ -457,7 +485,7 @@ mod tests {
                 Some(std::path::PathBuf::from("/srv/node")),
                 "{arguments:?}"
             );
-            let super::Command::Server(server) = command.command else {
+            let Some(super::Command::Server(server)) = command.command else {
                 panic!("server command");
             };
             assert!(matches!(
@@ -568,7 +596,7 @@ mod tests {
             "simulated",
         ])
         .expect("site init");
-        assert!(matches!(command.command, super::Command::Site(_)));
+        assert!(matches!(command.command, Some(super::Command::Site(_))));
     }
 
     #[test]
@@ -581,7 +609,8 @@ mod tests {
         ] {
             let command = Cli::try_parse_from(arguments).expect("synonym parses");
             match (command.command, is_model) {
-                (super::Command::Model(_), true) | (super::Command::Application(_), false) => {}
+                (Some(super::Command::Model(_)), true)
+                | (Some(super::Command::Application(_)), false) => {}
                 (other, _) => panic!("{arguments:?} parsed as {other:?}"),
             }
         }

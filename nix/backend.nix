@@ -16,6 +16,7 @@ let
   isEmbeddedSource =
     path:
     toString path == toString (root + "/backend/cli/src/code/dotcore-provider.ts")
+    || toString path == toString (root + "/backend/cli/src/skill/guide.md")
     || pkgs.lib.hasPrefix (toString (root + "/backend/node_hardware/simulated")) (toString path);
 
   # The protocol crate reaches the repository's contract tree through this link, so a packaged crate

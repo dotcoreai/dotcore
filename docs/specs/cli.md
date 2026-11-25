@@ -11,6 +11,7 @@ Code: `backend/cli/`.
 - Add machines to a running site, join a machine from that machine, and remove one.
 - Manage model and application deployments through the management API, from scripts.
 - Start coding agents that use the site's routes, and run one-off development workloads.
+- Let coding agents discover its commands and conventions from the installed binary.
 - Run exclusive administration on a stopped site: node removal when the site manager can't
   start, site reset and destructive recovery.
 

@@ -687,7 +687,7 @@ mod tests {
 
     fn init(arguments: &[&str]) -> super::SiteInitArgs {
         let cli = Cli::try_parse_from(arguments).expect("site init arguments");
-        let Command::Site(site) = cli.command else {
+        let Some(Command::Site(site)) = cli.command else {
             panic!("Site command")
         };
         let Some(SiteSubcommand::Init(arguments)) = site.command else {
@@ -884,7 +884,7 @@ mod tests {
     fn interactive_flag_is_accepted_for_phase_six_guided_execution() {
         let command = Cli::try_parse_from(["dotc", "site", "init", "--interactive"])
             .expect("interactive init arguments");
-        assert!(matches!(command.command, crate::Command::Site(_)));
+        assert!(matches!(command.command, Some(crate::Command::Site(_))));
     }
 
     #[test]
@@ -996,10 +996,10 @@ mod tests {
         reset_arguments.extend(common);
         let init = Cli::try_parse_from(init_arguments).expect("init arguments");
         let reset = Cli::try_parse_from(reset_arguments).expect("reset arguments");
-        let Command::Site(init) = init.command else {
+        let Some(Command::Site(init)) = init.command else {
             panic!("Site init command")
         };
-        let Command::Site(reset) = reset.command else {
+        let Some(Command::Site(reset)) = reset.command else {
             panic!("Site reset command")
         };
         let Some(SiteSubcommand::Init(init)) = init.command else {
@@ -1085,7 +1085,7 @@ mod tests {
             "/tmp/catalog",
         ])
         .expect("site validate arguments");
-        assert!(matches!(cli.command, Command::Site(_)));
+        assert!(matches!(cli.command, Some(Command::Site(_))));
     }
 
     #[test]

@@ -201,7 +201,7 @@ mod tests {
         ])
         .expect("code command");
 
-        let Command::Code(code) = cli.command else {
+        let Some(Command::Code(code)) = cli.command else {
             panic!("code command");
         };
         assert_eq!(code.agent, CodingAgent::Opencode);

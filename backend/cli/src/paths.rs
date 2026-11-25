@@ -269,7 +269,10 @@ mod tests {
         ];
         for arguments in cases {
             let cli = Cli::try_parse_from(arguments).expect("parses");
-            assert!(matches!(cli.command, Command::Node(_)), "{arguments:?}");
+            assert!(
+                matches!(cli.command, Some(Command::Node(_))),
+                "{arguments:?}"
+            );
             assert_eq!(
                 cli.paths.site_dir,
                 Some(PathBuf::from("/a")),
