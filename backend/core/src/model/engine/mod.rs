@@ -12,7 +12,10 @@ pub(crate) mod startup_facts;
 pub(crate) mod startup_refusal;
 
 pub use declaration::EngineFacade;
-pub(crate) use definition::{unsigned_parameter_range, unsigned_parameter_value};
+pub(crate) use definition::{
+    CustomArgumentConflict, custom_argument_flag, unsigned_parameter_range,
+    unsigned_parameter_value,
+};
 pub(crate) use realization::{realize_model, validate_snapshot};
 pub(crate) use registry::{
     EngineIntegrationError, EngineIntegrationRegistry, EngineTransportFactories,

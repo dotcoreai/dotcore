@@ -860,6 +860,7 @@ pub(crate) fn launch_resolution_error(
         }
         | crate::model::resolution::ModelLaunchResolutionError::InvalidParameterValues(_)
         | crate::model::resolution::ModelLaunchResolutionError::InvalidOptionValues(_)
+        | crate::model::resolution::ModelLaunchResolutionError::ConflictingCustomArgument(_)
         | crate::model::resolution::ModelLaunchResolutionError::ContextAboveMaximum { .. }
         | crate::model::resolution::ModelLaunchResolutionError::DerivedParameterOutOfRange {
             ..

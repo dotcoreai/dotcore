@@ -26,7 +26,10 @@ use dotcore_proto::dotcore::{
 };
 use dotcore_runtime::{ExecutionTarget, LoopbackEndpoint, WorkloadSpec};
 
-use super::{definition::EngineDefinition, realization::ResolvedEngineSelection};
+use super::{
+    definition::{CustomArgumentConflict, EngineDefinition},
+    realization::ResolvedEngineSelection,
+};
 use crate::{
     inference::{EngineReadinessProbe, EngineTransportFactory},
     model::resolved::ResolvedModelLaunch,
@@ -114,7 +117,12 @@ impl EngineDefinition for LlamaCpp {
         &self,
         snapshot: &ResolvedLocalModelDeploymentSnapshot,
     ) -> anyhow::Result<PortableModelLaunchPlan> {
-        Ok(plan::translate(snapshot)?)
+        plan::translate(snapshot).map_err(|error| match error {
+            plan::LlamaCppPlanError::ConflictingCustomArgument(token) => {
+                CustomArgumentConflict::new("llama.cpp", &token).into()
+            }
+            error => error.into(),
+        })
     }
 
     fn enables_host_kv_offload(

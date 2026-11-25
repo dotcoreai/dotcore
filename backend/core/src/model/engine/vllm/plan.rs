@@ -582,7 +582,7 @@ pub(crate) enum VllmPlanError {
     #[error("vLLM launch plan has no valid value for engine parameter {0:?}")]
     ParameterNotConfigured(String),
 
-    #[error("vLLM custom argument {0:?} conflicts with resolved settings")]
+    #[error("vLLM custom argument {:?} conflicts with resolved settings", crate::model::engine::custom_argument_flag(.0))]
     ConflictingCustomArgument(String),
 
     #[error(

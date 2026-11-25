@@ -176,6 +176,58 @@ pub(crate) trait EngineDefinition: Send + Sync {
     }
 }
 
+/// A custom argument the operator supplied that the engine integration cannot accept: either it
+/// sets the same option from the resolved configuration, or the engine takes no custom arguments.
+/// It names only the flag, because the argument's value may be sensitive.
+#[derive(Debug, thiserror::Error)]
+pub struct CustomArgumentConflict {
+    engine: &'static str,
+    flag: String,
+    engine_takes_none: bool,
+}
+
+impl CustomArgumentConflict {
+    /// The argument collides with an option the engine integration sets itself.
+    pub(crate) fn new(engine: &'static str, token: &str) -> Self {
+        Self {
+            engine,
+            flag: custom_argument_flag(token).to_owned(),
+            engine_takes_none: false,
+        }
+    }
+
+    /// The engine accepts no custom arguments at all.
+    pub(crate) fn unsupported(engine: &'static str, token: &str) -> Self {
+        Self {
+            engine_takes_none: true,
+            ..Self::new(engine, token)
+        }
+    }
+}
+
+impl std::fmt::Display for CustomArgumentConflict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.engine_takes_none {
+            write!(
+                f,
+                "{} takes no custom arguments, but got {:?}",
+                self.engine, self.flag
+            )
+        } else {
+            write!(
+                f,
+                "{} custom argument {:?} conflicts with resolved settings",
+                self.engine, self.flag
+            )
+        }
+    }
+}
+
+/// Returns the flag part of a custom argument token, without any `=value` suffix.
+pub(crate) fn custom_argument_flag(token: &str) -> &str {
+    token.split_once('=').map_or(token, |(flag, _)| flag)
+}
+
 /// Returns the engine declared with the given raw engine kind, if it is supported.
 pub(crate) fn definition(kind: i32) -> Option<&'static dyn EngineDefinition> {
     ENGINES

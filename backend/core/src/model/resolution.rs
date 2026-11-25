@@ -43,7 +43,10 @@ use crate::{
         },
     },
     model::{
-        engine::{EngineIntegrationRegistry, engine_artifact_kinds},
+        engine::{
+            CustomArgumentConflict, EngineIntegrationError, EngineIntegrationRegistry,
+            engine_artifact_kinds,
+        },
         resolved::ResolvedHardwareRequirementsValue,
         selection::{
             EngineArtifactSelectionError, MatchedEngineTarget, SelectedEngineArtifact,
@@ -408,8 +411,11 @@ impl LocalLaunchResolution<'_> {
         local.desired_launch_plan = Some(
             EngineIntegrationRegistry::production()
                 .translate(&local)
-                .map_err(|error| {
-                    ModelLaunchResolutionError::LaunchPlan(anyhow::Error::new(error))
+                .map_err(|error| match error {
+                    EngineIntegrationError::CustomArgumentConflict(conflict) => {
+                        ModelLaunchResolutionError::ConflictingCustomArgument(conflict)
+                    }
+                    error => ModelLaunchResolutionError::LaunchPlan(anyhow::Error::new(error)),
                 })?,
         );
         let resolution =
@@ -1136,6 +1142,11 @@ pub enum ModelLaunchResolutionError {
     /// fixes it by changing the overrides.
     #[error("invalid model option values: {0}")]
     InvalidOptionValues(#[source] anyhow::Error),
+
+    /// A custom argument sets something the engine integration already resolves; the operator
+    /// fixes it by removing the argument.
+    #[error(transparent)]
+    ConflictingCustomArgument(CustomArgumentConflict),
 
     #[error("could not translate local model launch plan: {0}")]
     LaunchPlan(#[source] anyhow::Error),

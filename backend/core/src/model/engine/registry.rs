@@ -21,7 +21,7 @@ use dotcore_runtime::{
 use sha2::{Digest, Sha256};
 
 use super::{
-    definition::{ENGINES, EngineDefinition, unsigned_parameter_value},
+    definition::{CustomArgumentConflict, ENGINES, EngineDefinition, unsigned_parameter_value},
     startup_facts::StartupFactExtractor,
     startup_refusal::StartupRefusal,
 };
@@ -129,7 +129,10 @@ impl EngineIntegrationRegistry {
         self.snapshot_integration(snapshot)?
             .definition
             .translate(snapshot)
-            .map_err(EngineIntegrationError::Operation)
+            .map_err(|error| match error.downcast::<CustomArgumentConflict>() {
+                Ok(conflict) => EngineIntegrationError::CustomArgumentConflict(conflict),
+                Err(error) => EngineIntegrationError::Operation(error),
+            })
     }
 
     /// Returns the startup fact parser of the snapshot's engine, when it has one.
@@ -316,6 +319,9 @@ pub(crate) enum EngineIntegrationError {
 
     #[error("Engine cannot launch from a {0:?} executable artifact")]
     UnsupportedArtifactKind(WorkloadArtifactKind),
+
+    #[error(transparent)]
+    CustomArgumentConflict(CustomArgumentConflict),
 
     #[error("Engine integration failed: {0}")]
     Operation(#[source] anyhow::Error),
