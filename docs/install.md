@@ -19,14 +19,14 @@ In an interactive terminal, run the installer from the Dotcore site. It checks D
 curl -fsSL https://dotcore.ai/install.sh | sh
 ```
 
-The first install takes longer because Nix builds Dotcore on your machine.
+There's no binary cache yet, so the first install takes longer. Nix builds Dotcore on your machine.
 
 This installs two commands:
 
 - `dotcore` runs the console, the API and your models.
 - `dotc` manages your site from the [command line](usage.md#command-line).
 
-To install without the installer, add Dotcore to your Nix profile yourself, then start it:
+To install without the installer, enable flakes in Nix (`experimental-features = nix-command flakes` in `~/.config/nix/nix.conf`), then add Dotcore to your Nix profile yourself and start it. Before Nix 2.30, use `nix profile install`:
 
 ```sh
 nix profile add github:dotcoreai/dotcore
