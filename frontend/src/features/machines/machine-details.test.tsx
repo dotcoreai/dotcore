@@ -521,8 +521,8 @@ describe("MachineDetailContent", () => {
       "VRAM on node-a (NVIDIA RTX 6000 Ada Generation · GPU 1): 0 bytes used of 48 GiB",
     ]);
     expect([...first.children].map((segment) => (segment as HTMLElement).style.width)).toEqual([
-      `${(4 / 48) * 100}%`,
-      `${(2 / 48) * 100}%`,
+      "8.33333%",
+      "4.16667%",
     ]);
     expect(
       [...first.querySelectorAll("[data-deployment-id]")].map((segment) =>

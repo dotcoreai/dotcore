@@ -134,7 +134,7 @@ describe("ModelDeployMemoryStrip", () => {
     });
     expect(readout).toHaveTextContent(/^▲ 26 \/ 32 GiB$/);
     expect(readout.className).toContain("text-destructive");
-    expect(capacityMarkers(strip)).toEqual([["total", `${(32 / 38) * 100}%`]]);
+    expect(capacityMarkers(strip)).toEqual([["total", "84.2105%"]]);
     expect(
       within(strip).getByRole("button", { name: "RAM — / 64 GiB" }),
     ).toHaveAccessibleDescription(/^This deployment: no extra host memory\. /);
@@ -157,9 +157,7 @@ describe("ModelDeployMemoryStrip", () => {
     });
     expect(readout).toHaveTextContent(/^20 \/ 32 GiB$/);
     expect(readout.className).toContain("text-warning-foreground");
-    expect(capacityMarkers(strip)).toEqual([
-      ["fit", `${(Number(32n * gib - (32n * gib) / 100n) / Number(32n * gib)) * 100}%`],
-    ]);
+    expect(capacityMarkers(strip)).toEqual([["fit", "99%"]]);
     expect(screen.getByRole("note")).toHaveTextContent(
       "This deployment leaves less than 1% of memory free on gpu1 / NVIDIA GeForce RTX 5090: VRAM by 147 MiB.",
     );

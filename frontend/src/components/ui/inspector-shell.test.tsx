@@ -462,11 +462,13 @@ describe("InspectorShell", () => {
       bottom: "0px",
       left: "auto",
       right: "0px",
-      top: "var(--header-height)",
       width: "460px",
     });
-    // Computed styles resolve vw units against jsdom's fixed viewport, so read the inline value.
-    expect(content.style.maxWidth).toBe("calc(100vw - 28px)");
+    // jsdom computes a custom property to `auto`, so read the inline style.
+    expect(content.style.top).toBe("var(--header-height)");
+    // Computed styles resolve vw units against jsdom's fixed viewport, so read the inline value,
+    // which serializes `calc()` terms in their canonical order.
+    expect(content.style.maxWidth).toBe("calc(-28px + 100vw)");
     expect(content).toHaveClass("border-l", "p-2", "rounded-l-md", "rounded-r-none", "ring-0");
     expect(content).not.toHaveAttribute("aria-modal");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -715,7 +717,8 @@ describe("InspectorShell", () => {
     await settleFocus();
 
     const inspector = screen.getByTestId("inspector-content");
-    expect(inspector).toHaveStyle({ zIndex: "calc(var(--layer-modal) - 1)" });
+    // jsdom computes a `calc()` over a custom property to `auto`, so read the inline style.
+    expect(inspector.style.zIndex).toBe("calc(var(--layer-modal) - 1)");
     expect(inspector).toHaveAttribute("aria-hidden", "true");
     expect(inspector).toHaveAttribute("inert");
     expect(screen.getAllByRole("dialog")).toEqual([

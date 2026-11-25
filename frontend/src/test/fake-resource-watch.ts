@@ -75,8 +75,17 @@ export class FakeResourceWatch {
         const stream = this.open();
         void this.answer(signal, true);
         if (this.tickMs !== undefined) {
-          const timer = setInterval(() => void this.answer(signal, false), this.tickMs);
-          signal.addEventListener("abort", () => clearInterval(timer));
+          // A chained timeout rather than an interval, since fake timers leave intervals real.
+          const tickMs = this.tickMs;
+          let timer: ReturnType<typeof setTimeout>;
+          const scheduleTick = () => {
+            timer = setTimeout(() => {
+              void this.answer(signal, false);
+              scheduleTick();
+            }, tickMs);
+          };
+          scheduleTick();
+          signal.addEventListener("abort", () => clearTimeout(timer));
         }
         return stream;
       },

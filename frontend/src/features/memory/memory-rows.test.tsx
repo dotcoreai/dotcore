@@ -110,7 +110,7 @@ describe("MemoryRows", () => {
 
     const markers = container.querySelectorAll<HTMLElement>('[data-slot="memory-capacity-marker"]');
     expect([...markers].map((marker) => [marker.dataset.line, marker.style.left])).toEqual([
-      ["total", `${(32 / 37) * 100}%`],
+      ["total", "86.4865%"],
     ]);
     expect(screen.getByRole("img")).toHaveAttribute(
       "aria-label",
@@ -502,7 +502,7 @@ describe("MemoryMetricRows", () => {
       </MetricRows>,
     );
 
-    expect(markers()).toEqual([["total", `${(120 / 130) * 100}%`]]);
+    expect(markers()).toEqual([["total", "92.3077%"]]);
     expect(screen.getAllByRole("img").map((bar) => bar.getAttribute("aria-label"))).toEqual([
       "RAM on spark-01: 130 GiB used of 120 GiB; deployments: Big model 125 GiB; over capacity by 10 GiB",
       "RAM on spark-02: 30 GiB used of 120 GiB",
@@ -521,7 +521,7 @@ describe("MemoryMetricRows", () => {
       [...document.querySelectorAll<HTMLElement>('[data-slot="metric-span"]')].map(
         (part) => part.style.flex,
       ),
-    ).toEqual([`${Number(120n * gib)} 1 0%`, `${Number(120n * gib)} 1 0%`]);
+    ).toEqual(["128849000000 1 0%", "128849000000 1 0%"]);
     expectResourceMarker(screen.getByText("spark-01"), "spark-01");
     expect(screen.getByRole("button", { name: "RAM 80 / 240 GiB" })).toBeVisible();
 
@@ -541,7 +541,7 @@ describe("MemoryMetricRows", () => {
         (part as HTMLElement).style.backgroundColor,
       ]),
     ).toEqual([
-      [`${(50 / 240) * 100}%`, cssColor(getResourceColor("spark-01"))],
+      ["20.8333%", cssColor(getResourceColor("spark-01"))],
       [`${(30 / 240) * 100}%`, cssColor(getResourceColor("spark-02"))],
     ]);
     expect(container.querySelector("[data-deployment-id]")).toBeNull();
@@ -563,7 +563,7 @@ describe("MemoryMetricRows", () => {
           ]),
         ),
     ).toEqual([
-      [[`${(50 / 120) * 100}%`, cssColor(getResourceColor("spark-01"))]],
+      [["41.6667%", cssColor(getResourceColor("spark-01"))]],
       [[`${(30 / 120) * 100}%`, cssColor(getResourceColor("spark-02"))]],
     ]);
     expect(container.querySelector("[data-deployment-id]")).toBeNull();

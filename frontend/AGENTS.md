@@ -95,6 +95,8 @@ frontend/src/
   `setTiming(productionTiming)` and drives it with fake timers; the shared setup restores the test preset after each test. A fake-timer test that waits
   with `waitFor` or `findBy*` installs its timers with `useFakeTimersWithWaits`
   ([`src/test/fake-timers.ts`](src/test/fake-timers.ts)).
+- Fake timers never fake `setInterval`: jsdom runs its animation frames on a real interval, and
+  faking it stalls every later frame in the worker. Drive repeating work with chained `setTimeout`.
 
 ## Dependencies
 

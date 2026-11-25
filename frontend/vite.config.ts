@@ -23,6 +23,25 @@ export default defineConfig({
     unstubEnvs: true,
     unstubGlobals: true,
     restoreMocks: true,
+
+    // Vitest's default fake list minus `setInterval`: jsdom starts its animation frame loop once on
+    // the current `setInterval`, and if that is a fake one, every later frame in the worker stalls.
+    fakeTimers: {
+      toFake: [
+        "setTimeout",
+        "clearTimeout",
+        "setImmediate",
+        "clearImmediate",
+        "Date",
+        "requestAnimationFrame",
+        "cancelAnimationFrame",
+        "requestIdleCallback",
+        "cancelIdleCallback",
+        "hrtime",
+        "performance",
+      ],
+    },
+
     exclude: [...configDefaults.exclude, "tools/**/*.test.mjs"],
     setupFiles: ["./src/test/setup.ts"],
     // The endpoint tests re-import their client via `vi.resetModules()` + `await import()`,

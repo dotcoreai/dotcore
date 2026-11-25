@@ -290,13 +290,11 @@ describe("ConsoleSidebar optional group peek", () => {
   });
 
   it("reveals an open branch's children once the rail is actually peeked, by keyboard focus (R5.C, R5.E)", () => {
-    // Pre-seeds the collapsed preference rather than clicking the footer's Collapse toggle: a real
-    // click establishes pointer modality for the whole document, which would make jsdom's
-    // `:focus-visible` report false for every focus in this test, not just the click's own target.
+    // Pre-seeds the collapsed preference rather than clicking the footer's Collapse toggle, so no
+    // pointer press releases the rail's keyboard entry.
     const storage = new FakeStorage();
     writeSidebarCollapsed(storage, true);
     renderGroups("/models", storage);
-    resetKeyboardModality();
 
     const sidebar = document.querySelector('[data-slot="sidebar"]')!;
     act(() => {
@@ -347,10 +345,6 @@ function GroupSidebar() {
       />
     </SidebarProvider>
   );
-}
-
-function resetKeyboardModality() {
-  fireEvent.keyDown(document.body, { key: "Tab" });
 }
 
 class FakeStorage {
