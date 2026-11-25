@@ -7,6 +7,7 @@
 //! deployments fails with their ids instead of picking one.
 
 mod deployment;
+mod document;
 mod logs;
 
 use std::{collections::HashMap, fmt, str::FromStr, time::Duration};
@@ -31,6 +32,7 @@ use tonic::{
 pub(crate) use deployment::{
     Lifecycle, ManagedDeployment, change_lifecycle, find_deployment, list_deployments, teardown,
 };
+pub(crate) use document::{DeploymentDocument, DeploymentListDocument};
 pub(crate) use logs::{
     LogEntry, LogEvent, LogEvents, LogPage, LogPosition, LogSource, LogSourceState,
     LoggedDeployment, LogsArgs, deployment_logs,
@@ -47,7 +49,9 @@ pub(crate) struct ManagerArgs {
         long = "manager",
         env = MANAGEMENT_ADDR_ENV,
         value_name = "ADDRESS",
-        default_value = DEFAULT_MANAGEMENT_ADDR
+        default_value = DEFAULT_MANAGEMENT_ADDR,
+        // Last in every command's option list, after the root options.
+        display_order = 1000
     )]
     pub(crate) manager: ManagerAddress,
 }
@@ -190,15 +194,25 @@ pub(crate) struct NodeNames {
 impl NodeNames {
     /// Returns the node's display name, or its id when the manager did not name it.
     pub(crate) fn display<'a>(&'a self, node_id: &'a str) -> &'a str {
-        self.names.get(node_id).map_or(node_id, String::as_str)
+        self.name(node_id).unwrap_or(node_id)
     }
 
     /// Returns the execution target's display name, or its id when the target is no longer
     /// configured or the manager did not name it.
     pub(crate) fn target_display<'a>(&'a self, node_id: &str, target_id: &'a str) -> &'a str {
+        self.target_name(node_id, target_id).unwrap_or(target_id)
+    }
+
+    /// Returns the node's display name, if the manager named it.
+    pub(crate) fn name(&self, node_id: &str) -> Option<&str> {
+        self.names.get(node_id).map(String::as_str)
+    }
+
+    /// Returns the execution target's display name, if the target is configured and named.
+    pub(crate) fn target_name(&self, node_id: &str, target_id: &str) -> Option<&str> {
         self.targets
             .get(&(node_id.to_owned(), target_id.to_owned()))
-            .map_or(target_id, String::as_str)
+            .map(String::as_str)
     }
 
     fn from_targets(configured: &[ConfiguredExecutionTarget]) -> Self {
@@ -260,22 +274,6 @@ impl DeploymentGroup {
         match self {
             Self::Model => "dotc model list",
             Self::Application => "dotc application list",
-        }
-    }
-
-    /// The title line of a deployment's result record block, for example `Model deployment`.
-    pub(crate) fn record_title(self) -> &'static str {
-        match self {
-            Self::Model => "Model deployment",
-            Self::Application => "Application deployment",
-        }
-    }
-
-    /// The prefix of a deployment's result record keys, for example `DOTCORE_MODEL_DEPLOYMENT`.
-    pub(crate) fn record_prefix(self) -> &'static str {
-        match self {
-            Self::Model => "DOTCORE_MODEL_DEPLOYMENT",
-            Self::Application => "DOTCORE_APPLICATION_DEPLOYMENT",
         }
     }
 }

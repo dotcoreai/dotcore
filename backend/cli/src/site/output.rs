@@ -1,62 +1,200 @@
-//! The stable result records init, reset and validation print on standard output.
+//! What init, reset, delete and validation report on standard output.
 //!
-//! Records are key-value lines after a one-line outcome, so scripts can read them; values with line
-//! breaks are refused instead of printed. When no guided summary showed the node host and the
-//! operator did not name it, standard error names it and where it came from.
+//! A person gets a one-line outcome followed by the site's facts as plain text on stdout, even
+//! after a guided conversation on the terminal. Asked for YAML, the same facts are one document.
+//! When no guided summary showed the node host and the operator did not name it, standard error
+//! names it and where it came from.
 
-use std::path::Path;
+use std::{fmt, path::Path};
 
-use anyhow::{Context, bail};
+use anyhow::Context;
 use dotcore_proto::dotcore::site::v1::SiteNode;
 use dotcore_site::initial::{
     input_store::InitialSiteWriteOutcome,
     inputs::InitialSiteInputs,
     request::{InitialApplicationRuntime, InitialInferenceRuntime, InitialSiteRequest},
 };
+use serde::Serialize;
 
 use crate::{
     hosts::{HostSource, SelectedHost},
+    output::{OutputFormat, write_plain, write_yaml},
     terminal::{Message, notify_stderr},
 };
 
-pub(super) fn write_success(
-    first_line: &str,
-    site_dir: &Path,
-    inputs: &InitialSiteInputs,
-    request: &InitialSiteRequest,
-) -> anyhow::Result<()> {
-    let records = success_records(first_line, site_dir, inputs, request)?;
-    write_stdout(records.as_bytes(), "write site initialization result")
+/// How a site command left the site.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum SiteOutcome {
+    Initialized,
+
+    AlreadyInitialized,
+
+    Reset,
 }
 
-/// Writes the outcome's records, then reports `unreported_host` when given and not named by the
-/// operator: the selected host for a written site, the recorded one for a site that already
-/// matched.
-pub(super) fn write_transaction_success(
-    outcome: InitialSiteWriteOutcome,
-    site_dir: &Path,
-    published: &InitialSiteInputs,
-    request: &InitialSiteRequest,
-    unreported_host: Option<&SelectedHost>,
-) -> anyhow::Result<()> {
-    match outcome {
-        InitialSiteWriteOutcome::Published => {
-            write_success("Site initialized", site_dir, published, request)?;
-            if let Some(host) = unreported_host {
-                report_host(host);
-            }
-        }
-        InitialSiteWriteOutcome::AlreadyInitialized(existing) => {
-            write_success("Site already initialized", site_dir, &existing, request)?;
-            if unreported_host.is_some_and(|host| host.source() != &HostSource::Flag) {
-                notify_node_host(&format!(
-                    "Node host: {} (already recorded)",
-                    local_node(&existing)?.host
-                ));
-            }
+impl SiteOutcome {
+    /// The outcome line a person reads.
+    fn line(self) -> &'static str {
+        match self {
+            Self::Initialized => "Site initialized",
+            Self::AlreadyInitialized => "Site already initialized",
+            Self::Reset => "Site reset",
         }
     }
-    Ok(())
+
+    /// The outcome word of the YAML document.
+    fn key(self) -> &'static str {
+        match self {
+            Self::Initialized => "initialized",
+            Self::AlreadyInitialized => "alreadyInitialized",
+            Self::Reset => "reset",
+        }
+    }
+}
+
+/// A site that init or reset wrote or found, ready to report once the command is done.
+pub(super) struct SiteReport {
+    outcome: SiteOutcome,
+    site_dir: std::path::PathBuf,
+    inputs: InitialSiteInputs,
+    request: InitialSiteRequest,
+
+    /// The selected host when nothing showed it yet, so the report names it.
+    unreported_host: Option<SelectedHost>,
+}
+
+impl fmt::Debug for SiteReport {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SiteReport")
+            .field("outcome", &self.outcome)
+            .field("site_dir", &self.site_dir)
+            .finish_non_exhaustive()
+    }
+}
+
+impl SiteReport {
+    /// Reports the outcome of a write: the site it published, or the matching site it kept.
+    pub(super) fn written(
+        outcome: InitialSiteWriteOutcome,
+        site_dir: &Path,
+        published: InitialSiteInputs,
+        request: InitialSiteRequest,
+        unreported_host: Option<SelectedHost>,
+    ) -> Self {
+        let (outcome, inputs) = match outcome {
+            InitialSiteWriteOutcome::Published => (SiteOutcome::Initialized, published),
+            InitialSiteWriteOutcome::AlreadyInitialized(existing) => {
+                (SiteOutcome::AlreadyInitialized, existing)
+            }
+        };
+        Self {
+            outcome,
+            site_dir: site_dir.to_owned(),
+            inputs,
+            request,
+            unreported_host,
+        }
+    }
+
+    /// Reports a site that a reset replaced.
+    pub(super) fn reset(
+        site_dir: &Path,
+        inputs: InitialSiteInputs,
+        request: InitialSiteRequest,
+        unreported_host: Option<SelectedHost>,
+    ) -> Self {
+        Self {
+            outcome: SiteOutcome::Reset,
+            site_dir: site_dir.to_owned(),
+            inputs,
+            request,
+            unreported_host,
+        }
+    }
+
+    /// Prints the result on stdout, then names the node host on stderr when nothing showed it.
+    pub(super) fn print(&self, format: OutputFormat) -> anyhow::Result<()> {
+        match format {
+            OutputFormat::Yaml => write_yaml(&SiteDocument::of(self)?)?,
+            OutputFormat::Human => write_plain(&site_messages(
+                self.outcome.line(),
+                &self.site_dir,
+                &self.inputs,
+                &self.request,
+            )?)?,
+        }
+        match (self.outcome, &self.unreported_host) {
+            (SiteOutcome::Initialized | SiteOutcome::Reset, Some(host)) => report_host(host),
+            (SiteOutcome::AlreadyInitialized, Some(host)) if host.source() != &HostSource::Flag => {
+                notify_node_host(&format!(
+                    "Node host: {} (already recorded)",
+                    local_node(&self.inputs)?.host
+                ));
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+}
+
+/// The YAML document of a site command: where the site is and, once initialized or reset, what it
+/// is.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SiteDocument {
+    outcome: &'static str,
+    site_dir: String,
+
+    #[serde(flatten)]
+    details: Option<SiteDetails>,
+}
+
+/// The identity and capabilities of a written site.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SiteDetails {
+    site_id: String,
+    node_id: String,
+    node_host: String,
+    inference: Vec<&'static str>,
+    applications: Vec<&'static str>,
+}
+
+impl SiteDocument {
+    fn of(report: &SiteReport) -> anyhow::Result<Self> {
+        let node = local_node(&report.inputs)?;
+        Ok(Self {
+            outcome: report.outcome.key(),
+            site_dir: path_text(&report.site_dir)?.to_owned(),
+            details: Some(SiteDetails {
+                site_id: report.inputs.site().site_id.clone(),
+                node_id: node.node_id.clone(),
+                node_host: node.host.clone(),
+                inference: report
+                    .request
+                    .inference()
+                    .iter()
+                    .map(|inference| inference_name(*inference))
+                    .collect(),
+                applications: report
+                    .request
+                    .applications()
+                    .iter()
+                    .map(|applications| applications_name(*applications))
+                    .collect(),
+            }),
+        })
+    }
+
+    /// The document of a command that only says what it did to the site folder.
+    pub(super) fn at(outcome: &'static str, site_dir: &Path) -> anyhow::Result<Self> {
+        Ok(Self {
+            outcome,
+            site_dir: path_text(site_dir)?.to_owned(),
+            details: None,
+        })
+    }
 }
 
 /// Names the selected node host and where it came from on stderr, unless the operator named it.
@@ -66,78 +204,46 @@ pub(super) fn report_host(host: &SelectedHost) {
     }
 }
 
-pub(super) fn write_validate_success(site_dir: &Path) -> anyhow::Result<()> {
-    let site_dir = site_dir
-        .to_str()
-        .filter(|value| !value.contains(['\r', '\n']))
-        .context(
-            "Site validation output path must be UTF-8 without carriage returns or newlines",
-        )?;
-    let records = format!("Site valid\nDOTCORE_SITE_DIR={site_dir}\n");
-    write_stdout(records.as_bytes(), "write site validation result")
+pub(super) fn write_validate_success(site_dir: &Path, format: OutputFormat) -> anyhow::Result<()> {
+    if format == OutputFormat::Yaml {
+        return write_yaml(&SiteDocument::at("valid", site_dir)?);
+    }
+    write_directory_outcome("Site valid", site_dir)
 }
 
-/// Writes a command result record to process stdout.
-///
-/// Unit tests print through libtest's capture instead, since direct stdout writes bypass it.
-fn write_stdout(bytes: &[u8], context: &'static str) -> anyhow::Result<()> {
-    #[cfg(test)]
-    {
-        let _ = context;
-        print!("{}", String::from_utf8_lossy(bytes));
-        Ok(())
-    }
-
-    #[cfg(not(test))]
-    {
-        use std::io::Write as _;
-
-        std::io::stdout().lock().write_all(bytes).context(context)
-    }
+/// Reports a site command that only says what it did to the site folder, such as a deletion.
+pub(super) fn write_directory_outcome(outcome_line: &str, site_dir: &Path) -> anyhow::Result<()> {
+    write_plain(&[
+        Message::Success(outcome_line.to_owned()),
+        Message::KeyValues(vec![(
+            "directory".to_owned(),
+            path_text(site_dir)?.to_owned(),
+        )]),
+    ])
 }
 
-pub(super) fn success_records(
-    first_line: &str,
+/// The outcome line of a site command and the facts of the site it left.
+pub(super) fn site_messages(
+    outcome_line: &str,
     site_dir: &Path,
     inputs: &InitialSiteInputs,
     request: &InitialSiteRequest,
-) -> anyhow::Result<String> {
-    let site_dir = site_dir
-        .to_str()
-        .filter(|value| !value.contains(['\r', '\n']))
-        .context("Site output path must be UTF-8 without carriage returns or newlines")?;
-    let inference = capability_list(request.inference().iter().map(|inference| match inference {
-        InitialInferenceRuntime::Simulated => "simulated",
-        InitialInferenceRuntime::Nvidia => "nvidia",
-        InitialInferenceRuntime::Apple => "apple",
-    }));
+) -> anyhow::Result<Vec<Message>> {
+    let inference = capability_list(request.inference().iter().map(|&i| inference_name(i)));
     let applications =
-        capability_list(
-            request
-                .applications()
-                .iter()
-                .map(|applications| match applications {
-                    InitialApplicationRuntime::Simulated => "simulated",
-                    InitialApplicationRuntime::Docker => "docker",
-                }),
-        );
+        capability_list(request.applications().iter().map(|&a| applications_name(a)));
     let node = local_node(inputs)?;
-    for value in [
-        first_line,
-        inputs.site().site_id.as_str(),
-        node.node_id.as_str(),
-        node.host.as_str(),
-    ] {
-        if value.contains(['\r', '\n']) {
-            bail!("Site initialization output value must not contain carriage returns or newlines");
-        }
-    }
-    Ok(format!(
-        "{first_line}\nDOTCORE_SITE_DIR={site_dir}\nDOTCORE_SITE_ID={}\nDOTCORE_NODE_ID={}\nDOTCORE_NODE_HOST={}\nDOTCORE_INFERENCE={inference}\nDOTCORE_APPLICATIONS={applications}\n",
-        inputs.site().site_id,
-        node.node_id,
-        node.host,
-    ))
+    Ok(vec![
+        Message::Success(outcome_line.to_owned()),
+        Message::KeyValues(vec![
+            ("directory".to_owned(), path_text(site_dir)?.to_owned()),
+            ("site id".to_owned(), inputs.site().site_id.clone()),
+            ("node id".to_owned(), node.node_id.clone()),
+            ("node host".to_owned(), node.host.clone()),
+            ("inference".to_owned(), inference),
+            ("applications".to_owned(), applications),
+        ]),
+    ])
 }
 
 /// Returns the declaration of the node these inputs are bound to.
@@ -154,6 +260,28 @@ fn notify_node_host(host_line: &str) {
     notify_stderr(&[Message::Info(host_line.to_owned())], host_line);
 }
 
+fn inference_name(inference: InitialInferenceRuntime) -> &'static str {
+    match inference {
+        InitialInferenceRuntime::Simulated => "simulated",
+        InitialInferenceRuntime::Nvidia => "nvidia",
+        InitialInferenceRuntime::Apple => "apple",
+    }
+}
+
+fn applications_name(applications: InitialApplicationRuntime) -> &'static str {
+    match applications {
+        InitialApplicationRuntime::Simulated => "simulated",
+        InitialApplicationRuntime::Docker => "docker",
+    }
+}
+
+/// The path as text, which a result can print only when it is UTF-8 without line breaks.
+fn path_text(path: &Path) -> anyhow::Result<&str> {
+    path.to_str()
+        .filter(|value| !value.contains(['\r', '\n']))
+        .context("Site output path must be UTF-8 without carriage returns or newlines")
+}
+
 /// Joins capability names with commas, such as `simulated,nvidia`, or `none` without any.
 fn capability_list<'a>(capabilities: impl Iterator<Item = &'a str>) -> String {
     let capabilities = capabilities.collect::<Vec<_>>();
@@ -168,7 +296,8 @@ fn capability_list<'a>(capabilities: impl Iterator<Item = &'a str>) -> String {
 mod tests {
     use dotcore_site::initial::probe::InitialSiteProber;
 
-    use super::success_records;
+    use super::site_messages;
+    use crate::output::plain_text;
     use crate::site::{
         ApplicationsChoice, InferenceChoice, prepare_initial_site,
         test_support::{
@@ -178,7 +307,7 @@ mod tests {
     };
 
     #[test]
-    fn apple_inference_is_reported_in_the_success_records() {
+    fn apple_inference_is_reported_in_the_site_messages() {
         let fixture = SiteRoot::new();
         let site_dir = fixture.root.join("site");
         let mut arguments = init_arguments(ApplicationsChoice::Simulated);
@@ -197,31 +326,34 @@ mod tests {
             ))
             .expect("prepare Apple site");
 
-        assert!(
-            success_records(
+        let text = plain_text(
+            &site_messages(
                 "Site initialized",
                 &site_dir,
                 &prepared.inputs,
-                &prepared.request
+                &prepared.request,
             )
-            .expect("records")
-            .contains("DOTCORE_INFERENCE=apple\nDOTCORE_APPLICATIONS=simulated\n")
+            .expect("messages"),
+        );
+        assert!(
+            text.ends_with("  inference     apple\n  applications  simulated\n"),
+            "{text}"
         );
     }
 
     #[test]
-    fn every_capability_or_none_is_reported_in_the_success_records() {
+    fn every_capability_or_none_is_reported_in_the_site_messages() {
         let site_dir = SiteRoot::new().root.join("site");
         for (inference, applications, expected) in [
             (
                 vec![InferenceChoice::Simulated],
                 vec![ApplicationsChoice::Docker, ApplicationsChoice::Simulated],
-                "DOTCORE_INFERENCE=simulated\nDOTCORE_APPLICATIONS=simulated,docker\n",
+                "  inference     simulated\n  applications  simulated,docker\n",
             ),
             (
                 vec![InferenceChoice::None],
                 vec![ApplicationsChoice::None],
-                "DOTCORE_INFERENCE=none\nDOTCORE_APPLICATIONS=none\n",
+                "  inference     none\n  applications  none\n",
             ),
         ] {
             let mut arguments = init_arguments(ApplicationsChoice::Simulated);
@@ -240,14 +372,16 @@ mod tests {
                 ))
                 .expect("prepare site");
 
-            let records = success_records(
-                "Site initialized",
-                &site_dir,
-                &prepared.inputs,
-                &prepared.request,
-            )
-            .expect("records");
-            assert!(records.ends_with(expected), "{records}");
+            let text = plain_text(
+                &site_messages(
+                    "Site initialized",
+                    &site_dir,
+                    &prepared.inputs,
+                    &prepared.request,
+                )
+                .expect("messages"),
+            );
+            assert!(text.ends_with(expected), "{text}");
         }
     }
 }

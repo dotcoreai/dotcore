@@ -178,8 +178,8 @@ impl SiteMembershipService for MembershipManagementService {
     }
 }
 
-/// Projects what a removal changes.
-fn removal_plan(plan: &NodeRemovalPlan) -> MachineRemovalPlan {
+/// Projects what a removal changes as the management API reports it.
+pub fn removal_plan(plan: &NodeRemovalPlan) -> MachineRemovalPlan {
     MachineRemovalPlan {
         node_id: plan.node.node_id.clone(),
         display_name: plan.node.display_name.clone(),

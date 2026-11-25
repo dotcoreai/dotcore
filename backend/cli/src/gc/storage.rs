@@ -12,21 +12,55 @@ use dotcore_runtime::WorkloadStorageKind;
 use dotcore_runtime_backends::docker::{
     DockerMountedFolders, StorageArea, StorageCleanup, StorageRemoval, StorageRemovalOutcome,
 };
+use serde::Serialize;
 
 use super::{Approval, approve};
 use crate::{
     RootPathArgs,
-    node::{record_value, write_records},
-    terminal::{
-        Message, Terminal, TerminalCondition, controlling_terminal_condition, open_terminal,
-    },
+    output::{LazyTerminal, OutputFormat, present_on},
+    terminal::{Message, Terminal},
 };
 
 const DAY: Duration = Duration::from_secs(24 * 60 * 60);
 
+/// What happened to one shared workload storage folder.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct StorageResult {
+    kind: &'static str,
+    area: String,
+    namespace: String,
+    key: String,
+    result: &'static str,
+}
+
+impl StorageResult {
+    fn new(removal: &StorageRemoval, outcome: &StorageRemovalOutcome) -> Self {
+        Self {
+            kind: kind(removal.kind),
+            area: removal.area.clone(),
+            namespace: removal.namespace.clone(),
+            key: removal.key.clone(),
+            result: match outcome {
+                StorageRemovalOutcome::Removed => "removed",
+                StorageRemovalOutcome::InUse => "inUse",
+                StorageRemovalOutcome::UsedSincePlanning => "usedSincePlanning",
+                StorageRemovalOutcome::Failed(_) => "failed",
+            },
+        }
+    }
+}
+
 /// Removes the shared workload storage that no workload used for more than `unused_days` days,
-/// in every site's caches on this machine, the development data and the site folder's data.
-pub(super) async fn clean(paths: &RootPathArgs, unused_days: u32, yes: bool) -> anyhow::Result<()> {
+/// in every site's caches on this machine, the development data and the site folder's data, and
+/// returns what happened to each folder, or none when the operator declined or there was nothing
+/// to remove.
+pub(super) async fn clean(
+    paths: &RootPathArgs,
+    unused_days: u32,
+    yes: bool,
+    format: OutputFormat,
+) -> anyhow::Result<Vec<StorageResult>> {
     let site_root = paths.site_dir()?;
     let areas = StorageArea::on_machine(&paths.cache_root()?, Some(&site_root))
         .context("Workload storage listing failed")?;
@@ -39,27 +73,24 @@ pub(super) async fn clean(paths: &RootPathArgs, unused_days: u32, yes: bool) -> 
         .plan(now)
         .await
         .context("Workload storage cleanup planning failed")?;
-    let mut terminal = open_terminal();
-    if !approve_storage(terminal.as_mut(), &planned, now, yes)? {
-        return Ok(());
+    let mut terminal = LazyTerminal::new();
+    if !approve_storage(&mut terminal, &planned, now, yes, format)? {
+        return Ok(Vec::new());
     }
 
     let results = cleanup.apply(planned, real_time::wall_now()).await;
-    if controlling_terminal_condition() == TerminalCondition::Interactive {
-        show_results(terminal.as_mut(), &results, now)?;
-    } else {
-        let blocks = results
-            .iter()
-            .map(|(removal, outcome)| record_block(removal, outcome))
-            .collect::<anyhow::Result<Vec<_>>>()?;
-        write_records(&blocks.join("\n"))?;
+    if format == OutputFormat::Human {
+        show_results(&mut terminal, &results, now)?;
     }
     let failed = results
         .iter()
         .filter(|(_, outcome)| matches!(outcome, StorageRemovalOutcome::Failed(_)))
         .count();
     anyhow::ensure!(failed == 0, "{failed} workload storage removals failed");
-    Ok(())
+    Ok(results
+        .iter()
+        .map(|(removal, outcome)| StorageResult::new(removal, outcome))
+        .collect())
 }
 
 /// Decides whether the planned storage removals go ahead, as [`approve`] does.
@@ -68,6 +99,7 @@ fn approve_storage(
     planned: &[StorageRemoval],
     now: SystemTime,
     yes: bool,
+    format: OutputFormat,
 ) -> anyhow::Result<bool> {
     approve(
         terminal,
@@ -81,6 +113,7 @@ fn approve_storage(
                 .collect(),
         },
         yes,
+        format,
     )
 }
 
@@ -91,29 +124,35 @@ fn show_results(
     results: &[(StorageRemoval, StorageRemovalOutcome)],
     now: SystemTime,
 ) -> anyhow::Result<()> {
-    terminal.message(&Message::Table {
-        header: HEADER
-            .iter()
-            .chain(&["RESULT"])
-            .map(|&title| title.to_owned())
-            .collect(),
-        rows: results
-            .iter()
-            .map(|(removal, outcome)| {
-                let mut row = removal_row(removal, now);
-                row.push(outcome_text(outcome));
-                row
-            })
-            .collect(),
-    })?;
+    present_on(
+        terminal,
+        &[Message::Table {
+            header: HEADER
+                .iter()
+                .chain(&["RESULT"])
+                .map(|&title| title.to_owned())
+                .collect(),
+            rows: results
+                .iter()
+                .map(|(removal, outcome)| {
+                    let mut row = removal_row(removal, now);
+                    row.push(outcome_text(outcome));
+                    row
+                })
+                .collect(),
+        }],
+    )?;
     let removed = results
         .iter()
         .filter(|(_, outcome)| outcome == &StorageRemovalOutcome::Removed)
         .count();
-    terminal.message(&Message::Success(format!(
-        "Removed {removed} of {} unused workload storage folders",
-        results.len()
-    )))?;
+    present_on(
+        terminal,
+        &[Message::Success(format!(
+            "Removed {removed} of {} unused workload storage folders",
+            results.len()
+        ))],
+    )?;
     Ok(())
 }
 
@@ -125,20 +164,6 @@ fn removal_row(removal: &StorageRemoval, now: SystemTime) -> Vec<String> {
         removal.key.clone(),
         unused_text(removal, now),
     ]
-}
-
-fn record_block(
-    removal: &StorageRemoval,
-    outcome: &StorageRemovalOutcome,
-) -> anyhow::Result<String> {
-    Ok(format!(
-        "StorageRemoval\nDOTCORE_GC_STORAGE_KIND={}\nDOTCORE_GC_STORAGE_AREA={}\nDOTCORE_GC_STORAGE_NAMESPACE={}\nDOTCORE_GC_STORAGE_KEY={}\nDOTCORE_GC_STORAGE_RESULT={}\n",
-        kind(removal.kind),
-        record_value(&removal.area)?,
-        record_value(&removal.namespace)?,
-        record_value(&removal.key)?,
-        record_value(&outcome_text(outcome))?,
-    ))
 }
 
 fn kind(kind: WorkloadStorageKind) -> &'static str {
@@ -171,7 +196,9 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::terminal::{ConfirmPrompt, ScriptedAnswer, ScriptedPrompt, ScriptedTerminal};
+    use crate::terminal::{
+        ConfirmPrompt, ScriptedAnswer, ScriptedPrompt, ScriptedTerminal, TerminalCondition,
+    };
 
     #[test]
     fn the_operator_confirms_the_listed_storage() {
@@ -179,7 +206,10 @@ mod tests {
         let planned = [engine_cache(now - DAY * 9)];
         let mut terminal = ScriptedTerminal::interactive([ScriptedAnswer::Confirm(true)]);
 
-        assert!(approve_storage(&mut terminal, &planned, now, false).expect("confirmed"));
+        assert!(
+            approve_storage(&mut terminal, &planned, now, false, OutputFormat::Human)
+                .expect("confirmed")
+        );
 
         assert_eq!(
             terminal.messages()[0],
@@ -206,15 +236,22 @@ mod tests {
     #[test]
     fn nothing_to_remove_and_no_terminal_behave_as_for_images() {
         let now = SystemTime::UNIX_EPOCH + DAY * 30;
-        let mut terminal = ScriptedTerminal::new(TerminalCondition::NonInteractive, []);
+        let mut shown = ScriptedTerminal::interactive([]);
 
-        assert!(!approve_storage(&mut terminal, &[], now, false).expect("nothing to approve"));
-        assert_eq!(
-            terminal.lines(),
-            ["✔ No unused workload storage to clean up"]
+        assert!(
+            !approve_storage(&mut shown, &[], now, false, OutputFormat::Human)
+                .expect("nothing to approve")
         );
-        let error = approve_storage(&mut terminal, &[engine_cache(now)], now, false)
-            .expect_err("needs yes");
+        assert_eq!(shown.lines(), ["✔ No unused workload storage to clean up"]);
+        let mut terminal = ScriptedTerminal::new(TerminalCondition::NonInteractive, []);
+        let error = approve_storage(
+            &mut terminal,
+            &[engine_cache(now)],
+            now,
+            false,
+            OutputFormat::Human,
+        )
+        .expect_err("needs yes");
         assert_eq!(
             error.to_string(),
             "1 unused workload storage folders can be removed; run in a terminal or pass --yes to remove them without confirmation"
@@ -222,12 +259,22 @@ mod tests {
     }
 
     #[test]
-    fn records_name_the_storage_and_its_result() {
+    fn the_document_names_the_storage_and_its_result() {
         let removal = engine_cache(SystemTime::UNIX_EPOCH);
 
         assert_eq!(
-            record_block(&removal, &StorageRemovalOutcome::InUse).expect("record"),
-            "StorageRemoval\nDOTCORE_GC_STORAGE_KIND=cache\nDOTCORE_GC_STORAGE_AREA=site-a\nDOTCORE_GC_STORAGE_NAMESPACE=engine-artifact\nDOTCORE_GC_STORAGE_KEY=sha256-0123\nDOTCORE_GC_STORAGE_RESULT=in use\n"
+            serde_json::to_value(StorageResult::new(
+                &removal,
+                &StorageRemovalOutcome::UsedSincePlanning
+            ))
+            .expect("document"),
+            serde_json::json!({
+                "kind": "cache",
+                "area": "site-a",
+                "namespace": "engine-artifact",
+                "key": "sha256-0123",
+                "result": "usedSincePlanning",
+            })
         );
     }
 

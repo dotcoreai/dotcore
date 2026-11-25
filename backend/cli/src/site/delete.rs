@@ -5,9 +5,8 @@
 //! backend holds, and it touches only resources whose ownership evidence names the site, or, for
 //! native workloads, places them in the site directory.
 
-use std::{io::Write, path::Path, sync::Arc};
+use std::{path::Path, sync::Arc};
 
-use anyhow::Context;
 use clap::Args;
 use dotcore_runtime::SiteRuntimeCleanup;
 use dotcore_site::reset::{
@@ -17,13 +16,15 @@ use dotcore_site::reset::{
     },
 };
 
+use super::output::{SiteDocument, write_directory_outcome};
 use crate::{
     RootPathArgs,
+    output::{LazyTerminal, OutputFormat, write_yaml},
     runtime_confirmation::{
         RuntimeRemovalApproval, RuntimeRemovalArgs, approve_runtime_removal,
         native_cleanup_failure, site_runtime_cleanup, site_runtime_cleanups,
     },
-    terminal::{Terminal, open_terminal},
+    terminal::Terminal,
 };
 
 /// Arguments of `dotc site delete`.
@@ -38,18 +39,26 @@ pub struct SiteDeleteArgs {
 }
 
 /// Deletes the site using the process terminal and the runtimes its configuration binds.
-pub(crate) async fn delete(arguments: SiteDeleteArgs, paths: &RootPathArgs) -> anyhow::Result<()> {
+pub(crate) async fn delete(
+    arguments: SiteDeleteArgs,
+    paths: &RootPathArgs,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
     let site_dir = paths.site_dir()?;
     let cache_root = paths.configured_cache_root()?;
-    let mut terminal = open_terminal();
+    let mut terminal = LazyTerminal::new();
     delete_with(
         arguments,
         &site_dir,
         cache_root.as_deref(),
-        terminal.as_mut(),
+        &mut terminal,
         site_runtime_cleanup,
     )
-    .await
+    .await?;
+    if format == OutputFormat::Yaml {
+        return write_yaml(&SiteDocument::at("deleted", &site_dir)?);
+    }
+    write_directory_outcome("Site deleted", &site_dir)
 }
 
 async fn delete_with(
@@ -92,13 +101,8 @@ async fn delete_with(
     transaction
         .delete(session)
         .await
-        .map_err(|error| delete_failure(error, site_dir))?;
-    writeln!(
-        std::io::stdout().lock(),
-        "Site deleted\nDOTCORE_SITE_DIR={}",
-        site_dir.display()
-    )
-    .context("write site delete result")
+        .map(drop)
+        .map_err(|error| delete_failure(error, site_dir))
 }
 
 fn delete_failure(error: SiteResetTransactionError, site_dir: &Path) -> anyhow::Error {

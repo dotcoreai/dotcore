@@ -71,19 +71,19 @@ struct WorkloadCommand {
 
 #[derive(Debug, Subcommand)]
 enum WorkloadAction {
-    /// Resolve and launch a workload.
+    /// Resolve and launch a workload
     Launch(LaunchArgs),
 
-    /// Inspect an ownership handle and its runtime namespace.
+    /// Inspect an ownership handle and its runtime namespace
     Inspect(InspectArgs),
 
-    /// Read workload diagnostics.
+    /// Read workload diagnostics
     Logs(LogsArgs),
 
-    /// Observe exact-process NVIDIA VRAM without mutating the workload.
+    /// Observe the exact-process NVIDIA VRAM of a workload
     Vram(VramArgs),
 
-    /// Stop and remove the owned workload.
+    /// Stop and remove the owned workload
     Teardown(TeardownArgs),
 }
 

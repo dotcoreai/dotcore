@@ -30,6 +30,7 @@ mod hosts;
 mod management;
 mod model;
 mod node;
+mod output;
 mod parameters;
 mod paths;
 mod runtime_confirmation;
@@ -56,6 +57,11 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub verbose: bool,
 
+    /// Print the result as YAML on stdout, for scripts and agents; the command never asks a
+    /// question.
+    #[arg(long, global = true)]
+    pub yaml: bool,
+
     #[command(flatten)]
     pub paths: RootPathArgs,
 
@@ -66,41 +72,40 @@ pub struct Cli {
 /// Product CLI command groups.
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Inspect effective Dotcore process configuration.
+    /// Inspect the effective Dotcore process configuration
     Config(config::ConfigCommand),
 
-    /// Manage the bare local server process that `dotcore` supervises.
+    /// Manage the bare local server process that `dotcore` supervises
     Server(ServerCommand),
 
-    /// Create, reset, validate, and delete site inputs offline.
+    /// Create, reset, validate and delete site inputs offline
+    #[command(alias = "sites")]
     Site(site::SiteCommand),
 
-    /// Manage site nodes: `add`, `remove`, and `list` on the manager, `join` and `leave` on the
-    /// node's machine.
+    /// Manage the nodes of a site and this machine's membership in one
+    #[command(alias = "nodes")]
     Node(node::NodeCommand),
 
-    /// Manage the model deployments of the running site: `list`, `show`, `pause`, `resume`,
-    /// `teardown` and `logs`.
+    /// Inspect and control the model deployments of the running site
     #[command(alias = "models")]
     Model(model::ModelCommand),
 
-    /// Manage the application deployments of the running site: `list`, `show`, `pause`, `resume`,
-    /// `teardown` and `logs`.
+    /// Inspect and control the application deployments of the running site
     #[command(visible_alias = "app", alias = "applications")]
     Application(application::ApplicationCommand),
 
-    /// Start a coding agent on a site's inference API, with an inference route as its model.
+    /// Start a coding agent on a site's inference API
     Code(code::CodeArgs),
 
-    /// Run one transient development workload.
+    /// Run one transient development workload
     Dev(workload::DevCommand),
 
-    /// Remove Docker image names on this machine that no Docker-delivered Nix artifact uses,
-    /// after listing them and asking for confirmation.
+    /// Remove unused Docker image names from this machine after confirmation
+    ///
+    /// Lists the names no Docker-delivered Nix artifact uses, then asks before removing them.
     Gc(gc::GcCommand),
 
-    /// Describe this machine's hardware and recommend models for it, without a site: `show` and
-    /// `recommend`.
+    /// Describe this machine's hardware and recommend models for it
     Hardware(hardware::HardwareCommand),
 }
 
@@ -115,14 +120,16 @@ pub struct ServerCommand {
 /// Actions supported by the local server command group.
 #[derive(Debug, Subcommand)]
 enum ServerSubcommand {
-    /// Run the bare backend server process for a site folder; settings come from the environment.
-    /// `dotcore` supervises this process and also serves the console and public listeners.
+    /// Run the bare backend server process for a site folder
+    ///
+    /// Settings come from the environment. `dotcore` supervises this process and also serves the
+    /// console and public listeners.
     Start,
 }
 
-/// Initializes the process-wide tracing subscriber. The interactive node membership, model and application commands
-/// default to warnings so their prompts and result records are not interleaved with routine
-/// events; `RUST_LOG` overrides this.
+/// Initializes the process-wide tracing subscriber. The interactive node membership, model and
+/// application commands default to warnings so their prompts and output are not interleaved with
+/// routine events; `RUST_LOG` overrides this.
 pub fn initialize_tracing() {
     let words = command_words(std::env::args_os());
     dotcore::logging::initialize_with_default_filter(if quiet_by_default(&words) {
@@ -143,17 +150,18 @@ pub fn build_runtime() -> Result<Runtime> {
 /// Dispatches a parsed command to its owning capability.
 pub async fn dispatch(cli: Cli) -> Result<()> {
     let paths = &cli.paths;
+    let format = cli.output_format();
     match cli.command {
-        Command::Config(command) => command.dispatch(paths),
+        Command::Config(command) => command.dispatch(paths, format),
         Command::Server(command) => command.dispatch(paths).await,
-        Command::Site(command) => command.dispatch(paths).await,
-        Command::Node(command) => command.dispatch(paths).await,
-        Command::Model(command) => command.dispatch().await,
-        Command::Application(command) => command.dispatch().await,
+        Command::Site(command) => command.dispatch(paths, format).await,
+        Command::Node(command) => command.dispatch(paths, format).await,
+        Command::Model(command) => command.dispatch(format).await,
+        Command::Application(command) => command.dispatch(format).await,
         Command::Code(command) => command.dispatch(paths).await,
         Command::Dev(command) => command.dispatch(paths).await,
-        Command::Gc(command) => command.dispatch(paths).await,
-        Command::Hardware(command) => command.dispatch(paths),
+        Command::Gc(command) => command.dispatch(paths, format).await,
+        Command::Hardware(command) => command.dispatch(paths, format),
     }
 }
 
@@ -198,6 +206,7 @@ fn command_words(arguments: impl IntoIterator<Item = std::ffi::OsString>) -> Vec
         if paths::VALUE_OPTIONS.contains(&argument.as_ref()) {
             arguments.next();
         } else if argument == "--verbose"
+            || argument == "--yaml"
             || paths::VALUE_OPTIONS.iter().any(|option| {
                 argument
                     .strip_prefix(option)
@@ -233,8 +242,8 @@ fn without_root_paths(arguments: &[std::ffi::OsString]) -> Vec<std::ffi::OsStrin
     kept
 }
 
-/// Reports whether the command prints prompts and result records that routine info events would
-/// interleave with, so it stays at warnings.
+/// Reports whether the command prints prompts and output that routine info events would interleave
+/// with, so it stays at warnings.
 fn quiet_by_default(words: &[String]) -> bool {
     matches!(
         (
@@ -256,6 +265,24 @@ fn quiet_by_default(words: &[String]) -> bool {
 fn workload_arguments(words: &[String]) -> bool {
     words.first().is_some_and(|word| word == "dev")
         && words.get(1).is_some_and(|word| word == "workload")
+}
+
+impl Command {
+    /// Reports whether the command can print its result as YAML. The server, the coding agent and
+    /// the development workloads have no result to print: the server speaks its startup protocol,
+    /// the agent takes over the terminal and workloads speak their own JSON protocol.
+    fn prints_yaml(&self) -> bool {
+        match self {
+            Self::Config(_)
+            | Self::Site(_)
+            | Self::Node(_)
+            | Self::Model(_)
+            | Self::Application(_)
+            | Self::Gc(_)
+            | Self::Hardware(_) => true,
+            Self::Server(_) | Self::Code(_) | Self::Dev(_) => false,
+        }
+    }
 }
 
 impl ServerCommand {
@@ -356,9 +383,21 @@ impl Cli {
         }
     }
 
+    /// How the command presents its result.
+    fn output_format(&self) -> output::OutputFormat {
+        if self.yaml {
+            output::OutputFormat::Yaml
+        } else {
+            output::OutputFormat::Human
+        }
+    }
+
     fn argument_contract_error(&self) -> Option<&'static str> {
+        if self.yaml && !self.command.prints_yaml() {
+            return Some("--yaml is not available for this command");
+        }
         match &self.command {
-            Command::Site(command) => command.argument_contract_error(),
+            Command::Site(command) => command.argument_contract_error(self.yaml),
             Command::Node(command) => command.argument_contract_error(),
             Command::Model(command) => command.argument_contract_error(),
             Command::Application(command) => command.argument_contract_error(),
@@ -375,6 +414,8 @@ impl Cli {
 #[cfg(test)]
 mod tests {
     use clap::error::ErrorKind;
+
+    use clap::CommandFactory;
 
     use super::Cli;
 
@@ -440,6 +481,10 @@ mod tests {
         assert_eq!(
             words(&["dotc", "node", "--site-dir", "/a", "list"]),
             ["node", "list"]
+        );
+        assert_eq!(
+            words(&["dotc", "--yaml", "model", "--verbose", "list"]),
+            ["model", "list"]
         );
         assert_eq!(words(&["dotc"]), Vec::<String>::new());
     }
@@ -523,6 +568,25 @@ mod tests {
     }
 
     #[test]
+    fn yaml_cannot_start_the_guided_site_flow() {
+        for (arguments, message) in [
+            (
+                &["dotc", "--yaml", "site", "init", "--interactive"][..],
+                "--interactive cannot be combined with --yaml, which never asks",
+            ),
+            (
+                &["dotc", "--yaml", "site", "reset"][..],
+                "missing workload choices; --yaml never asks, so pass --inference and --applications",
+            ),
+        ] {
+            let error = Cli::try_parse_from(arguments).expect_err("guided flow under --yaml");
+
+            assert_eq!(error.kind(), ErrorKind::ArgumentConflict, "{arguments:?}");
+            assert!(error.to_string().contains(message), "{error}");
+        }
+    }
+
+    #[test]
     fn plain_cli_shows_help_as_invalid_usage() {
         assert_help_error(["dotc"]);
     }
@@ -543,6 +607,76 @@ mod tests {
         assert_eq!(error.kind(), ErrorKind::InvalidSubcommand);
         assert_eq!(error.exit_code(), 2);
     }
+
+    #[test]
+    fn every_leaf_command_has_a_one_line_about_in_one_style() {
+        let mut leaves = Vec::new();
+        collect_leaves(&Cli::command(), "dotc", &mut leaves);
+
+        assert_eq!(leaves.join("\n"), EXPECTED_LEAF_ABOUTS.join("\n"));
+        for leaf in &leaves {
+            let about = leaf.split_once(": ").expect("path and about").1;
+            assert!(!about.contains('\n'), "{leaf}");
+            assert!(!about.ends_with('.'), "{leaf}");
+        }
+    }
+
+    /// Lists `path: about` for every command without subcommands.
+    fn collect_leaves(command: &clap::Command, path: &str, leaves: &mut Vec<String>) {
+        let mut subcommands = command
+            .get_subcommands()
+            .filter(|subcommand| subcommand.get_name() != "help")
+            .peekable();
+        if subcommands.peek().is_none() {
+            let about = command
+                .get_about()
+                .map(ToString::to_string)
+                .unwrap_or_default();
+            leaves.push(format!("{path}: {about}"));
+            return;
+        }
+        for subcommand in subcommands {
+            let path = format!("{path} {}", subcommand.get_name());
+            collect_leaves(subcommand, &path, leaves);
+        }
+    }
+
+    const EXPECTED_LEAF_ABOUTS: &[&str] = &[
+        "dotc config show: Show the effective process paths and this site folder's role",
+        "dotc server start: Run the bare backend server process for a site folder",
+        "dotc site init: Create a site with its signing key and this machine's node identity",
+        "dotc site reset: Start a fresh site, replacing the current one after confirmation",
+        "dotc site delete: Delete a stopped site, its runtime resources and its caches",
+        "dotc site validate: Validate the site's input bundle without starting services",
+        "dotc node add: Allow one new machine to join the site",
+        "dotc node join: Join this machine to a site with the token `dotc node add` printed",
+        "dotc node remove: Remove a worker node from the site",
+        "dotc node leave: Leave the site: stop this node's workloads and delete its node folder",
+        "dotc node list: List the site's nodes with their addresses and deployments",
+        "dotc model list: List the model deployments with their state and node",
+        "dotc model show: Show one model deployment by name or ID",
+        "dotc model pause: Pause a model deployment, without waiting for it to pause",
+        "dotc model resume: Resume a paused model deployment, without waiting for it to resume",
+        "dotc model teardown: Remove a model deployment and its workload after confirmation",
+        "dotc model logs: Print the recent log lines of a model deployment",
+        "dotc application list: List the application deployments with their state and node",
+        "dotc application show: Show one application deployment by name or ID",
+        "dotc application pause: Pause an application deployment, without waiting for it to pause",
+        "dotc application resume: Resume a paused application deployment, without waiting for it to resume",
+        "dotc application teardown: Remove an application deployment and its workloads after confirmation",
+        "dotc application logs: Print the recent log lines of an application deployment",
+        "dotc code: Start a coding agent on a site's inference API",
+        "dotc dev workload launch: Resolve and launch a workload",
+        "dotc dev workload inspect: Inspect an ownership handle and its runtime namespace",
+        "dotc dev workload logs: Read workload diagnostics",
+        "dotc dev workload vram: Observe the exact-process NVIDIA VRAM of a workload",
+        "dotc dev workload teardown: Stop and remove the owned workload",
+        "dotc dev telemetry fit: Fit a model binding's sizing constants from recorded workload resources",
+        "dotc dev telemetry check: Check a model binding's sizing constants against recorded workload resources",
+        "dotc gc: Remove unused Docker image names from this machine after confirmation",
+        "dotc hardware show: Show this machine's hardware and the hardware class of each model target",
+        "dotc hardware recommend: Rank the master catalog's models for each use case on this machine",
+    ];
 
     #[test]
     fn help_and_version_succeed() {

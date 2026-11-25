@@ -3,7 +3,9 @@
 //! Starts a join through the site manager's management API, shows how to run `dotc node join` on
 //! the new machine, and follows the join. The operator allows the specific machine that arrives
 //! (or the command does with `--yes`), and the manager records it only after the machine has
-//! installed its own folder. Ending the command before the join completes cancels the join.
+//! installed its own folder. Ending the command before the join completes cancels the join. Asked
+//! for YAML, the command never asks, so it needs `--yes`, reports its progress and the command
+//! to run on the new machine on stderr, and prints one document once the node is recorded.
 
 use std::{
     io::Write,
@@ -23,15 +25,15 @@ use dotcore_proto::dotcore::site::v1::{
 use dotcore_site::{membership::join::JoinToken, node::folder::CertificateFingerprint};
 use tonic::{Code, Streaming, transport::Channel};
 
-use super::{Notices, boxed, fingerprint_facts, fingerprint_grid, record_value, write_records};
+use serde::Serialize;
+
+use super::{Notices, boxed, fingerprint_facts, fingerprint_grid, progress, write_stdout};
 use crate::{
     RootPathArgs,
     management::{ManagementError, ManagerArgs, single_line},
+    output::{OutputFormat, plain_text, require_consent, write_yaml},
     site::parse_absolute_path,
-    terminal::{
-        ConfirmPrompt, Message, PromptError, Terminal, TerminalCondition,
-        controlling_terminal_condition, open_terminal,
-    },
+    terminal::{ConfirmPrompt, Message, PromptError, Terminal, open_terminal},
 };
 
 /// Where the Dotcore installer is published.
@@ -40,9 +42,6 @@ const INSTALLER_URL: &str = "https://dotcore.ai/install.sh";
 /// Arguments of `dotc node add`.
 #[derive(Debug, Args)]
 pub struct NodeAddArgs {
-    #[command(flatten)]
-    manager: ManagerArgs,
-
     /// Write the token to this new file (mode 0600, removed when the command ends) instead of
     /// printing it.
     #[arg(long, value_name = "PATH", value_parser = parse_absolute_path)]
@@ -51,16 +50,24 @@ pub struct NodeAddArgs {
     /// Allow the node that presents the token without asking.
     #[arg(long)]
     pub yes: bool,
+
+    #[command(flatten)]
+    manager: ManagerArgs,
 }
 
 /// Starts a join on the running manager and follows it until the machine is recorded, cancelling
 /// the join when the command ends any other way.
-pub(crate) async fn node_add(_paths: &RootPathArgs, arguments: NodeAddArgs) -> anyhow::Result<()> {
-    if !arguments.yes && controlling_terminal_condition() != TerminalCondition::Interactive {
-        anyhow::bail!(
-            "allowing a node needs a terminal; run in a terminal or pass --yes to allow the node that presents the token"
-        );
-    }
+pub(crate) async fn node_add(
+    _paths: &RootPathArgs,
+    arguments: NodeAddArgs,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
+    require_consent(
+        arguments.yes,
+        format,
+        "allowing a node needs a terminal; run in a terminal or pass --yes to allow the node that presents the token",
+        "allowing a node needs confirmation, which --yaml never asks for; pass --yes to allow the node that presents the token",
+    )?;
 
     let manager = arguments
         .manager
@@ -85,13 +92,14 @@ pub(crate) async fn node_add(_paths: &RootPathArgs, arguments: NodeAddArgs) -> a
     let outcome = tokio::select! {
         biased;
         _ = tokio::signal::ctrl_c() => Err(anyhow::Error::new(PromptError::Cancelled)),
-        added = run_join(&mut joins, started, &arguments) => added,
+        added = run_join(&mut joins, started, &arguments, format) => added,
     };
     match outcome {
+        Ok(joined) if format == OutputFormat::Yaml => write_yaml(&AddedDocument::of(&joined)),
         Ok(joined) => {
             let mut terminal = (!arguments.yes).then(open_terminal);
-            if let Some(records) = report_added(boxed(&mut terminal), &joined)? {
-                write_records(&records)?;
+            if let Some(text) = report_added(boxed(&mut terminal), &joined)? {
+                write_stdout(&text)?;
             }
             Ok(())
         }
@@ -111,11 +119,33 @@ struct JoinedMachine {
     rejoined: bool,
 }
 
+/// The YAML document of a node the manager recorded.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AddedDocument<'a> {
+    outcome: &'static str,
+    node_id: &'a str,
+    display_name: &'a str,
+    host: &'a str,
+}
+
+impl<'a> AddedDocument<'a> {
+    fn of(joined: &'a JoinedMachine) -> Self {
+        Self {
+            outcome: if joined.rejoined { "rejoined" } else { "added" },
+            node_id: &joined.node_id,
+            display_name: &joined.name,
+            host: &joined.host,
+        }
+    }
+}
+
 /// Announces the join command, then answers each proposal until the join ends.
 async fn run_join(
     joins: &mut SiteMembershipServiceClient<Channel>,
     started: dotcore_proto::dotcore::site::v1::StartJoinResponse,
     arguments: &NodeAddArgs,
+    format: OutputFormat,
 ) -> anyhow::Result<JoinedMachine> {
     let token_file = match &arguments.token_file {
         Some(path) => Some(TokenFile::create(path, &started.token)?),
@@ -140,8 +170,11 @@ async fn run_join(
         Notices::new(boxed(&mut terminal)).warn(&notice)?;
     }
     drop(terminal);
-    if let Some(records) = ready {
-        write_records(&records)?;
+    if format == OutputFormat::Yaml {
+        progress(&format!("On the new machine, run: {join_command}"));
+        progress("Waiting for the node...");
+    } else if let Some(text) = ready {
+        write_stdout(&text)?;
     }
 
     let mut watch = joins
@@ -246,34 +279,34 @@ async fn follow(
     }
 }
 
-/// Tells the operator how to join, on the terminal when interactive, else as the join command
-/// record. On the terminal, the installer command for a machine without Dotcore comes first when
-/// there is one. Returns the records to write when there is no terminal.
+/// Tells the operator how to join, on the terminal when there is one, else as plain text to write
+/// on stdout. On the terminal, the installer command for a machine without Dotcore comes first
+/// when there is one. Returns the text to write when there is no terminal.
 fn announce_ready(
     terminal: Option<&mut dyn Terminal>,
     join_command: &str,
     install_command: Option<&str>,
 ) -> anyhow::Result<Option<String>> {
     let Some(terminal) = terminal else {
-        return Ok(Some(format!(
-            "Node join ready\nDOTCORE_JOIN_COMMAND={}\n",
-            record_value(join_command)?
-        )));
+        return Ok(Some(plain_text(&[
+            Message::Info("On the new machine, run:".to_owned()),
+            Message::Command(join_command.to_owned()),
+        ])));
     };
     match install_command {
         Some(install_command) => {
-            terminal.message(&Message::Info(
+            terminal.prompt_context(&Message::Info(
                 "On a new machine, install Dotcore and join with:".to_owned(),
             ))?;
-            terminal.message(&Message::Command(install_command.to_owned()))?;
-            terminal.message(&Message::Info(
+            terminal.prompt_context(&Message::Command(install_command.to_owned()))?;
+            terminal.prompt_context(&Message::Info(
                 "On a machine that has Dotcore, run:".to_owned(),
             ))?;
         }
-        None => terminal.message(&Message::Info("On the new machine, run:".to_owned()))?,
+        None => terminal.prompt_context(&Message::Info("On the new machine, run:".to_owned()))?,
     }
-    terminal.message(&Message::Command(join_command.to_owned()))?;
-    terminal.message(&Message::Hint("Waiting for the node...".to_owned()))?;
+    terminal.prompt_context(&Message::Command(join_command.to_owned()))?;
+    terminal.prompt_context(&Message::Hint("Waiting for the node...".to_owned()))?;
     Ok(None)
 }
 
@@ -392,39 +425,31 @@ fn decide_with_terminal(
         .context("the manager sent a malformed key fingerprint")?;
     facts.extend(fingerprint_facts(&fingerprint));
 
-    terminal.message(&Message::Heading(heading.to_owned()))?;
-    terminal.message(&Message::KeyValues(facts))?;
-    terminal.message(&fingerprint_grid(&fingerprint))?;
+    terminal.prompt_context(&Message::Heading(heading.to_owned()))?;
+    terminal.prompt_context(&Message::KeyValues(facts))?;
+    terminal.prompt_context(&fingerprint_grid(&fingerprint))?;
     if proposal.host_differs_from_peer {
-        terminal.message(&Message::Warning(host_mismatch_notice(proposal)))?;
+        terminal.prompt_context(&Message::Warning(host_mismatch_notice(proposal)))?;
     }
     Ok(terminal.confirm(&ConfirmPrompt::new(question, false))?)
 }
 
-/// Reports the recorded node, on the terminal when interactive, else as records. Returns the
-/// records to write when there is no terminal.
+/// Reports the recorded node, on the terminal when there is one, else as plain text to write on
+/// stdout. Returns the text to write when there is no terminal.
 fn report_added(
     terminal: Option<&mut dyn Terminal>,
     joined: &JoinedMachine,
 ) -> anyhow::Result<Option<String>> {
-    let (verb, header) = if joined.rejoined {
-        ("Rejoined", "Node rejoined")
-    } else {
-        ("Added", "Node added")
-    };
-    let Some(terminal) = terminal else {
-        return Ok(Some(format!(
-            "{header}\nDOTCORE_NODE_ID={}\nDOTCORE_NODE_NAME={}\nDOTCORE_NODE_HOST={}\n",
-            record_value(&joined.node_id)?,
-            record_value(&joined.name)?,
-            record_value(&joined.host)?,
-        )));
-    };
-    terminal.message(&Message::Success(format!(
+    let verb = if joined.rejoined { "Rejoined" } else { "Added" };
+    let message = Message::Success(format!(
         "{verb} {} at {}",
         single_line(&joined.name),
         joined.host
-    )))?;
+    ));
+    let Some(terminal) = terminal else {
+        return Ok(Some(plain_text(&[message])));
+    };
+    terminal.message(&message)?;
     Ok(None)
 }
 
@@ -750,7 +775,7 @@ mod tests {
     }
 
     #[test]
-    fn without_a_terminal_only_the_join_command_record_is_written() {
+    fn without_a_terminal_only_the_join_command_is_written() {
         let records = announce_ready(
             None,
             "dotc node join --token dcjoin1.abc",
@@ -760,7 +785,7 @@ mod tests {
 
         assert_eq!(
             records.as_deref(),
-            Some("Node join ready\nDOTCORE_JOIN_COMMAND=dotc node join --token dcjoin1.abc\n")
+            Some("On the new machine, run:\n  dotc node join --token dcjoin1.abc\n")
         );
     }
 

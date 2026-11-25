@@ -1,10 +1,11 @@
 //! Reads and follows the logs of one deployment through the manager's public logs API, the same
 //! one the web console uses, so it works for a deployment on any node of the site.
 //!
-//! Log lines go to stdout and nothing else does, so they can be piped. Source availability,
-//! truncation notices and the end of a follow go to stderr. A read whose every source is
-//! unavailable fails, so an empty result always has a reason; a follow keeps going while sources
-//! come and go, and ends when the deployment is removed.
+//! Log lines go to stdout and nothing else does, so they can be piped; asked for YAML, each line is
+//! one document holding the manager's log entry plus its text as UTF-8. Source availability, truncation notices and the
+//! end of a follow go to stderr. A read whose every source is unavailable fails, so an empty result
+//! always has a reason; a follow keeps going while sources come and go, and ends when the
+//! deployment is removed.
 
 use std::{
     io::{self, IsTerminal, Write},
@@ -15,13 +16,17 @@ use anyhow::Context;
 use clap::Args;
 use dotcore_proto::google::protobuf::Timestamp;
 use futures_util::{Stream, StreamExt};
+use serde::Serialize;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use tonic::{Code, Status};
 
 use super::{
     ManagedDeployment, ManagementError, Manager, ManagerArgs, call_failed, find_deployment,
 };
-use crate::terminal::PromptError;
+use crate::{
+    output::{OutputFormat, YamlDocuments},
+    terminal::PromptError,
+};
 
 /// Most recent lines one read returns, the manager's page limit.
 const MAX_LINES: u32 = 200;
@@ -29,7 +34,7 @@ const MAX_LINES: u32 = 200;
 /// Arguments of a deployment's logs command.
 #[derive(Debug, Args)]
 pub(crate) struct LogsArgs {
-    /// Name or id of the deployment.
+    /// Name or ID of the deployment.
     #[arg(value_name = "DEPLOYMENT")]
     reference: String,
 
@@ -62,6 +67,7 @@ pub(crate) struct LogsArgs {
 /// Prints the referenced deployment's most recent lines, then follows new ones when asked.
 pub(crate) async fn deployment_logs<T: LoggedDeployment>(
     arguments: LogsArgs,
+    format: OutputFormat,
 ) -> anyhow::Result<()> {
     let manager = arguments.manager.connect().await?;
     let deployment = find_deployment::<T>(&manager, &arguments.reference).await?;
@@ -76,7 +82,21 @@ pub(crate) async fn deployment_logs<T: LoggedDeployment>(
     )
     .await
     .map_err(|status| logs_failed(T::GROUP, &subject, &arguments.sources, status))?;
-    let mut output = LogOutput::new(&arguments, page.sources.len() > 1);
+    let unavailable = !arguments.follow
+        && !page.sources.is_empty()
+        && page
+            .sources
+            .iter()
+            .all(|source| source.state == LogSourceState::Unavailable);
+    let unavailable_failure = || {
+        anyhow::anyhow!("every log source of {subject} is unavailable; its node may be unreachable")
+    };
+    // A failed YAML command leaves stdout empty.
+    if unavailable && format == OutputFormat::Yaml {
+        return Err(unavailable_failure());
+    }
+
+    let mut output = LogOutput::new(&arguments, format, page.sources.len() > 1);
     output
         .print(|output| output.page(&page))
         .context("cannot write the logs to standard output")?;
@@ -85,17 +105,10 @@ pub(crate) async fn deployment_logs<T: LoggedDeployment>(
     if output.closed {
         return Ok(());
     }
+    if unavailable {
+        return Err(unavailable_failure());
+    }
     if !arguments.follow {
-        let unavailable = !page.sources.is_empty()
-            && page
-                .sources
-                .iter()
-                .all(|source| source.state == LogSourceState::Unavailable);
-        if unavailable {
-            anyhow::bail!(
-                "every log source of {subject} is unavailable; its node may be unreachable"
-            );
-        }
         return Ok(());
     }
 
@@ -125,13 +138,16 @@ pub(crate) async fn deployment_logs<T: LoggedDeployment>(
 /// A deployment kind whose logs the manager serves. Each kind's calls use its own messages, which
 /// the implementations convert to the shared shapes below.
 pub(crate) trait LoggedDeployment: ManagedDeployment {
+    /// The manager's message for one line of this kind, printed as it is when asked for YAML.
+    type Entry: Serialize + Send + 'static;
+
     /// Reads the most recent `page_size` lines of the deployment's selected sources.
     async fn read_logs(
         manager: &Manager,
         id: String,
         sources: Vec<String>,
         page_size: u32,
-    ) -> Result<LogPage, Status>;
+    ) -> Result<LogPage<Self::Entry>, Status>;
 
     /// Follows the deployment's selected sources from the given positions.
     async fn follow_logs(
@@ -139,20 +155,20 @@ pub(crate) trait LoggedDeployment: ManagedDeployment {
         id: String,
         sources: Vec<String>,
         positions: Vec<LogPosition>,
-    ) -> Result<LogEvents, Status>;
+    ) -> Result<LogEvents<Self::Entry>, Status>;
 }
 
 /// The events of a log follow, in arrival order.
-pub(crate) type LogEvents = Pin<Box<dyn Stream<Item = Result<LogEvent, Status>> + Send>>;
+pub(crate) type LogEvents<E> = Pin<Box<dyn Stream<Item = Result<LogEvent<E>, Status>> + Send>>;
 
 /// One read of a deployment's most recent lines.
 #[derive(Debug)]
-pub(crate) struct LogPage {
+pub(crate) struct LogPage<E> {
     /// The selected sources and their availability at the time of the read.
     pub(crate) sources: Vec<LogSource>,
 
     /// The lines, oldest first.
-    pub(crate) entries: Vec<LogEntry>,
+    pub(crate) entries: Vec<LogEntry<E>>,
 
     /// Whether the manager's response size limit dropped older lines of the page.
     pub(crate) truncated: bool,
@@ -189,7 +205,7 @@ pub(crate) enum LogSourceState {
 
 /// One line of a log source.
 #[derive(Debug)]
-pub(crate) struct LogEntry {
+pub(crate) struct LogEntry<E> {
     pub(crate) source_name: String,
     pub(crate) source_label: String,
     pub(crate) timestamp: Option<Timestamp>,
@@ -197,6 +213,9 @@ pub(crate) struct LogEntry {
 
     /// Whether the manager cut the line at its length limit.
     pub(crate) truncated: bool,
+
+    /// The line as the manager sent it.
+    pub(crate) message: E,
 }
 
 /// The timestamp of the latest line already printed for one source.
@@ -208,12 +227,12 @@ pub(crate) struct LogPosition {
 
 /// One event of a log follow.
 #[derive(Debug)]
-pub(crate) enum LogEvent {
+pub(crate) enum LogEvent<E> {
     /// A source became available or unavailable, or ended.
     Source(LogSource),
 
     /// A new line.
-    Entry(LogEntry),
+    Entry(LogEntry<E>),
 }
 
 /// Why a follow stopped early.
@@ -226,9 +245,22 @@ enum FollowFailure {
     Output(io::Error),
 }
 
+/// One log entry as the manager sent it, plus its line as text. The manager's content is bytes,
+/// which the protobuf mapping renders as base64, so the text lets a reader see the line.
+#[derive(Serialize)]
+struct LogEntryDocument<'a, E> {
+    #[serde(flatten)]
+    message: &'a E,
+
+    /// The line as UTF-8, with invalid bytes replaced.
+    text: String,
+}
+
 /// Where log lines and notices are printed, and how lines are shaped.
 struct LogOutput {
     stdout: io::Stdout,
+    format: OutputFormat,
+    documents: YamlDocuments,
     labeled: bool,
     timestamps: bool,
     sanitized: bool,
@@ -236,12 +268,14 @@ struct LogOutput {
 }
 
 impl LogOutput {
-    fn new(arguments: &LogsArgs, labeled: bool) -> Self {
+    fn new(arguments: &LogsArgs, format: OutputFormat, labeled: bool) -> Self {
         let stdout = io::stdout();
         // A terminal would act on control sequences in a line; a pipe receives the line as is.
         let sanitized = stdout.is_terminal();
         Self {
             stdout,
+            format,
+            documents: YamlDocuments::default(),
             labeled,
             timestamps: arguments.timestamps,
             sanitized,
@@ -264,7 +298,7 @@ impl LogOutput {
         }
     }
 
-    fn page(&mut self, page: &LogPage) -> io::Result<()> {
+    fn page<E: Serialize>(&mut self, page: &LogPage<E>) -> io::Result<()> {
         for entry in &page.entries {
             self.entry(entry)?;
         }
@@ -282,7 +316,10 @@ impl LogOutput {
     }
 
     /// Prints events until the follow ends, returning the failure that ended it, if any.
-    async fn follow(&mut self, mut events: LogEvents) -> Result<(), FollowFailure> {
+    async fn follow<E: Serialize>(
+        &mut self,
+        mut events: LogEvents<E>,
+    ) -> Result<(), FollowFailure> {
         while let Some(event) = events.next().await {
             match event.map_err(FollowFailure::Manager)? {
                 LogEvent::Source(source) => source_notice(&source),
@@ -298,7 +335,15 @@ impl LogOutput {
         Ok(())
     }
 
-    fn entry(&mut self, entry: &LogEntry) -> io::Result<()> {
+    fn entry<E: Serialize>(&mut self, entry: &LogEntry<E>) -> io::Result<()> {
+        if self.format == OutputFormat::Yaml {
+            let document = LogEntryDocument {
+                message: &entry.message,
+                text: String::from_utf8_lossy(&entry.content).into_owned(),
+            };
+            return self.documents.write(&mut self.stdout.lock(), &document);
+        }
+
         let mut line = String::new();
         if self.timestamps {
             line.push_str(&format_timestamp(entry.timestamp.as_ref()));

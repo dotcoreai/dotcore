@@ -24,32 +24,37 @@ use dotcore_site::{
 use super::{
     HostAwareIdentityGenerator, SiteLocation, SiteResetArgs,
     collection::{CollectionAdapters, CollectionMode, collect_initial_site},
-    output::{report_host, write_success},
+    output::SiteReport,
     system_initial_site_prober, system_listener_host, validator,
 };
 use crate::{
     RootPathArgs,
     hosts::{ListenerHost, SystemHostEnvironment},
+    output::{LazyTerminal, OutputFormat},
     runtime_confirmation::{
         RuntimeRemovalApproval, approve_runtime_removal, site_runtime_cleanup,
         site_runtime_cleanups,
     },
-    terminal::{Message, NextStep, Terminal, notify_stderr, open_terminal},
+    terminal::{Message, Terminal, notify_stderr},
 };
 
 /// Resets the site the root path options name to a fresh one.
-pub(super) async fn reset(arguments: SiteResetArgs, paths: &RootPathArgs) -> anyhow::Result<()> {
+pub(super) async fn reset(
+    arguments: SiteResetArgs,
+    paths: &RootPathArgs,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
     let location = SiteLocation::resolve(paths)?;
     let cache_root = paths.configured_cache_root()?;
     let listener = system_listener_host(&arguments.configuration).await?;
     let prober = system_initial_site_prober();
-    let mut terminal = open_terminal();
+    let mut terminal = LazyTerminal::new();
     reset_site(
         arguments,
         &location,
         cache_root.as_deref(),
         listener.as_ref(),
-        terminal.as_mut(),
+        &mut terminal,
         CollectionAdapters {
             prober: &prober,
             environment: &SystemHostEnvironment,
@@ -57,11 +62,12 @@ pub(super) async fn reset(arguments: SiteResetArgs, paths: &RootPathArgs) -> any
         },
         site_runtime_cleanup,
     )
-    .await
+    .await?
+    .print(format)
 }
 
 /// Locks the site and gets approval to remove its runtime resources, removes the site, then
-/// collects its new inputs and publishes them.
+/// collects its new inputs and publishes them, returning what to report.
 async fn reset_site(
     arguments: SiteResetArgs,
     location: &SiteLocation,
@@ -70,7 +76,7 @@ async fn reset_site(
     terminal: &mut dyn Terminal,
     adapters: CollectionAdapters<'_>,
     select_runtime: impl FnOnce(&SiteResetSession) -> anyhow::Result<Box<dyn SiteRuntimeCleanup>>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<SiteReport> {
     let site_dir = location.site_dir.as_path();
     let skip_runtime_cleanup = arguments.removal.skip_runtime_cleanup;
     let cleanups = site_runtime_cleanups(cache_root);
@@ -113,15 +119,12 @@ async fn reset_site(
     transaction
         .publish_removed(removed, &collected.prepared.inputs)
         .map_err(|error| reset_transaction_failure(error, site_dir))?;
-    if let Some(host) = &collected.unreported_host {
-        report_host(host);
-    }
-    write_success(
-        "Site reset",
+    Ok(SiteReport::reset(
         site_dir,
-        &collected.prepared.inputs,
-        &collected.prepared.request,
-    )
+        collected.prepared.inputs,
+        collected.prepared.request,
+        collected.unreported_host,
+    ))
 }
 
 /// Lists the site's runtime resources and obtains the operator's approval to remove them. Nothing
@@ -169,18 +172,11 @@ async fn remove_site(
         .map_err(|error| reset_transaction_failure(error, &site_dir))?;
     if provisioned_workers > 0 {
         notify_stderr(
-            &[
-                Message::Warning(format!(
-                    "Site trust was rotated: {provisioned_workers} joined node(s) can no longer connect"
-                )),
-                Message::Next(vec![
-                    NextStep::new("Join each node again, with this on the manager:")
-                        .with_command("dotc node add"),
-                    NextStep::new("and this on the node:").with_command("dotc node join"),
-                ]),
-            ],
+            &[Message::Warning(format!(
+                "Site trust was rotated: {provisioned_workers} joined node(s) can no longer connect and must join again"
+            ))],
             &format!(
-                "Notice: site trust was rotated; {provisioned_workers} previously joined node(s) can no longer connect; join each node again with dotc node add and dotc node join"
+                "Notice: site trust was rotated; {provisioned_workers} previously joined node(s) can no longer connect and must join again"
             ),
         );
     }
@@ -748,6 +744,7 @@ mod tests {
                     adapters(prober, &mut named_identities(None)),
                     move |_| Ok(Box::new(runtime)),
                 ))
+                .map(drop)
         }
 
         /// Every file under the site root with its bytes, in path order.

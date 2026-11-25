@@ -32,6 +32,7 @@ use super::{
     ConfirmPrompt, CountdownPrompt, InputPrompt, Message, MultiSelectPrompt, PromptError,
     SelectPrompt, Terminal, TerminalCondition,
     line::LineTerminal,
+    output::Output,
     render::{LastOutput, Symbols, colors_enabled},
 };
 use theme::Theme;
@@ -52,6 +53,9 @@ pub(super) struct RichTerminal {
 
     /// Real-time bounds of the terminal's answers.
     timing: TerminalTiming,
+
+    /// Where command output goes.
+    output: Output,
 }
 
 impl RichTerminal {
@@ -70,6 +74,7 @@ impl RichTerminal {
             symbols: Symbols::detect(),
             last: LastOutput::Nothing,
             timing,
+            output: Output::stdout(true),
         })
     }
 
@@ -99,8 +104,7 @@ impl RichTerminal {
         self.ensure_interactive()?;
         if self.last.blank_before(false) {
             // Written before the inline viewport opens, which then starts on the row below.
-            self.write_lines(vec![Line::default()])
-                .map_err(PromptError::Io)?;
+            write_lines(&mut self.tty, vec![Line::default()]).map_err(PromptError::Io)?;
         }
         // A cancelled prompt still leaves its summary line.
         self.last = LastOutput::Message;
@@ -168,18 +172,22 @@ impl RichTerminal {
         Ok(outcome)
     }
 
-    fn write_lines(&mut self, lines: Vec<Line<'static>>) -> io::Result<()> {
-        for line in lines {
-            for span in line.spans {
-                let style = span.style.patch(line.style).into_crossterm();
-                crossterm::queue!(
-                    self.tty,
-                    PrintStyledContent(crossterm::style::StyledContent::new(style, span.content))
-                )?;
-            }
-            self.tty.write_all(b"\n")?;
+    /// Lays out a message with the theme and the prompts' spacing: on stdout when `on_output` is
+    /// set, which then shares the prompts' screen, else on the controlling terminal.
+    fn show(&mut self, message: &Message, on_output: bool) -> Result<(), PromptError> {
+        let rendered = message.render(self.symbols);
+        let mut lines = Vec::new();
+        if self.last.blank_before(rendered.blank_before) {
+            lines.push(Line::default());
         }
-        self.tty.flush()
+        lines.extend(rendered.lines.iter().map(|line| self.theme.line(line)));
+        self.last = LastOutput::Message;
+        let writer: &mut dyn Write = if on_output {
+            self.output.writer()
+        } else {
+            &mut self.tty
+        };
+        write_lines(writer, lines).map_err(PromptError::Io)
     }
 }
 
@@ -226,14 +234,34 @@ impl Terminal for RichTerminal {
     }
 
     fn message(&mut self, message: &Message) -> Result<(), PromptError> {
-        self.ensure_interactive()?;
-        let rendered = message.render(self.symbols);
-        let mut lines = Vec::new();
-        if self.last.blank_before(rendered.blank_before) {
-            lines.push(Line::default());
+        if matches!(message, Message::Warning(_)) {
+            return self.output.write_warning(message).map_err(PromptError::Io);
         }
-        lines.extend(rendered.lines.iter().map(|line| self.theme.line(line)));
-        self.last = LastOutput::Message;
-        self.write_lines(lines).map_err(PromptError::Io)
+        self.ensure_interactive()?;
+        if self.output.shares_screen() {
+            return self.show(message, true);
+        }
+        let rendered = message.render(self.symbols);
+        self.output.write_plain(&rendered).map_err(PromptError::Io)
     }
+
+    fn prompt_context(&mut self, message: &Message) -> Result<(), PromptError> {
+        self.ensure_interactive()?;
+        self.show(message, false)
+    }
+}
+
+/// Writes styled lines to `writer`, one per row.
+fn write_lines(mut writer: &mut dyn Write, lines: Vec<Line<'static>>) -> io::Result<()> {
+    for line in lines {
+        for span in line.spans {
+            let style = span.style.patch(line.style).into_crossterm();
+            crossterm::queue!(
+                &mut writer,
+                PrintStyledContent(crossterm::style::StyledContent::new(style, span.content))
+            )?;
+        }
+        writer.write_all(b"\n")?;
+    }
+    writer.flush()
 }

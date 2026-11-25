@@ -16,6 +16,11 @@ This guide starts with your first model and ends with a site on several machines
 - `dotc model` and `dotc app` list, pause, resume, observe and remove deployments.
 - `dotc hardware` prints this machine's hardware for bug reports (`show`) and recommends models for it (`recommend`), without a site.
 
+Commands print results on stdout and errors on stderr, and ask questions on the terminal.
+
+- In scripts and agents, add `--yaml`: the result is one YAML document on stdout. The command never asks a question, so pass `--yes` where it would ask for confirmation. Commands with no result to print, such as `dotc server start`, `dotc code` and `dotc dev`, refuse `--yaml`.
+- When a command fails, it says what went wrong and which commands can fix it.
+
 ## Use it from your tools
 
 Each route is an OpenAI-compatible endpoint, and its route name is the `model` your client asks for.

@@ -76,8 +76,8 @@ pub(super) fn probe_cursor_reports(tty: &File, timing: TerminalTiming) -> io::Re
 
 /// A crossterm backend drawing on the controlling terminal.
 ///
-/// Only the cursor-position query is replaced: crossterm sends it to process stdout, which must
-/// carry nothing but the command's result records.
+/// Only the cursor-position query is replaced: crossterm sends it to process stdout, which may be
+/// redirected and carries only command output.
 pub(super) struct TtyBackend {
     inner: CrosstermBackend<File>,
     tty: File,

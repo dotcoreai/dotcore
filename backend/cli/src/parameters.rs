@@ -9,15 +9,13 @@ use dotcore_proto::dotcore::catalog::v1::{
 };
 
 use crate::management::single_line;
-use crate::terminal::{Message, Terminal};
+use crate::terminal::Message;
 
-const SECRET_MASK: &str = "********";
+pub(crate) const SECRET_MASK: &str = "********";
 const EMPTY_TEXT: &str = "Empty";
 
 /// One shown parameter.
 pub(crate) struct ParameterRow {
-    /// Stable parameter identity.
-    pub(crate) id: String,
     /// Human-readable parameter label.
     pub(crate) name: String,
     /// The value as shown.
@@ -49,7 +47,6 @@ impl ParameterInput<'_> {
             }
         };
         Some(ParameterRow {
-            id: definition.parameter_id.clone(),
             name: single_line(&definition.display_name),
             value: text,
         })
@@ -57,15 +54,39 @@ impl ParameterInput<'_> {
 }
 
 /// The row of a secret that has no parameter definition, masked unless revealed.
-pub(crate) fn secret_row(id: &str, name: &str, secret: &str, reveal_secrets: bool) -> ParameterRow {
+pub(crate) fn secret_row(name: &str, secret: &str, reveal_secrets: bool) -> ParameterRow {
     ParameterRow {
-        id: id.to_owned(),
         name: name.to_owned(),
         value: if reveal_secrets {
             single_line(secret)
         } else {
             SECRET_MASK.to_owned()
         },
+    }
+}
+
+/// Replaces the values of the secret parameters among `definitions` with the mask, leaving every
+/// other value as it is.
+pub(crate) fn mask_secret_values(
+    definitions: &[ParameterDefinition],
+    values: &mut [ParameterValue],
+) {
+    for value in values {
+        let secret = definitions.iter().any(|definition| {
+            definition.parameter_id == value.parameter_id && is_secret(definition)
+        });
+        if secret && value.value.is_some() {
+            value.value = Some(parameter_value::Value::String(SECRET_MASK.to_owned()));
+        }
+    }
+}
+
+/// Returns the mask shown in place of a secret value.
+pub(crate) fn masked(secret: &str) -> String {
+    if secret.is_empty() {
+        String::new()
+    } else {
+        SECRET_MASK.to_owned()
     }
 }
 
@@ -80,43 +101,20 @@ pub(crate) fn retained<'a>(
         .and_then(|value| value.value.as_ref())
 }
 
-/// The record key suffix of a parameter: its id upper-cased, with every non-alphanumeric
-/// character replaced by an underscore.
-pub(crate) fn record_key(id: &str) -> String {
-    id.chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() {
-                character.to_ascii_uppercase()
-            } else {
-                '_'
-            }
-        })
-        .collect()
-}
-
-/// One record line per row under the given key prefix.
-pub(crate) fn record_lines(prefix: &str, rows: &[ParameterRow]) -> String {
-    rows.iter()
-        .map(|row| format!("{prefix}_{}={}\n", record_key(&row.id), row.value))
-        .collect()
-}
-
-/// Writes the parameter rows under a Parameters heading on the terminal, or nothing when there are
-/// none.
-pub(crate) fn write_parameters(
-    terminal: &mut dyn Terminal,
-    rows: &[ParameterRow],
-) -> anyhow::Result<()> {
+/// The messages that show the parameter rows under a Parameters heading, or none when there are
+/// no rows.
+pub(crate) fn parameter_messages(rows: &[ParameterRow]) -> Vec<Message> {
     if rows.is_empty() {
-        return Ok(());
+        return Vec::new();
     }
-    terminal.message(&Message::Heading("Parameters".to_owned()))?;
-    terminal.message(&Message::KeyValues(
-        rows.iter()
-            .map(|row| (row.name.clone(), row.value.clone()))
-            .collect(),
-    ))?;
-    Ok(())
+    vec![
+        Message::Heading("Parameters".to_owned()),
+        Message::KeyValues(
+            rows.iter()
+                .map(|row| (row.name.clone(), row.value.clone()))
+                .collect(),
+        ),
+    ]
 }
 
 fn display(value: &parameter_value::Value, definition: &ParameterDefinition) -> String {

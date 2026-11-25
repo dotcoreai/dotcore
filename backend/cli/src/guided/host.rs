@@ -24,7 +24,7 @@ pub(super) fn collect_host(
     let reason = match selected.source() {
         HostSource::Flag | HostSource::Chosen => return Ok(selected),
         HostSource::Listener(_) | HostSource::Recorded => {
-            terminal.message(&Message::Info(format!(
+            terminal.prompt_context(&Message::Info(format!(
                 "Node host: {}, {}",
                 selected.host(),
                 selected.source()
@@ -36,10 +36,10 @@ pub(super) fn collect_host(
     };
 
     let (prompt, choices) = host_selector(candidates, &selected);
-    terminal.message(&Message::Hint(
+    terminal.prompt_context(&Message::Hint(
         "Other nodes reach this node at this host.".to_owned(),
     ))?;
-    terminal.message(&Message::Hint(reason))?;
+    terminal.prompt_context(&Message::Hint(reason))?;
     let host = match &choices[terminal.select(&prompt)?] {
         HostChoice::Listed(host) => host.clone(),
         HostChoice::Other => collect_other_host(terminal)?,
@@ -101,7 +101,7 @@ fn collect_other_host(terminal: &mut dyn Terminal) -> anyhow::Result<SiteNodeHos
         match SiteNodeHost::normalize(value) {
             Ok(host) => return Ok(host),
             Err(error) => {
-                terminal.message(&Message::Error(format!("Node host {value:?} {error}")))?
+                terminal.prompt_context(&Message::Error(format!("Node host {value:?} {error}")))?
             }
         }
     }

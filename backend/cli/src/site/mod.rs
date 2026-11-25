@@ -41,6 +41,7 @@ use dotcore_site::{
 use crate::{
     RootPathArgs,
     hosts::{HostEnvironment, ListenerHost, SystemHostEnvironment, host_warning},
+    output::OutputFormat,
     runtime_confirmation::RuntimeRemovalArgs,
     terminal::{TerminalCondition, controlling_terminal_condition},
 };
@@ -58,18 +59,19 @@ pub struct SiteCommand {
 /// Actions supported by the site command group.
 #[derive(Debug, Subcommand)]
 enum SiteSubcommand {
-    /// Author an initial site with a site signing key and local node identity.
+    /// Create a site with its signing key and this machine's node identity
     Init(SiteInitArgs),
 
-    /// Start a fresh site, the same as `site init --replace --force`: remove its runtime
-    /// resources after confirmation, its workload caches, state and trust, then write new inputs.
-    /// Previously joined nodes become invalid.
+    /// Start a fresh site, replacing the current one after confirmation
+    ///
+    /// The same as `site init --replace --force`: removes the runtime resources, workload caches,
+    /// state and trust, then writes new inputs. Previously joined nodes become invalid.
     Reset(SiteResetArgs),
 
-    /// Delete a stopped site: remove its runtime resources and workload caches, then its directory.
+    /// Delete a stopped site, its runtime resources and its caches
     Delete(delete::SiteDeleteArgs),
 
-    /// Validate an existing site input bundle without starting services.
+    /// Validate the site's input bundle without starting services
     Validate,
 }
 
@@ -120,7 +122,7 @@ pub struct InitialSiteConfigurationArgs {
     pub node_id: Option<String>,
 
     /// SiteNode display name; defaults to this machine's hostname without a trailing `.local`.
-    #[arg(long, value_name = "NAME", value_parser = parse_display_name)]
+    #[arg(long = "name", value_name = "NAME", value_parser = parse_display_name)]
     pub display_name: Option<String>,
 
     /// SiteNode host other nodes reach this node at, an IPv4 address or DNS host name; always
@@ -395,17 +397,35 @@ pub(crate) struct PreparedInitialSite {
 }
 
 impl SiteCommand {
-    pub(crate) async fn dispatch(self, paths: &RootPathArgs) -> anyhow::Result<()> {
+    /// Runs the chosen action. YAML output never asks, so it counts as having no terminal to ask
+    /// on.
+    pub(crate) async fn dispatch(
+        self,
+        paths: &RootPathArgs,
+        format: OutputFormat,
+    ) -> anyhow::Result<()> {
+        let unattended = format == OutputFormat::Yaml;
         match self.command {
-            Some(SiteSubcommand::Init(arguments)) => init::initialize(arguments, paths).await,
-            Some(SiteSubcommand::Reset(arguments)) => reset::reset(arguments, paths).await,
-            Some(SiteSubcommand::Delete(arguments)) => delete::delete(arguments, paths).await,
-            Some(SiteSubcommand::Validate) => validate(paths).context("site validate failed"),
+            Some(SiteSubcommand::Init(mut arguments)) => {
+                arguments.configuration.non_interactive |= unattended;
+                init::initialize(arguments, paths, format).await
+            }
+            Some(SiteSubcommand::Reset(mut arguments)) => {
+                arguments.configuration.non_interactive |= unattended;
+                reset::reset(arguments, paths, format).await
+            }
+            Some(SiteSubcommand::Delete(mut arguments)) => {
+                arguments.non_interactive |= unattended;
+                delete::delete(arguments, paths, format).await
+            }
+            Some(SiteSubcommand::Validate) => {
+                validate(paths, format).context("site validate failed")
+            }
             None => bail!("site command requires an action"),
         }
     }
 
-    pub(crate) fn argument_contract_error(&self) -> Option<&'static str> {
+    pub(crate) fn argument_contract_error(&self, yaml: bool) -> Option<&'static str> {
         match &self.command {
             Some(SiteSubcommand::Init(arguments)) => {
                 if arguments.force && !arguments.replace {
@@ -416,10 +436,10 @@ impl SiteCommand {
                 {
                     return Some("--yes and --skip-runtime-cleanup require --replace --force");
                 }
-                initial_configuration_argument_error(&arguments.configuration)
+                initial_configuration_argument_error(&arguments.configuration, yaml)
             }
             Some(SiteSubcommand::Reset(arguments)) => {
-                initial_configuration_argument_error(&arguments.configuration)
+                initial_configuration_argument_error(&arguments.configuration, yaml)
             }
             Some(SiteSubcommand::Delete(_) | SiteSubcommand::Validate) | None => None,
         }
@@ -428,7 +448,11 @@ impl SiteCommand {
 
 fn initial_configuration_argument_error(
     arguments: &InitialSiteConfigurationArgs,
+    yaml: bool,
 ) -> Option<&'static str> {
+    if yaml && arguments.interactive {
+        return Some("--interactive cannot be combined with --yaml, which never asks");
+    }
     if !arguments.nvidia_device.is_empty()
         && !arguments.inference.is_empty()
         && !InferenceArgument::offers(&arguments.inference, InferenceChoice::Nvidia)
@@ -458,6 +482,11 @@ fn initial_configuration_argument_error(
         return Some("--applications none cannot be combined with another --applications value");
     }
     let missing_choices = arguments.inference.is_empty() || arguments.applications.is_empty();
+    if missing_choices && yaml {
+        return Some(
+            "missing workload choices; --yaml never asks, so pass --inference and --applications",
+        );
+    }
     if missing_choices
         && (arguments.non_interactive
             || (!arguments.interactive && !controlling_terminal_available()))
@@ -554,13 +583,13 @@ impl InitialSiteIdentityGenerator for HostAwareIdentityGenerator {
     }
 }
 
-fn validate(paths: &RootPathArgs) -> anyhow::Result<()> {
+fn validate(paths: &RootPathArgs, format: OutputFormat) -> anyhow::Result<()> {
     let location = SiteLocation::resolve(paths)?;
     let site_dir = location.site_dir.as_path();
     validator(location.catalog_dir.as_deref())
         .validate_without_runtime_declarations(site_dir)
         .map_err(|error| validation_failure(error, site_dir))?;
-    write_validate_success(site_dir)
+    write_validate_success(site_dir, format)
 }
 
 fn validator(catalog_dir: Option<&Path>) -> SiteInputBundleValidator {
@@ -955,7 +984,7 @@ mod tests {
             "shared-site",
             "--node-id",
             "shared-node",
-            "--display-name",
+            "--name",
             "Shared node",
             "--host",
             "192.0.2.10",
@@ -1020,7 +1049,7 @@ mod tests {
                     "simulated",
                     "--applications",
                     "simulated",
-                    "--display-name",
+                    "--name",
                     value,
                 ])
                 .expect_err("invalid display name");
@@ -1070,7 +1099,7 @@ mod tests {
             "applications",
             "--site-id",
             "--node-id",
-            "--display-name",
+            "--name",
             "127.0.0.1",
             "--nvidia-device",
             "--replace",

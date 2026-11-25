@@ -1,20 +1,20 @@
 //! Shows the application deployments of the running site with their state, node and
 //! application, for example one ready Open WebUI and one paused.
 //!
-//! On a terminal it prints a table; without one it prints one record block per deployment on
-//! stdout, each carrying the id, name, state, node, application and whether the state is stale.
+//! It prints a table, on the terminal or as plain text without one. Asked for YAML, it prints the
+//! deployments as the manager returns them, with secret values masked.
 
 use clap::Args;
 use dotcore_proto::dotcore::application::v1::ApplicationDeployment;
 
 use super::{
-    node_of,
+    document, node_of,
     projection::{application_display_name, observation_stale, presentation_name, state_label},
 };
 use crate::{
-    management::{ManagerArgs, NodeNames, list_deployments, single_line},
-    node::write_records,
-    terminal::{Message, TerminalCondition, controlling_terminal_condition, open_terminal},
+    management::{DeploymentListDocument, ManagerArgs, NodeNames, list_deployments, single_line},
+    output::{OutputFormat, present, write_yaml},
+    terminal::Message,
 };
 
 /// Arguments for listing application deployments.
@@ -24,27 +24,28 @@ pub struct ApplicationListArgs {
     manager: ManagerArgs,
 }
 
-/// Lists the application deployments on the terminal, else as records.
-pub(crate) async fn application_list(arguments: ApplicationListArgs) -> anyhow::Result<()> {
+/// Lists the application deployments as YAML when asked, else as a table.
+pub(crate) async fn application_list(
+    arguments: ApplicationListArgs,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
     let manager = arguments.manager.connect().await?;
     let deployments = list_deployments::<ApplicationDeployment>(&manager).await?;
     let nodes = manager.node_names().await;
 
-    if controlling_terminal_condition() == TerminalCondition::Interactive {
-        let mut terminal = open_terminal();
-        if deployments.is_empty() {
-            terminal.message(&Message::Info("No application deployments".to_owned()))?;
-        } else {
-            terminal.message(&table(&deployments, &nodes))?;
-        }
-        return Ok(());
+    if format == OutputFormat::Yaml {
+        return write_yaml(&DeploymentListDocument::new(
+            deployments
+                .into_iter()
+                .map(|deployment| document(deployment, &nodes, false))
+                .collect(),
+        ));
     }
 
-    let blocks = deployments
-        .iter()
-        .map(|deployment| record_block(deployment, &nodes))
-        .collect::<Vec<_>>();
-    write_records(&blocks.join("\n"))
+    if deployments.is_empty() {
+        return present(&[Message::Info("No application deployments".to_owned())]);
+    }
+    present(&[table(&deployments, &nodes)])
 }
 
 /// Builds the deployments table, header first. A state the manager cannot confirm carries a
@@ -77,19 +78,6 @@ fn table(deployments: &[ApplicationDeployment], nodes: &NodeNames) -> Message {
             .collect(),
         rows,
     }
-}
-
-/// Renders one deployment as a record block ending in a newline.
-fn record_block(deployment: &ApplicationDeployment, nodes: &NodeNames) -> String {
-    format!(
-        "Application deployment\nDOTCORE_APPLICATION_DEPLOYMENT_ID={}\nDOTCORE_APPLICATION_DEPLOYMENT_NAME={}\nDOTCORE_APPLICATION_DEPLOYMENT_STATE={}\nDOTCORE_APPLICATION_DEPLOYMENT_STALE={}\nDOTCORE_APPLICATION_DEPLOYMENT_NODE={}\nDOTCORE_APPLICATION_DEPLOYMENT_APPLICATION={}\n",
-        single_line(&deployment.application_deployment_id),
-        single_line(presentation_name(deployment)),
-        state_label(deployment),
-        observation_stale(deployment),
-        single_line(node_of(deployment, nodes)),
-        single_line(application_display_name(deployment)),
-    )
 }
 
 #[cfg(test)]

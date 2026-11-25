@@ -1,14 +1,14 @@
 //! Shows what an operator needs to manage one application deployment, for example its state,
 //! node, endpoint, services or failure message.
 //!
-//! On a terminal it prints labeled values for what is known; without one it prints one record
-//! block on stdout that always carries every key, empty when the value is absent.
+//! It prints labeled values for what is known, on the terminal or as plain text without one. Asked
+//! for YAML, it prints the deployment as the manager returns it, with secret values masked unless revealed.
 
 use clap::Args;
 use dotcore_proto::dotcore::application::v1::ApplicationDeployment;
 
 use super::{
-    node_of, parameters, placement,
+    document, node_of, parameters,
     projection::{
         application_display_name, desired_state_label, endpoint, observation_stale,
         presentation_name, readiness, readiness_label, service_label, state_label,
@@ -16,16 +16,16 @@ use super::{
     },
 };
 use crate::{
-    management::{ManagerArgs, NodeNames, find_deployment, single_line},
-    node::write_records,
-    parameters::{ParameterRow, record_lines, write_parameters},
-    terminal::{Message, TerminalCondition, controlling_terminal_condition, open_terminal},
+    management::{ManagedDeployment, ManagerArgs, NodeNames, find_deployment, single_line},
+    output::{OutputFormat, present, write_yaml},
+    parameters::{ParameterRow, parameter_messages},
+    terminal::Message,
 };
 
 /// Arguments selecting the application deployment to show.
 #[derive(Debug, Args)]
 pub struct ApplicationShowArgs {
-    /// Name or id of the application deployment.
+    /// Name or ID of the application deployment.
     #[arg(value_name = "DEPLOYMENT")]
     reference: String,
 
@@ -37,26 +37,28 @@ pub struct ApplicationShowArgs {
     manager: ManagerArgs,
 }
 
-/// Shows the deployment on the terminal, else as a record block.
-pub(crate) async fn application_show(arguments: ApplicationShowArgs) -> anyhow::Result<()> {
+/// Shows the deployment as YAML when asked, else as labeled values.
+pub(crate) async fn application_show(
+    arguments: ApplicationShowArgs,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
     let manager = arguments.manager.connect().await?;
     let deployment =
         find_deployment::<ApplicationDeployment>(&manager, &arguments.reference).await?;
     let nodes = manager.node_names().await;
-    let details = Details::of(&deployment, &nodes, arguments.reveal_secrets);
 
-    if controlling_terminal_condition() == TerminalCondition::Interactive {
-        let mut terminal = open_terminal();
-        terminal.message(&Message::Heading(format!(
-            "Application deployment {}",
-            details.name
-        )))?;
-        terminal.message(&Message::KeyValues(details.pairs()))?;
-        write_parameters(&mut *terminal, &details.parameters)?;
-        return Ok(());
+    if format == OutputFormat::Yaml {
+        return write_yaml(&document(deployment, &nodes, arguments.reveal_secrets));
     }
 
-    write_records(&details.record_block())
+    let details = Details::of(&deployment, &nodes, arguments.reveal_secrets);
+
+    let mut messages = vec![
+        Message::Heading(format!("Application deployment {}", details.name)),
+        Message::KeyValues(details.pairs()),
+    ];
+    messages.extend(parameter_messages(&details.parameters));
+    present(&messages)
 }
 
 /// The shown facts of one deployment; absent facts are empty.
@@ -133,14 +135,21 @@ impl Details {
             readiness,
             stale: observation_stale(deployment),
             node: single_line(node_of(deployment, nodes)),
-            execution_target: placement(deployment).map_or_else(String::new, |placement| {
-                single_line(&placement.execution_target_id)
-            }),
-            execution_target_name: placement(deployment).map_or_else(String::new, |placement| {
-                single_line(
-                    nodes.target_display(&placement.site_node_id, &placement.execution_target_id),
-                )
-            }),
+            execution_target: deployment
+                .placement()
+                .map_or_else(String::new, |placement| {
+                    single_line(&placement.execution_target_id)
+                }),
+            execution_target_name: deployment
+                .placement()
+                .map_or_else(String::new, |placement| {
+                    single_line(
+                        nodes.target_display(
+                            &placement.site_node_id,
+                            &placement.execution_target_id,
+                        ),
+                    )
+                }),
             application: single_line(application_display_name(deployment)),
             services,
             endpoint: single_line(endpoint(deployment)),
@@ -182,35 +191,5 @@ impl Details {
         ]);
         pairs.retain(|(_, value)| !value.is_empty());
         pairs
-    }
-
-    fn record_block(&self) -> String {
-        let services = self
-            .services
-            .iter()
-            .map(|(name, state)| format!("{name}: {state}"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let mut block = format!(
-            "Application deployment\nDOTCORE_APPLICATION_DEPLOYMENT_ID={}\nDOTCORE_APPLICATION_DEPLOYMENT_NAME={}\nDOTCORE_APPLICATION_DEPLOYMENT_STATE={}\nDOTCORE_APPLICATION_DEPLOYMENT_DESIRED_STATE={}\nDOTCORE_APPLICATION_DEPLOYMENT_READINESS={}\nDOTCORE_APPLICATION_DEPLOYMENT_STALE={}\nDOTCORE_APPLICATION_DEPLOYMENT_NODE={}\nDOTCORE_APPLICATION_DEPLOYMENT_EXECUTION_TARGET={}\nDOTCORE_APPLICATION_DEPLOYMENT_APPLICATION={}\nDOTCORE_APPLICATION_DEPLOYMENT_SERVICES={services}\nDOTCORE_APPLICATION_DEPLOYMENT_ENDPOINT={}\nDOTCORE_APPLICATION_DEPLOYMENT_ROUTE={}\nDOTCORE_APPLICATION_DEPLOYMENT_FAILURE={}\nDOTCORE_APPLICATION_DEPLOYMENT_MESSAGE={}\n",
-            self.id,
-            self.name,
-            self.state,
-            self.desired_state,
-            self.readiness,
-            self.stale,
-            self.node,
-            self.execution_target,
-            self.application,
-            self.endpoint,
-            self.route,
-            self.failure,
-            self.message,
-        );
-        block.push_str(&record_lines(
-            "DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER",
-            &self.parameters,
-        ));
-        block
     }
 }

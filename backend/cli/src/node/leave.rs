@@ -15,13 +15,16 @@ use dotcore_site::{
     reset::persistence::SitePersistenceReset,
 };
 
-use super::{Notices, record_value, write_records};
+use serde::Serialize;
+
+use super::Notices;
 use crate::{
     RootPathArgs,
+    output::{LazyTerminal, OutputFormat, require_consent, write_yaml},
     runtime_confirmation::{
         RuntimeRemovalApproval, approve_runtime_removal, site_runtime_cleanups,
     },
-    terminal::{ConfirmPrompt, Message, PromptError, Terminal, TerminalCondition, open_terminal},
+    terminal::{ConfirmPrompt, Message, PromptError, Terminal},
 };
 
 /// Arguments of `dotc node leave`.
@@ -36,15 +39,17 @@ pub struct NodeLeaveArgs {
 pub(crate) async fn node_leave(
     paths: &RootPathArgs,
     arguments: NodeLeaveArgs,
+    format: OutputFormat,
 ) -> anyhow::Result<()> {
     let site_dir = paths.site_dir()?;
-    let mut terminal = open_terminal();
-    if !arguments.yes && terminal.condition() == TerminalCondition::NonInteractive {
-        anyhow::bail!(
-            "leaving the site needs a terminal; run in a terminal or pass --yes to stop the node's workloads and delete its folder without confirmation"
-        );
-    }
+    require_consent(
+        arguments.yes,
+        format,
+        "leaving the site needs a terminal; run in a terminal or pass --yes to stop the node's workloads and delete its folder without confirmation",
+        "leaving the site needs confirmation, which --yaml never asks for; pass --yes to stop the node's workloads and delete its folder",
+    )?;
 
+    let mut terminal = LazyTerminal::new();
     let cleanups = site_runtime_cleanups(None);
     let leave = NodeLeave::open(&site_dir, Arc::clone(&cleanups))
         .with_context(|| format!("cannot leave the site from {}", site_dir.display()))?;
@@ -63,7 +68,7 @@ pub(crate) async fn node_leave(
     })?;
 
     if !arguments.yes {
-        review(terminal.as_mut(), &leave)?;
+        review(&mut terminal, &leave)?;
     }
     if inventory.resources.is_empty()
         && !arguments.yes
@@ -72,7 +77,7 @@ pub(crate) async fn node_leave(
         return Err(PromptError::Cancelled.into());
     }
     approve_runtime_removal(
-        terminal.as_mut(),
+        &mut terminal,
         &site_dir,
         &inventory,
         &RuntimeRemovalApproval {
@@ -104,24 +109,33 @@ pub(crate) async fn node_leave(
             )
         })?;
 
-    if arguments.yes {
-        write_records(&format!(
-            "Node left\nDOTCORE_SITE_ID={}\nDOTCORE_NODE_ID={}\n",
-            record_value(&site_id)?,
-            record_value(&node_id)?
-        ))
+    if format == OutputFormat::Yaml {
+        write_yaml(&LeftDocument {
+            outcome: "left",
+            site_id,
+            node_id,
+        })
     } else {
-        Notices::new(Some(terminal.as_mut())).success(&format!("Left {site_id}"))
+        Notices::new(Some(&mut terminal)).success(&format!("Left {site_id}"))
     }
+}
+
+/// The YAML document of a node that left its site.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LeftDocument {
+    outcome: &'static str,
+    site_id: String,
+    node_id: String,
 }
 
 /// Shows which node leaves, and what leaving will stop and delete.
 fn review(terminal: &mut dyn Terminal, leave: &NodeLeave) -> anyhow::Result<()> {
-    terminal.message(&Message::Heading(format!(
+    terminal.prompt_context(&Message::Heading(format!(
         "This node leaves site {}",
         leave.site_id()
     )))?;
-    terminal.message(&Message::KeyValues(vec![
+    terminal.prompt_context(&Message::KeyValues(vec![
         (
             "targets".to_owned(),
             leave.execution_target_ids().len().to_string(),

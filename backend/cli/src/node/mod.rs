@@ -6,8 +6,8 @@
 //! nodes.
 //!
 //! The token travels through `--token`, a file, or a hidden prompt; it is spent by one join and
-//! is cancelled when `node add` exits. Operator prompts and notices use the controlling terminal; result records
-//! stay on stdout, for example `DOTCORE_NODE_ID=node-0123456789`.
+//! is cancelled when `node add` exits. Operator prompts and notices use the controlling terminal;
+//! results stay on stdout, as plain text or, asked for YAML, one document per command.
 
 mod add;
 mod join;
@@ -27,7 +27,8 @@ use dotcore_site::{
 
 use crate::{
     RootPathArgs,
-    terminal::{GridColor, Message, NextStep, Terminal},
+    output::{OutputFormat, plain_text, present_on},
+    terminal::{GridColor, Message, Terminal},
 };
 use add::{NodeAddArgs, node_add};
 pub(crate) use join::RejoinNameMismatch;
@@ -36,8 +37,7 @@ use leave::{NodeLeaveArgs, node_leave};
 use list::{NodeListArgs, node_list};
 use remove::{NodeRemoveArgs, node_remove};
 
-/// Commands that manage site membership: `add` and `remove` on the running manager (`remove` also
-/// on a stopped one), `join` and `leave` on the node's machine, and `list` on the manager.
+/// Commands that manage the nodes of a site and this machine's membership in one.
 #[derive(Debug, Args)]
 #[command(arg_required_else_help = true)]
 pub struct NodeCommand {
@@ -48,34 +48,45 @@ pub struct NodeCommand {
 /// Actions supported by the node command group.
 #[derive(Debug, Subcommand)]
 enum NodeSubcommand {
-    /// Start a join on the running site manager and wait for one new node to join through
+    /// Allow one new machine to join the site
+    ///
+    /// Starts a join on the running site manager and waits for one machine to join through
     /// `dotc node join`.
     Add(NodeAddArgs),
 
-    /// Join this machine to a site using the token printed by `dotc node add`.
+    /// Join this machine to a site with the token `dotc node add` printed
     Join(NodeJoinArgs),
 
-    /// Remove a worker node from the site, through the running manager or from this stopped
-    /// site. Run `dotc node leave` on the removed machine afterwards.
+    /// Remove a worker node from the site
+    ///
+    /// Works through the running manager, or on this stopped site. Run `dotc node leave` on the
+    /// removed machine afterwards.
     Remove(NodeRemoveArgs),
 
-    /// Stop this node's workloads and delete its node folder; runs on the removed machine with
-    /// its server stopped.
+    /// Leave the site: stop this node's workloads and delete its node folder
+    ///
+    /// Runs on the removed machine with its server stopped.
     Leave(NodeLeaveArgs),
 
-    /// List the nodes of this site with their addresses and deployments; runs on the manager,
-    /// which may be running.
+    /// List the site's nodes with their addresses and deployments
+    ///
+    /// Runs on the manager's machine, whether or not the manager is running.
+    #[command(alias = "ls")]
     List(NodeListArgs),
 }
 
 impl NodeCommand {
-    pub(crate) async fn dispatch(self, paths: &RootPathArgs) -> anyhow::Result<()> {
+    pub(crate) async fn dispatch(
+        self,
+        paths: &RootPathArgs,
+        format: OutputFormat,
+    ) -> anyhow::Result<()> {
         match self.command {
-            Some(NodeSubcommand::Add(arguments)) => node_add(paths, arguments).await,
-            Some(NodeSubcommand::Join(arguments)) => node_join(paths, arguments).await,
-            Some(NodeSubcommand::Remove(arguments)) => node_remove(paths, arguments).await,
-            Some(NodeSubcommand::Leave(arguments)) => node_leave(paths, arguments).await,
-            Some(NodeSubcommand::List(arguments)) => node_list(paths, arguments),
+            Some(NodeSubcommand::Add(arguments)) => node_add(paths, arguments, format).await,
+            Some(NodeSubcommand::Join(arguments)) => node_join(paths, arguments, format).await,
+            Some(NodeSubcommand::Remove(arguments)) => node_remove(paths, arguments, format).await,
+            Some(NodeSubcommand::Leave(arguments)) => node_leave(paths, arguments, format).await,
+            Some(NodeSubcommand::List(arguments)) => node_list(paths, arguments, format),
             None => anyhow::bail!("node command requires an action"),
         }
     }
@@ -94,8 +105,8 @@ impl NodeCommand {
     }
 }
 
-/// Where operator-facing notices go: the guided terminal when there is one, else stderr, which
-/// carries diagnostics when the command runs unattended.
+/// Where operator-facing notices go: with a terminal, outcomes are command output and context sits
+/// next to the prompts; without one, stderr carries them when the command runs unattended.
 struct Notices<'a> {
     terminal: Option<&'a mut dyn Terminal>,
 }
@@ -105,36 +116,40 @@ impl<'a> Notices<'a> {
         Self { terminal }
     }
 
-    /// Shows context the operator can read but an unattended run does not need.
+    /// Shows context the operator can read but an unattended run does not need, next to the
+    /// prompts.
     fn info(&mut self, message: Message) -> anyhow::Result<()> {
         if let Some(terminal) = self.terminal.as_deref_mut() {
-            terminal.message(&message)?;
+            terminal.prompt_context(&message)?;
         }
         Ok(())
     }
 
-    /// Reports a positive outcome on the terminal.
+    /// Reports a positive outcome: as command output on the terminal, else as a plain line on
+    /// stdout.
     fn success(&mut self, text: &str) -> anyhow::Result<()> {
-        if let Some(terminal) = self.terminal.as_deref_mut() {
-            terminal.message(&Message::Success(text.to_owned()))?;
-        }
-        Ok(())
-    }
-
-    /// Tells the operator what to do next: as next steps on the terminal, else as `plain` on
-    /// stderr so stdout keeps only records.
-    fn instruct(&mut self, steps: Vec<NextStep>, plain: &str) -> anyhow::Result<()> {
+        let message = Message::Success(text.to_owned());
         match self.terminal.as_deref_mut() {
-            Some(terminal) => terminal.message(&Message::Next(steps))?,
-            None => eprintln!("Notice: {plain}"),
+            Some(terminal) => present_on(terminal, &[message]),
+            None => write_stdout(&plain_text(&[message])),
+        }
+    }
+
+    /// States a fact the operator still needs after an outcome: as an info line on the terminal,
+    /// else as a notice on stderr.
+    fn notice(&mut self, text: &str) -> anyhow::Result<()> {
+        match self.terminal.as_deref_mut() {
+            Some(terminal) => terminal.message(&Message::Info(text.to_owned()))?,
+            None => eprintln!("Notice: {text}"),
         }
         Ok(())
     }
 
-    /// Shows something the operator should double-check.
+    /// Shows something the operator should double-check: next to the prompts on the terminal,
+    /// else on stderr.
     fn warn(&mut self, text: &str) -> anyhow::Result<()> {
         match self.terminal.as_deref_mut() {
-            Some(terminal) => terminal.message(&Message::Warning(text.to_owned()))?,
+            Some(terminal) => terminal.prompt_context(&Message::Warning(text.to_owned()))?,
             None => eprintln!("Warning: {text}"),
         }
         Ok(())
@@ -157,22 +172,19 @@ fn lend<'a>(terminal: &'a mut Option<&mut dyn Terminal>) -> Option<&'a mut dyn T
     }
 }
 
-/// Writes result records to stdout and flushes them so a waiting process sees them promptly.
-pub(crate) fn write_records(records: &str) -> anyhow::Result<()> {
-    let mut stdout = std::io::stdout().lock();
-    stdout
-        .write_all(records.as_bytes())
-        .and_then(|()| stdout.flush())
-        .context("write result records")
+/// Reports progress of a long-running command on stderr, where a YAML run keeps what it says
+/// besides its one final document.
+fn progress(text: &str) {
+    eprintln!("{text}");
 }
 
-/// Rejects a record value that could forge an extra record line.
-pub(crate) fn record_value(value: &str) -> anyhow::Result<&str> {
-    anyhow::ensure!(
-        !value.contains(['\r', '\n']),
-        "result value must not contain carriage returns or newlines"
-    );
-    Ok(value)
+/// Writes plain text to stdout and flushes it so a waiting process sees it promptly.
+pub(crate) fn write_stdout(text: &str) -> anyhow::Result<()> {
+    let mut stdout = std::io::stdout().lock();
+    stdout
+        .write_all(text.as_bytes())
+        .and_then(|()| stdout.flush())
+        .context("write command output")
 }
 
 /// The grouped key fingerprint as two facts, the second line under the first, so the operator

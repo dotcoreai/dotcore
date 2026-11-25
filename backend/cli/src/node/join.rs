@@ -6,7 +6,9 @@
 //! here and never leaves; the finished node folder is what `dotcore` runs, and on a terminal the
 //! command then starts it, after a countdown the operator can skip. A node whose
 //! intact folder of the same site already exists joins again instead, with no probe or prompt,
-//! keeping its key, identity, and deployments and changing only its addresses.
+//! keeping its key, identity, and deployments and changing only its addresses. Asked for YAML,
+//! the command never asks, so it needs `--yes`, reports its progress on stderr, prints one
+//! document once the folder is installed, and never starts the node.
 
 use std::{
     collections::BTreeSet,
@@ -44,9 +46,9 @@ use dotcore_site::{
     },
 };
 
-use super::{
-    Notices, boxed, fingerprint_facts, fingerprint_grid, lend, record_value, write_records,
-};
+use serde::Serialize;
+
+use super::{Notices, boxed, fingerprint_facts, fingerprint_grid, lend, progress, write_stdout};
 use crate::{
     RootPathArgs,
     failure::shell_word,
@@ -54,16 +56,14 @@ use crate::{
         CapabilityRecommendations, InferencePick, collect_applications, collect_inference,
         in_dev_env,
     },
+    output::{OutputFormat, plain_text, require_consent, write_yaml},
     paths::find_executable,
     site::{
         ApplicationsChoice, InferenceArgument, InferenceChoice, NativeWorkloadLifetimeChoice,
         inference_long_help, loopback_host_warning, parse_absolute_path, parse_display_name,
         parse_host, parse_inference, system_initial_site_prober,
     },
-    terminal::{
-        ConfirmPrompt, CountdownPrompt, InputPrompt, Message, NextStep, Terminal,
-        TerminalCondition, controlling_terminal_condition, open_terminal,
-    },
+    terminal::{ConfirmPrompt, CountdownPrompt, InputPrompt, Message, Terminal, open_terminal},
 };
 
 /// Shown after the proposal is sent, while the manager operator decides.
@@ -184,16 +184,18 @@ impl NodeJoinArgs {
 }
 
 /// Joins this machine to the site named by the token and installs its node folder.
-pub(crate) async fn node_join(paths: &RootPathArgs, arguments: NodeJoinArgs) -> anyhow::Result<()> {
-    let mut terminal = if arguments.yes {
-        None
-    } else if controlling_terminal_condition() == TerminalCondition::Interactive {
-        Some(open_terminal())
-    } else {
-        anyhow::bail!(
-            "joining asks for confirmation and needs a terminal; run in a terminal or pass --yes"
-        );
-    };
+pub(crate) async fn node_join(
+    paths: &RootPathArgs,
+    arguments: NodeJoinArgs,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
+    require_consent(
+        arguments.yes,
+        format,
+        "joining asks for confirmation and needs a terminal; run in a terminal or pass --yes",
+        "joining asks for confirmation, which --yaml never gives; pass --yes",
+    )?;
+    let mut terminal = (!arguments.yes).then(open_terminal);
     let prober = system_initial_site_prober();
     let timing = Timing::for_process().join;
     let launcher = find_executable(LAUNCHER);
@@ -204,6 +206,7 @@ pub(crate) async fn node_join(paths: &RootPathArgs, arguments: NodeJoinArgs) -> 
         &prober,
         timing,
         launcher.as_deref(),
+        format,
     )
     .await?;
 
@@ -225,6 +228,7 @@ async fn join_site(
     prober: &InitialSiteProber,
     timing: JoinTiming,
     launcher: Option<&Path>,
+    format: OutputFormat,
 ) -> anyhow::Result<Option<NodeStart>> {
     let site_dir = paths.site_dir()?;
     let command = StartCommand::new(
@@ -237,18 +241,11 @@ async fn join_site(
         site_dir.display()
     );
 
+    let run = JoinRun { timing, format };
     let token = read_token(&arguments, lend(&mut terminal))?;
     if std::fs::symlink_metadata(&site_dir).is_ok() {
         let folder = open_rejoining_folder(&site_dir, &token, arguments.name.as_deref())?;
-        rejoin_site(
-            arguments,
-            token,
-            folder,
-            &command,
-            lend(&mut terminal),
-            timing,
-        )
-        .await?;
+        rejoin_site(arguments, token, folder, &command, lend(&mut terminal), run).await?;
     } else {
         join_new_site(
             arguments,
@@ -257,7 +254,7 @@ async fn join_site(
             &command,
             lend(&mut terminal),
             prober,
-            timing,
+            run,
         )
         .await?;
     }
@@ -268,6 +265,13 @@ async fn join_site(
     }
 }
 
+/// How one join runs: its real-time bounds and how it reports.
+#[derive(Clone, Copy)]
+struct JoinRun {
+    timing: JoinTiming,
+    format: OutputFormat,
+}
+
 async fn join_new_site(
     arguments: NodeJoinArgs,
     token: JoinToken,
@@ -275,10 +279,11 @@ async fn join_new_site(
     command: &StartCommand,
     mut terminal: Option<&mut dyn Terminal>,
     prober: &InitialSiteProber,
-    timing: JoinTiming,
+    run: JoinRun,
 ) -> anyhow::Result<()> {
+    let JoinRun { timing, format } = run;
     let mut connection = connect_to_manager(&token, arguments.manager_host.clone(), timing).await?;
-    announce_connection(&connection, lend(&mut terminal))?;
+    announce_connection(&connection, lend(&mut terminal), format)?;
 
     let (inference, applications) =
         choose_runtimes(&arguments, lend(&mut terminal), prober).await?;
@@ -299,7 +304,9 @@ async fn join_new_site(
     }
     if let Some(terminal) = lend(&mut terminal) {
         show_fingerprint(terminal, &proposal.display_name, &key.fingerprint())?;
-        terminal.message(&Message::Info(APPROVAL_NOTICE.to_owned()))?;
+        terminal.prompt_context(&Message::Info(APPROVAL_NOTICE.to_owned()))?;
+    } else if format == OutputFormat::Yaml {
+        progress(APPROVAL_NOTICE);
     }
 
     let folder = loop {
@@ -307,8 +314,9 @@ async fn join_new_site(
             Ok(folder) => break folder,
             Err(NodeJoinError::DuplicateName(status)) if terminal.is_some() => {
                 let terminal = lend(&mut terminal).expect("checked by the guard");
-                terminal.message(&Message::Error(status.message().to_owned()))?;
-                terminal.message(&Message::Hint(replaced_node_hint(&proposal.display_name)))?;
+                terminal.prompt_context(&Message::Error(status.message().to_owned()))?;
+                terminal
+                    .prompt_context(&Message::Hint(replaced_node_hint(&proposal.display_name)))?;
                 proposal.display_name = prompt_name(terminal, None)?;
             }
             Err(error) => return Err(join_failure(error)),
@@ -316,8 +324,16 @@ async fn join_new_site(
     };
 
     warn_about_addresses(&folder, &connection, lend(&mut terminal)).await?;
-    if let Some(records) = report_joined(lend(&mut terminal), &proposal, &folder, command)? {
-        write_records(&records)?;
+    if format == OutputFormat::Yaml {
+        return write_yaml(&JoinedDocument::of(
+            "joined",
+            &folder,
+            &proposal.display_name,
+            command,
+        ));
+    }
+    if let Some(text) = report_joined(lend(&mut terminal), &proposal, &folder, command)? {
+        write_stdout(&text)?;
     }
     Ok(())
 }
@@ -330,10 +346,11 @@ async fn rejoin_site(
     folder: RejoiningNodeFolder,
     command: &StartCommand,
     mut terminal: Option<&mut dyn Terminal>,
-    timing: JoinTiming,
+    run: JoinRun,
 ) -> anyhow::Result<()> {
+    let JoinRun { timing, format } = run;
     let mut connection = connect_to_manager(&token, arguments.manager_host.clone(), timing).await?;
-    announce_connection(&connection, lend(&mut terminal))?;
+    announce_connection(&connection, lend(&mut terminal), format)?;
     if let Some(ignored) = ignored_rejoin_flags(&arguments) {
         Notices::new(lend(&mut terminal)).warn(&format!(
             "{ignored} ignored: a node that joins again keeps its capabilities and execution targets"
@@ -345,14 +362,16 @@ async fn rejoin_site(
         private_port: arguments.private_port.unwrap_or(folder.private_port()),
     };
     if let Some(terminal) = lend(&mut terminal) {
-        terminal.message(&Message::Info(format!(
+        terminal.prompt_context(&Message::Info(format!(
             "Joining again from {}",
             folder.root().display()
         )))?;
         // The folder holds no display name; the manager shows the one the site declares.
         let name = arguments.name.as_deref().unwrap_or("this node");
         show_fingerprint(terminal, name, &folder.fingerprint())?;
-        terminal.message(&Message::Info(APPROVAL_NOTICE.to_owned()))?;
+        terminal.prompt_context(&Message::Info(APPROVAL_NOTICE.to_owned()))?;
+    } else if format == OutputFormat::Yaml {
+        progress(APPROVAL_NOTICE);
     }
     let joined = connection
         .rejoin(&proposal, &folder)
@@ -361,8 +380,16 @@ async fn rejoin_site(
     drop(folder);
 
     warn_about_addresses(&joined, &connection, lend(&mut terminal)).await?;
-    if let Some(records) = report_rejoined(lend(&mut terminal), &joined, command)? {
-        write_records(&records)?;
+    if format == OutputFormat::Yaml {
+        return write_yaml(&JoinedDocument::of(
+            "rejoined",
+            &joined,
+            &joined.display_name,
+            command,
+        ));
+    }
+    if let Some(text) = report_rejoined(lend(&mut terminal), &joined, command)? {
+        write_stdout(&text)?;
     }
     Ok(())
 }
@@ -410,11 +437,17 @@ fn ignored_rejoin_flags(arguments: &NodeJoinArgs) -> Option<String> {
     (!flags.is_empty()).then(|| flags.join(", "))
 }
 
-/// Shows which site and manager the token reached.
+/// Shows which site and manager the token reached: next to the prompts on the terminal, and on
+/// stderr when the command prints YAML.
 fn announce_connection(
     connection: &JoinConnection,
     terminal: Option<&mut dyn Terminal>,
+    format: OutputFormat,
 ) -> anyhow::Result<()> {
+    if format == OutputFormat::Yaml {
+        progress(&format!("Connected to site {}", connection.site_id()));
+        return Ok(());
+    }
     let mut notices = Notices::new(terminal);
     notices.info(Message::Heading(format!(
         "Connected to site {}",
@@ -449,8 +482,42 @@ async fn warn_about_addresses(
     Ok(())
 }
 
-/// Reports the installed node folder, on the terminal when interactive, else as records with the
-/// command that starts it. Returns the records to write when there is no terminal.
+/// The YAML document of a node folder installed by joining.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct JoinedDocument {
+    outcome: &'static str,
+    site_id: String,
+    node_id: String,
+    display_name: String,
+    host: String,
+    private_address: String,
+
+    /// The command that starts the node.
+    start_command: String,
+}
+
+impl JoinedDocument {
+    fn of(
+        outcome: &'static str,
+        folder: &JoinedNodeFolder,
+        display_name: &str,
+        command: &StartCommand,
+    ) -> Self {
+        Self {
+            outcome,
+            site_id: folder.site_id.clone(),
+            node_id: folder.node_id.clone(),
+            display_name: display_name.to_owned(),
+            host: folder.host.to_string(),
+            private_address: folder.private_bind_address.to_string(),
+            start_command: command.to_string(),
+        }
+    }
+}
+
+/// Reports the installed node folder, on the terminal when there is one, else as plain text with
+/// the command that starts it. Returns the text to write when there is no terminal.
 fn report_joined(
     terminal: Option<&mut dyn Terminal>,
     proposal: &JoinProposal,
@@ -458,15 +525,14 @@ fn report_joined(
     command: &StartCommand,
 ) -> anyhow::Result<Option<String>> {
     let Some(terminal) = terminal else {
-        return Ok(Some(format!(
-            "Node joined\nDOTCORE_SITE_ID={}\nDOTCORE_NODE_ID={}\nDOTCORE_NODE_NAME={}\nDOTCORE_NODE_HOST={}\nDOTCORE_PRIVATE_ADDR={}\nDOTCORE_START_COMMAND={}\n",
-            record_value(&folder.site_id)?,
-            record_value(&folder.node_id)?,
-            record_value(&proposal.display_name)?,
-            folder.host,
-            folder.private_bind_address,
-            record_value(&command.to_string())?,
-        )));
+        return Ok(Some(plain_text(&[
+            Message::Success(format!(
+                "Joined {} as {} at {}",
+                folder.site_id, proposal.display_name, folder.host
+            )),
+            Message::Info("Start the node with:".to_owned()),
+            Message::Command(command.to_string()),
+        ])));
     };
     terminal.message(&Message::Success(format!(
         "Joined {} as {} at {}",
@@ -475,23 +541,22 @@ fn report_joined(
     Ok(None)
 }
 
-/// Reports the rewritten node folder, on the terminal when interactive, else as records with the
-/// command that starts it. Returns the records to write when there is no terminal.
+/// Reports the rewritten node folder, on the terminal when there is one, else as plain text with
+/// the command that starts it. Returns the text to write when there is no terminal.
 fn report_rejoined(
     terminal: Option<&mut dyn Terminal>,
     folder: &JoinedNodeFolder,
     command: &StartCommand,
 ) -> anyhow::Result<Option<String>> {
     let Some(terminal) = terminal else {
-        return Ok(Some(format!(
-            "Node rejoined\nDOTCORE_SITE_ID={}\nDOTCORE_NODE_ID={}\nDOTCORE_NODE_NAME={}\nDOTCORE_NODE_HOST={}\nDOTCORE_PRIVATE_ADDR={}\nDOTCORE_START_COMMAND={}\n",
-            record_value(&folder.site_id)?,
-            record_value(&folder.node_id)?,
-            record_value(&folder.display_name)?,
-            folder.host,
-            folder.private_bind_address,
-            record_value(&command.to_string())?,
-        )));
+        return Ok(Some(plain_text(&[
+            Message::Success(format!(
+                "Rejoined {} at {}",
+                folder.display_name, folder.host
+            )),
+            Message::Info("Start the node with:".to_owned()),
+            Message::Command(command.to_string()),
+        ])));
     };
     terminal.message(&Message::Success(format!(
         "Rejoined {} at {}",
@@ -501,7 +566,7 @@ fn report_rejoined(
 }
 
 /// Starts the joined node with `launcher` once a countdown of `countdown` runs out, unless the
-/// operator skips it; without a launcher, or after a skip, shows the command that starts it.
+/// operator skips it; without a launcher, or after a skip, says the node is not started.
 /// Returns the start to carry out.
 fn offer_start(
     terminal: &mut dyn Terminal,
@@ -517,9 +582,7 @@ fn offer_start(
             command,
         }));
     }
-    terminal.message(&Message::Next(vec![
-        NextStep::new("Start the node:").with_command(command.to_string()),
-    ]))?;
+    terminal.message(&Message::Info("The node is not started".to_owned()))?;
     Ok(None)
 }
 
@@ -546,7 +609,7 @@ fn read_token(
         let text = terminal.secret(&InputPrompt::new("Join token (hidden)"))?;
         match JoinToken::parse(text.trim()) {
             Ok(token) => return Ok(token),
-            Err(error) => terminal.message(&Message::Error(format!(
+            Err(error) => terminal.prompt_context(&Message::Error(format!(
                 "that is not a valid join token: {}",
                 crate::hint::describe(&error)
             )))?,
@@ -713,7 +776,7 @@ fn prompt_name(terminal: &mut dyn Terminal, default: Option<&str>) -> anyhow::Re
     loop {
         match parse_display_name(terminal.input(&prompt)?.trim()) {
             Ok(name) => return Ok(name),
-            Err(message) => terminal.message(&Message::Error(message))?,
+            Err(message) => terminal.prompt_context(&Message::Error(message))?,
         }
     }
 }
@@ -744,8 +807,8 @@ fn confirm_proposal(
             ("private port".to_owned(), proposal.private_port.to_string()),
         );
     }
-    terminal.message(&Message::Heading("Proposal".to_owned()))?;
-    terminal.message(&Message::KeyValues(facts))?;
+    terminal.prompt_context(&Message::Heading("Proposal".to_owned()))?;
+    terminal.prompt_context(&Message::KeyValues(facts))?;
     Ok(terminal.confirm(&ConfirmPrompt::new(
         "Send this proposal to the manager?",
         true,
@@ -759,11 +822,11 @@ fn show_fingerprint(
     name: &str,
     fingerprint: &CertificateFingerprint,
 ) -> anyhow::Result<()> {
-    terminal.message(&Message::Info(format!(
+    terminal.prompt_context(&Message::Info(format!(
         "Confirm this fingerprint where you approve {name}:"
     )))?;
-    terminal.message(&fingerprint_grid(fingerprint))?;
-    terminal.message(&Message::KeyValues(fingerprint_facts(fingerprint).to_vec()))?;
+    terminal.prompt_context(&fingerprint_grid(fingerprint))?;
+    terminal.prompt_context(&Message::KeyValues(fingerprint_facts(fingerprint).to_vec()))?;
     Ok(())
 }
 
@@ -1033,7 +1096,7 @@ mod tests {
     }
 
     #[test]
-    fn an_interactive_join_report_announces_the_node_and_writes_no_records() {
+    fn an_interactive_join_report_announces_the_node_and_writes_nothing() {
         let mut terminal = ScriptedTerminal::interactive([]);
 
         let records = report_joined(
@@ -1049,7 +1112,7 @@ mod tests {
     }
 
     #[test]
-    fn a_rejoin_report_names_the_node_or_records_its_start_command() {
+    fn a_rejoin_report_names_the_node_or_prints_its_start_command() {
         let mut terminal = ScriptedTerminal::interactive([]);
 
         let records = report_rejoined(
@@ -1070,7 +1133,7 @@ mod tests {
             .expect("records")
             .as_deref(),
             Some(
-                "Node rejoined\nDOTCORE_SITE_ID=site-1\nDOTCORE_NODE_ID=node-7\nDOTCORE_NODE_NAME=gpu-box\nDOTCORE_NODE_HOST=10.0.0.7\nDOTCORE_PRIVATE_ADDR=10.0.0.7:50053\nDOTCORE_START_COMMAND=dotcore --site-dir /srv/node\n"
+                "✔ Rejoined gpu-box at 10.0.0.7\nStart the node with:\n  dotcore --site-dir /srv/node\n"
             )
         );
     }
@@ -1089,7 +1152,7 @@ mod tests {
     }
 
     #[test]
-    fn an_unattended_join_report_is_records_only() {
+    fn an_unattended_join_report_prints_the_start_command() {
         let records = report_joined(
             None,
             &proposal(),
@@ -1101,7 +1164,7 @@ mod tests {
         assert_eq!(
             records.as_deref(),
             Some(
-                "Node joined\nDOTCORE_SITE_ID=site-1\nDOTCORE_NODE_ID=node-7\nDOTCORE_NODE_NAME=gpu-box\nDOTCORE_NODE_HOST=10.0.0.7\nDOTCORE_PRIVATE_ADDR=10.0.0.7:50053\nDOTCORE_START_COMMAND=dotcore --site-dir /srv/node\n"
+                "✔ Joined site-1 as gpu-box at 10.0.0.7\nStart the node with:\n  dotcore --site-dir /srv/node\n"
             )
         );
     }
@@ -1457,13 +1520,9 @@ mod tests {
     }
 
     #[test]
-    fn a_skipped_start_or_a_dotc_without_launcher_shows_the_start_command() {
+    fn a_skipped_start_or_a_dotc_without_launcher_says_the_node_is_not_started() {
         let command = StartCommand::new(Some(Path::new("/srv/node")), None);
-        let hint = [
-            "Next",
-            "  › Start the node:",
-            "      dotcore --site-dir /srv/node",
-        ];
+        let hint = ["The node is not started"];
 
         let mut skipped = ScriptedTerminal::interactive([ScriptedAnswer::Countdown(false)]);
         let start = offer_start(

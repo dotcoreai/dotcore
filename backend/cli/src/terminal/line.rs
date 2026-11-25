@@ -17,6 +17,7 @@ use std::{
 use super::{
     ConfirmPrompt, CountdownPrompt, InputPrompt, Message, MultiSelectPrompt, PromptError,
     SelectItem, SelectPrompt, Terminal, TerminalCondition,
+    output::Output,
     render::{LastOutput, Symbols, plain_text},
 };
 
@@ -32,6 +33,9 @@ pub(super) struct LineTerminal {
 
     /// What was printed last, which decides the blank line before the next output.
     last: LastOutput,
+
+    /// Where command output goes.
+    output: Output,
 }
 
 struct LineIo {
@@ -51,6 +55,7 @@ impl LineTerminal {
                 echo_control: None,
                 symbols: Symbols::ASCII,
                 last: LastOutput::Nothing,
+                output: Output::stdout(false),
             };
         };
         let condition = if writer.is_terminal() {
@@ -59,7 +64,8 @@ impl LineTerminal {
             TerminalCondition::NonInteractive
         };
         let echo_control = writer.try_clone().ok();
-        let mut terminal = Self::with_io(condition, BufReader::new(reader), writer);
+        let output = Output::stdout(condition == TerminalCondition::Interactive);
+        let mut terminal = Self::with_io(condition, BufReader::new(reader), writer, output);
         terminal.echo_control = echo_control;
         terminal.symbols = Symbols::detect();
         terminal
@@ -69,6 +75,7 @@ impl LineTerminal {
         condition: TerminalCondition,
         reader: impl BufRead + 'static,
         writer: impl Write + 'static,
+        output: Output,
     ) -> Self {
         Self {
             condition,
@@ -79,6 +86,7 @@ impl LineTerminal {
             echo_control: None,
             symbols: Symbols::UNICODE,
             last: LastOutput::Nothing,
+            output,
         }
     }
 
@@ -236,6 +244,24 @@ impl Terminal for LineTerminal {
     }
 
     fn message(&mut self, message: &Message) -> Result<(), PromptError> {
+        if matches!(message, Message::Warning(_)) {
+            return self.output.write_warning(message).map_err(PromptError::Io);
+        }
+        let rendered = message.render(self.symbols);
+        if !self.output.shares_screen() {
+            return self.output.write_plain(&rendered).map_err(PromptError::Io);
+        }
+        if self.last.blank_before(rendered.blank_before) {
+            writeln!(self.output.writer()).map_err(PromptError::Io)?;
+        }
+        self.output
+            .write_plain(&rendered)
+            .map_err(PromptError::Io)?;
+        self.last = LastOutput::Message;
+        Ok(())
+    }
+
+    fn prompt_context(&mut self, message: &Message) -> Result<(), PromptError> {
         let rendered = message.render(self.symbols);
         if self.last.blank_before(rendered.blank_before) {
             self.write_line("")?;
@@ -362,7 +388,7 @@ mod tests {
     use super::LineTerminal;
     use crate::terminal::{
         ConfirmPrompt, InputPrompt, Message, MultiSelectPrompt, NextStep, PromptError, SelectItem,
-        SelectPrompt, Terminal, TerminalCondition, render::Symbols,
+        SelectPrompt, Terminal, TerminalCondition, output::Output, render::Symbols,
     };
 
     #[test]
@@ -547,7 +573,7 @@ mod tests {
             .input(&InputPrompt::new("Node name"))
             .expect("name");
         terminal
-            .message(&Message::Info(
+            .prompt_context(&Message::Info(
                 "Accelerator detection: nvidia detected".to_owned(),
             ))
             .expect("context");
@@ -555,10 +581,10 @@ mod tests {
             .select(&SelectPrompt::new("Inference", [SelectItem::new("nvidia")]))
             .expect("inference");
         terminal
-            .message(&Message::Heading("Initial site plan".to_owned()))
+            .prompt_context(&Message::Heading("Initial site plan".to_owned()))
             .expect("heading");
         terminal
-            .message(&Message::Hint("Workers connect to this host.".to_owned()))
+            .prompt_context(&Message::Hint("Workers connect to this host.".to_owned()))
             .expect("hint");
         terminal
             .confirm(&ConfirmPrompt::new("Write this site configuration?", true))
@@ -578,6 +604,61 @@ mod tests {
              Write this site configuration? [yes]: \n\
              ✔ Written\n"
         );
+    }
+
+    #[test]
+    fn redirected_output_is_spaced_apart_from_the_prompts_and_their_context() {
+        let screen = SharedOutput::default();
+        let stdout = SharedOutput::default();
+        let mut terminal = LineTerminal::with_io(
+            TerminalCondition::Interactive,
+            Cursor::new(b"y\n".to_vec()),
+            screen.clone(),
+            Output::new(Box::new(stdout.clone()), Box::new(io::sink()), false),
+        );
+
+        terminal
+            .message(&Message::Heading("Nodes".to_owned()))
+            .expect("heading");
+        terminal
+            .prompt_context(&Message::Heading("Remove gpu1".to_owned()))
+            .expect("review");
+        terminal
+            .confirm(&ConfirmPrompt::new("Remove it?", false))
+            .expect("confirmation");
+        terminal
+            .message(&Message::Success("Removed gpu1".to_owned()))
+            .expect("outcome");
+        terminal
+            .message(&Message::Heading("Next".to_owned()))
+            .expect("block");
+
+        assert_eq!(screen.text(), "Remove gpu1\nRemove it? [no]: ");
+        assert_eq!(stdout.text(), "Nodes\n✔ Removed gpu1\n\nNext\n");
+    }
+
+    #[test]
+    fn outcome_warnings_go_to_stderr_and_leave_the_output_alone() {
+        let screen = SharedOutput::default();
+        let stdout = SharedOutput::default();
+        let stderr = SharedOutput::default();
+        let mut terminal = LineTerminal::with_io(
+            TerminalCondition::Interactive,
+            Cursor::new(Vec::new()),
+            screen.clone(),
+            Output::new(Box::new(stdout.clone()), Box::new(stderr.clone()), false),
+        );
+
+        terminal
+            .message(&Message::Success("Removed gpu1".to_owned()))
+            .expect("outcome");
+        terminal
+            .message(&Message::Warning("gpu1 keeps its workloads".to_owned()))
+            .expect("warning");
+
+        assert_eq!(screen.text(), "");
+        assert_eq!(stdout.text(), "✔ Removed gpu1\n");
+        assert_eq!(stderr.text(), "! gpu1 keeps its workloads\n");
     }
 
     #[test]
@@ -621,6 +702,27 @@ mod tests {
     }
 
     #[test]
+    fn messages_without_a_terminal_go_to_stdout_while_prompts_still_fail() {
+        let stdout = SharedOutput::default();
+        let mut terminal = LineTerminal::with_io(
+            TerminalCondition::NonInteractive,
+            Cursor::new(Vec::new()),
+            io::sink(),
+            Output::new(Box::new(stdout.clone()), Box::new(io::sink()), false),
+        );
+
+        terminal
+            .message(&Message::Success("Written".to_owned()))
+            .expect("message");
+
+        assert_eq!(stdout.text(), "✔ Written\n");
+        assert!(matches!(
+            terminal.input(&InputPrompt::new("Site")),
+            Err(PromptError::NotInteractive)
+        ));
+    }
+
+    #[test]
     fn missing_controlling_terminal_is_non_interactive() {
         let mut terminal = LineTerminal::from_tty(None);
 
@@ -631,14 +733,16 @@ mod tests {
         ));
     }
 
+    /// A terminal whose prompts and output share one screen.
     fn line_terminal(input: &str) -> (LineTerminal, SharedOutput) {
-        let output = SharedOutput::default();
+        let screen = SharedOutput::default();
         let terminal = LineTerminal::with_io(
             TerminalCondition::Interactive,
             Cursor::new(input.as_bytes().to_vec()),
-            output.clone(),
+            screen.clone(),
+            Output::new(Box::new(screen.clone()), Box::new(io::sink()), true),
         );
-        (terminal, output)
+        (terminal, screen)
     }
 
     #[derive(Clone, Default)]

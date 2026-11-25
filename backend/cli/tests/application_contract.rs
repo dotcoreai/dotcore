@@ -19,6 +19,7 @@ use dotcore_proto::{
     },
     google::protobuf::Timestamp,
 };
+use serde_json::json;
 use tonic::Status;
 
 mod support;
@@ -33,7 +34,7 @@ use support::{
 };
 
 #[test]
-fn list_prints_one_record_block_per_deployment_in_every_state() {
+fn list_prints_a_table_with_one_row_per_deployment_in_every_state() {
     let manager = FakeManager::start(FakeState::with_applications(mixed_deployments()));
 
     let output = run(&manager, &["list"]);
@@ -42,15 +43,7 @@ fn list_prints_one_record_block_per_deployment_in_every_state() {
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(
         text(&output.stdout),
-        [
-            list_block("app-1", "Chat", "Ready", "false"),
-            list_block("app-2", "Notes", "Starting", "false"),
-            list_block("app-3", "Wiki", "Failed", "false"),
-            list_block("app-4", "Docs", "Paused", "false"),
-            list_block("app-5", "Old", "Tearing down", "false"),
-            list_block("app-6", "Mirror", "Running", "true"),
-        ]
-        .join("\n")
+        "  NAME    ID     STATE            NODE       APPLICATION\n  Chat    app-1  Ready            gb10-host  Open WebUI\n  Notes   app-2  Starting         gb10-host  Open WebUI\n  Wiki    app-3  Failed           gb10-host  Open WebUI\n  Docs    app-4  Paused           gb10-host  Open WebUI\n  Old     app-5  Tearing down     gb10-host  Open WebUI\n  Mirror  app-6  Running (stale)  gb10-host  Open WebUI\n"
     );
     assert_eq!(
         manager.calls(),
@@ -71,20 +64,20 @@ fn list_shows_the_node_id_when_the_manager_does_not_name_the_node() {
 
     assert_eq!(output.status.code(), Some(0));
     assert!(
-        text(&output.stdout).contains("DOTCORE_APPLICATION_DEPLOYMENT_NODE=node-1\n"),
+        text(&output.stdout).contains("  Chat    app-1  Ready            node-1  Open WebUI\n"),
         "{}",
         text(&output.stdout)
     );
 }
 
 #[test]
-fn list_of_an_empty_site_prints_nothing() {
+fn list_of_an_empty_site_says_there_are_no_deployments() {
     let manager = FakeManager::start(FakeState::with_applications(Vec::new()));
 
     let output = run(&manager, &["list"]);
 
     assert_eq!(output.status.code(), Some(0));
-    assert_eq!(text(&output.stdout), "");
+    assert_eq!(text(&output.stdout), "No application deployments\n");
     assert_eq!(text(&output.stderr), "");
 }
 
@@ -115,22 +108,7 @@ fn show_prints_every_key_for_a_running_deployment_with_its_endpoint() {
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(
         text(&output.stdout),
-        block(&[
-            ("ID", "app-1"),
-            ("NAME", "Chat"),
-            ("STATE", "Ready"),
-            ("DESIRED_STATE", "Present"),
-            ("READINESS", "Ready"),
-            ("STALE", "false"),
-            ("NODE", "gb10-host"),
-            ("EXECUTION_TARGET", "node-1-apps"),
-            ("APPLICATION", "Open WebUI"),
-            ("SERVICES", "web: Running, db: Starting"),
-            ("ENDPOINT", "http://gb10-host:8080"),
-            ("ROUTE", "gemma"),
-            ("FAILURE", ""),
-            ("MESSAGE", ""),
-        ])
+        "Application deployment Chat\n  name         Chat\n  id           app-1\n  state        Ready\n  desired      Present\n  readiness    Ready\n  node         gb10-host\n  target       Docker applications\n  target id    node-1-apps\n  application  Open WebUI\n  service web  Running\n  service db   Starting\n  endpoint     http://gb10-host:8080\n  route        gemma\n"
     );
 }
 
@@ -144,60 +122,15 @@ fn show_reports_stage_failure_and_stale_observation_by_id() {
 
     assert_eq!(
         text(&starting.stdout),
-        block(&[
-            ("ID", "app-2"),
-            ("NAME", "Notes"),
-            ("STATE", "Starting"),
-            ("DESIRED_STATE", "Present"),
-            ("READINESS", ""),
-            ("STALE", "false"),
-            ("NODE", "gb10-host"),
-            ("EXECUTION_TARGET", "node-1-apps"),
-            ("APPLICATION", "Open WebUI"),
-            ("SERVICES", "web: Starting"),
-            ("ENDPOINT", ""),
-            ("ROUTE", ""),
-            ("FAILURE", ""),
-            ("MESSAGE", "Pulling images"),
-        ])
+        "Application deployment Notes\n  name         Notes\n  id           app-2\n  state        Starting\n  desired      Present\n  node         gb10-host\n  target       Docker applications\n  target id    node-1-apps\n  application  Open WebUI\n  service web  Starting\n  message      Pulling images\n"
     );
     assert_eq!(
         text(&failed.stdout),
-        block(&[
-            ("ID", "app-3"),
-            ("NAME", "Wiki"),
-            ("STATE", "Failed"),
-            ("DESIRED_STATE", "Present"),
-            ("READINESS", ""),
-            ("STALE", "false"),
-            ("NODE", "gb10-host"),
-            ("EXECUTION_TARGET", "node-1-apps"),
-            ("APPLICATION", "Open WebUI"),
-            ("SERVICES", "web: Failed"),
-            ("ENDPOINT", ""),
-            ("ROUTE", ""),
-            ("FAILURE", "Image pull failed"),
-            ("MESSAGE", ""),
-        ])
+        "Application deployment Wiki\n  name         Wiki\n  id           app-3\n  state        Failed\n  desired      Present\n  node         gb10-host\n  target       Docker applications\n  target id    node-1-apps\n  application  Open WebUI\n  service web  Failed\n  failure      Image pull failed\n"
     );
     assert_eq!(
         text(&stale.stdout),
-        block(&[
-            ("ID", "app-6"),
-            ("NAME", "Mirror"),
-            ("STATE", "Running"),
-            ("DESIRED_STATE", "Present"),
-            ("READINESS", "Not ready"),
-            ("STALE", "true"),
-            ("NODE", "gb10-host"),
-            ("EXECUTION_TARGET", "node-1-apps"),
-            ("APPLICATION", "Open WebUI"),
-            ("SERVICES", ""),
-            ("ENDPOINT", ""),
-            ("ROUTE", ""),
-            ("FAILURE", ""),
-            ("MESSAGE", ""),
-        ])
+        "Application deployment Mirror\n  name         Mirror\n  id           app-6\n  state        Running\n  desired      Present\n  readiness    Not ready\n  stale        yes\n  node         gb10-host\n  target       Docker applications\n  target id    node-1-apps\n  application  Open WebUI\n"
     );
 }
 
@@ -217,23 +150,20 @@ fn show_applies_the_console_state_overrides() {
     let tearing_down = run(&manager, &["show", "Old"]);
 
     assert!(
-        text(&paused.stdout).contains(
-            "STATE=Paused\nDOTCORE_APPLICATION_DEPLOYMENT_DESIRED_STATE=Paused\nDOTCORE_APPLICATION_DEPLOYMENT_READINESS=\n"
-        ),
+        text(&paused.stdout).contains("  state        Paused\n  desired      Paused\n  node"),
         "{}",
         text(&paused.stdout)
     );
+    let pausing = text(&pausing.stdout);
     assert!(
-        text(&pausing.stdout).contains(
-            "STATE=Pausing\nDOTCORE_APPLICATION_DEPLOYMENT_DESIRED_STATE=Paused\nDOTCORE_APPLICATION_DEPLOYMENT_READINESS=\n"
-        ) && text(&pausing.stdout).contains("DOTCORE_APPLICATION_DEPLOYMENT_ENDPOINT=\n"),
-        "a requested pause hides readiness and endpoint\n{}",
-        text(&pausing.stdout)
+        pausing.contains("  state        Pausing\n  desired      Paused\n  node")
+            && !pausing.contains("readiness")
+            && !pausing.contains("endpoint"),
+        "a requested pause hides readiness and endpoint\n{pausing}"
     );
     assert!(
-        text(&tearing_down.stdout).contains(
-            "STATE=Tearing down\nDOTCORE_APPLICATION_DEPLOYMENT_DESIRED_STATE=Teardown\n"
-        ),
+        text(&tearing_down.stdout)
+            .contains("  state        Tearing down\n  desired      Teardown\n  node"),
         "{}",
         text(&tearing_down.stdout)
     );
@@ -252,41 +182,11 @@ fn show_hides_the_stage_that_a_requested_change_overrides() {
 
     assert_eq!(
         text(&tearing_down.stdout),
-        block(&[
-            ("ID", "app-7"),
-            ("NAME", "Old Wiki"),
-            ("STATE", "Tearing down"),
-            ("DESIRED_STATE", "Teardown"),
-            ("READINESS", ""),
-            ("STALE", "false"),
-            ("NODE", "gb10-host"),
-            ("EXECUTION_TARGET", "node-1-apps"),
-            ("APPLICATION", "Open WebUI"),
-            ("SERVICES", ""),
-            ("ENDPOINT", ""),
-            ("ROUTE", ""),
-            ("FAILURE", ""),
-            ("MESSAGE", ""),
-        ])
+        "Application deployment Old Wiki\n  name         Old Wiki\n  id           app-7\n  state        Tearing down\n  desired      Teardown\n  node         gb10-host\n  target       Docker applications\n  target id    node-1-apps\n  application  Open WebUI\n"
     );
     assert_eq!(
         text(&pausing.stdout),
-        block(&[
-            ("ID", "app-8"),
-            ("NAME", "Calendar"),
-            ("STATE", "Pausing"),
-            ("DESIRED_STATE", "Paused"),
-            ("READINESS", ""),
-            ("STALE", "false"),
-            ("NODE", "gb10-host"),
-            ("EXECUTION_TARGET", "node-1-apps"),
-            ("APPLICATION", "Open WebUI"),
-            ("SERVICES", ""),
-            ("ENDPOINT", ""),
-            ("ROUTE", ""),
-            ("FAILURE", ""),
-            ("MESSAGE", ""),
-        ])
+        "Application deployment Calendar\n  name         Calendar\n  id           app-8\n  state        Pausing\n  desired      Paused\n  node         gb10-host\n  target       Docker applications\n  target id    node-1-apps\n  application  Open WebUI\n"
     );
 }
 
@@ -303,7 +203,7 @@ fn a_generated_stored_name_addresses_the_deployment_like_its_display_name() {
     assert_eq!(by_stored_name.status.code(), Some(0));
     assert!(
         text(&by_stored_name.stdout).starts_with(
-            "Application deployment\nDOTCORE_APPLICATION_DEPLOYMENT_ID=app-9\nDOTCORE_APPLICATION_DEPLOYMENT_NAME=Open WebUI\n"
+            "Application deployment Open WebUI\n  name         Open WebUI\n  id           app-9\n"
         ),
         "{}",
         text(&by_stored_name.stdout)
@@ -372,7 +272,7 @@ fn commands_need_no_site_folder() {
     let output = command.output().expect("run dotc application list");
 
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
-    assert!(text(&output.stdout).contains("DOTCORE_APPLICATION_DEPLOYMENT_ID=app-1\n"));
+    assert!(text(&output.stdout).contains("  Chat    app-1  Ready"));
     assert_eq!(
         std::fs::read_dir(empty.path())
             .expect("read working directory")
@@ -436,13 +336,210 @@ fn logs_read_then_follow_an_application_deployment() {
 }
 
 #[test]
+fn yaml_list_prints_the_manager_deployments_with_their_names() {
+    let manager = FakeManager::start(FakeState::with_applications(vec![
+        local_application_deployment("app-1", "Chat", Running, Present),
+    ]));
+
+    let output = run(&manager, &["list", "--yaml"]);
+
+    assert_eq!(text(&output.stderr), "");
+    assert_eq!(output.status.code(), Some(0));
+    let placement = json!({
+        "siteNodeId": "node-1",
+        "executionTargetId": "node-1-apps",
+    });
+    assert_eq!(
+        support::yaml_documents(&text(&output.stdout)),
+        [json!({
+            "deployments": [{
+                "applicationDeploymentId": "app-1",
+                "applicationDeploymentName": "Chat",
+                "placement": placement,
+                "snapshot": {
+                    "applicationId": "open-webui",
+                    "displayName": "Open WebUI",
+                    "placement": placement,
+                },
+                "desiredState": "APPLICATION_DEPLOYMENT_DESIRED_STATE_PRESENT",
+                "state": { "lifecycleState": "APPLICATION_LIFECYCLE_STATE_RUNNING" },
+                "siteNodeDisplayName": "gb10-host",
+                "executionTargetDisplayName": "Docker applications",
+            }],
+        })]
+    );
+}
+
+#[test]
+fn yaml_lifecycle_verbs_print_the_accepted_deployment_with_its_names() {
+    let manager = FakeManager::start(FakeState::with_applications(vec![
+        local_application_deployment("app-1", "Chat", Running, Present),
+        local_application_deployment("app-2", "Notes", Running, Present),
+        local_application_deployment("app-3", "Wiki", Running, Present),
+    ]));
+    let placement = json!({
+        "siteNodeId": "node-1",
+        "executionTargetId": "node-1-apps",
+    });
+    let document = |id: &str, name: &str, desired: &str, lifecycle: &str| {
+        json!({
+            "applicationDeploymentId": id,
+            "applicationDeploymentName": name,
+            "placement": placement,
+            "snapshot": {
+                "applicationId": "open-webui",
+                "displayName": "Open WebUI",
+                "placement": placement,
+            },
+            "desiredState": desired,
+            "state": { "lifecycleState": lifecycle },
+            "siteNodeDisplayName": "gb10-host",
+            "executionTargetDisplayName": "Docker applications",
+        })
+    };
+
+    let paused = run(&manager, &["pause", "Chat", "--yaml"]);
+    let resumed = run(&manager, &["resume", "Notes", "--yaml"]);
+    let torn_down = run(&manager, &["teardown", "Wiki", "--yaml", "--yes"]);
+    let refused = run(&manager, &["teardown", "Chat", "--yaml"]);
+
+    for output in [&paused, &resumed, &torn_down] {
+        assert_eq!(text(&output.stderr), "");
+        assert_eq!(output.status.code(), Some(0));
+    }
+    assert_eq!(
+        support::yaml_documents(&text(&paused.stdout)),
+        [document(
+            "app-1",
+            "Chat",
+            "APPLICATION_DEPLOYMENT_DESIRED_STATE_PAUSED",
+            "APPLICATION_LIFECYCLE_STATE_RUNNING"
+        )]
+    );
+    assert_eq!(
+        support::yaml_documents(&text(&resumed.stdout)),
+        [document(
+            "app-2",
+            "Notes",
+            "APPLICATION_DEPLOYMENT_DESIRED_STATE_PRESENT",
+            "APPLICATION_LIFECYCLE_STATE_RUNNING"
+        )]
+    );
+    assert_eq!(
+        support::yaml_documents(&text(&torn_down.stdout)),
+        [document(
+            "app-3",
+            "Wiki",
+            "APPLICATION_DEPLOYMENT_DESIRED_STATE_TEARDOWN",
+            "APPLICATION_LIFECYCLE_STATE_STOPPING"
+        )]
+    );
+    assert_eq!(refused.status.code(), Some(1));
+    assert_eq!(text(&refused.stdout), "");
+    assert_eq!(
+        text(&refused.stderr),
+        "tearing down an application deployment needs confirmation, which --yaml never asks for; pass --yes to tear it down\n"
+    );
+    assert_eq!(
+        lifecycle_calls(&manager),
+        vec![
+            call(Rpc::PauseApplicationDeployment, Some("app-1")),
+            call(Rpc::ResumeApplicationDeployment, Some("app-2")),
+            call(Rpc::RemoveApplicationDeployment, Some("app-3")),
+        ]
+    );
+}
+
+#[test]
+fn yaml_list_and_show_mask_secret_values_unless_revealed() {
+    let deployment = deployment_with_parameters();
+    let manager = FakeManager::start(FakeState::with_applications(vec![deployment.clone()]));
+
+    let listed = run(&manager, &["list", "--yaml"]);
+    let masked = run(&manager, &["show", "Chat", "--yaml"]);
+    let revealed = run(&manager, &["show", "Chat", "--yaml", "--reveal-secrets"]);
+
+    let mut revealed_document = serde_json::to_value(&deployment).expect("deployment mapping");
+    revealed_document["siteNodeDisplayName"] = json!("gb10-host");
+    revealed_document["executionTargetDisplayName"] = json!("Docker applications");
+    let mut masked_document = revealed_document.clone();
+    let password = masked_document["snapshot"]["parameterValues"]
+        .as_array_mut()
+        .expect("values")
+        .iter_mut()
+        .find(|value| value["parameterId"] == "admin-password")
+        .expect("password value");
+    assert_eq!(password["string"], "s3cretPassw0rd");
+    password["string"] = json!("********");
+    assert_eq!(
+        support::yaml_documents(&text(&listed.stdout)),
+        [json!({ "deployments": [masked_document.clone()] })]
+    );
+    assert_eq!(
+        support::yaml_documents(&text(&masked.stdout)),
+        [masked_document]
+    );
+    assert_eq!(
+        support::yaml_documents(&text(&revealed.stdout)),
+        [revealed_document]
+    );
+    for output in [listed, masked, revealed] {
+        assert_eq!(text(&output.stderr), "");
+        assert_eq!(output.status.code(), Some(0));
+    }
+}
+
+#[test]
+fn yaml_logs_print_one_document_per_entry() {
+    let manager = FakeManager::start(FakeState::with_applications(mixed_deployments()));
+    {
+        let mut state = manager.state();
+        state.application_logs.page = ReadDeploymentLogsResponse {
+            sources: vec![log_source("web", DeploymentLogSourceState::Available)],
+            entries: vec![log_entry("web", 10, b"serving")],
+            ..Default::default()
+        };
+        state.application_logs.follow = vec![Ok(FollowDeploymentLogsResponse {
+            event: Some(Event::Entry(log_entry("web", 11, b"stopping"))),
+        })];
+    }
+
+    let output = run(&manager, &["logs", "Chat", "--follow", "--yaml"]);
+
+    assert_eq!(
+        text(&output.stderr),
+        "the log follow of application deployment Chat ended\n"
+    );
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        support::yaml_documents(&text(&output.stdout)),
+        [
+            json!({
+                "sourceName": "web",
+                "sourceLabel": "Web",
+                "timestamp": { "seconds": "1794500010" },
+                "content": "c2VydmluZw==",
+                "text": "serving",
+            }),
+            json!({
+                "sourceName": "web",
+                "sourceLabel": "Web",
+                "timestamp": { "seconds": "1794500011" },
+                "content": "c3RvcHBpbmc=",
+                "text": "stopping",
+            }),
+        ]
+    );
+}
+
+#[test]
 fn help_lists_the_six_verbs_and_the_manager_flag() {
     let group = isolated_dotc()
         .args(["application", "--help"])
         .output()
         .expect("run help");
     let list = isolated_dotc()
-        .args(["application", "list", "--help"])
+        .args(["application", "list", "-h"])
         .output()
         .expect("run help");
 
@@ -472,15 +569,9 @@ fn pause_and_resume_request_the_change_and_print_the_accepted_state() {
 
     let paused = run(&manager, &["pause", "Chat"]);
 
-    assert_eq!(
-        text(&paused.stderr),
-        "Notice: Run `dotc application list` to follow its progress.\n"
-    );
+    assert_eq!(text(&paused.stderr), "");
     assert_eq!(paused.status.code(), Some(0));
-    assert_eq!(
-        text(&paused.stdout),
-        "Application deployment\nDOTCORE_APPLICATION_DEPLOYMENT_ID=app-1\nDOTCORE_APPLICATION_DEPLOYMENT_NAME=Chat\nDOTCORE_APPLICATION_DEPLOYMENT_STATE=Pausing\nDOTCORE_APPLICATION_DEPLOYMENT_DESIRED_STATE=Paused\n"
-    );
+    assert_eq!(text(&paused.stdout), "✔ Pausing Chat\n");
     assert_eq!(
         manager.application_deployment("app-1").desired_state(),
         Paused
@@ -489,10 +580,8 @@ fn pause_and_resume_request_the_change_and_print_the_accepted_state() {
     let resumed = run(&manager, &["resume", "app-4"]);
 
     assert_eq!(resumed.status.code(), Some(0));
-    assert_eq!(
-        text(&resumed.stdout),
-        "Application deployment\nDOTCORE_APPLICATION_DEPLOYMENT_ID=app-4\nDOTCORE_APPLICATION_DEPLOYMENT_NAME=Docs\nDOTCORE_APPLICATION_DEPLOYMENT_STATE=Paused\nDOTCORE_APPLICATION_DEPLOYMENT_DESIRED_STATE=Present\n"
-    );
+    assert_eq!(text(&resumed.stderr), "");
+    assert_eq!(text(&resumed.stdout), "✔ Resuming Docs\n");
     assert_eq!(
         manager.application_deployment("app-4").desired_state(),
         Present
@@ -513,10 +602,8 @@ fn teardown_with_yes_removes_the_deployment_and_prints_the_accepted_state() {
     let output = run(&manager, &["teardown", "Wiki", "--yes"]);
 
     assert_eq!(output.status.code(), Some(0));
-    assert_eq!(
-        text(&output.stdout),
-        "Application deployment\nDOTCORE_APPLICATION_DEPLOYMENT_ID=app-3\nDOTCORE_APPLICATION_DEPLOYMENT_NAME=Wiki\nDOTCORE_APPLICATION_DEPLOYMENT_STATE=Tearing down\nDOTCORE_APPLICATION_DEPLOYMENT_DESIRED_STATE=Teardown\n"
-    );
+    assert_eq!(text(&output.stderr), "");
+    assert_eq!(text(&output.stdout), "✔ Tearing down Wiki\n");
     assert_eq!(
         manager.application_deployment("app-3").desired_state(),
         Teardown
@@ -592,7 +679,10 @@ fn an_answer_without_the_asked_desired_state_is_not_accepted() {
 fn a_terminal_shows_the_list_as_a_table() {
     let manager = FakeManager::start(FakeState::with_applications(mixed_deployments()));
 
-    let Some(run) = run_in_pty(terminal_command(&manager, &["list"]), Session::new([])) else {
+    let Some(run) = run_in_pty(
+        terminal_command(&manager, &["list"]),
+        Session::new([]).with_stdout_on_terminal(),
+    ) else {
         return;
     };
 
@@ -622,7 +712,7 @@ fn a_terminal_shows_the_details_of_one_deployment() {
 
     let Some(run) = run_in_pty(
         terminal_command(&manager, &["show", "Chat"]),
-        Session::new([]),
+        Session::new([]).with_stdout_on_terminal(),
     ) else {
         return;
     };
@@ -653,12 +743,12 @@ fn a_terminal_shows_the_details_of_one_deployment() {
 }
 
 #[test]
-fn a_terminal_reports_a_pause_with_the_next_step() {
+fn a_terminal_reports_a_pause_without_a_next_step() {
     let manager = FakeManager::start(FakeState::with_applications(mixed_deployments()));
 
     let Some(run) = run_in_pty(
         terminal_command(&manager, &["pause", "Chat"]),
-        Session::new([]),
+        Session::new([]).with_stdout_on_terminal(),
     ) else {
         return;
     };
@@ -666,9 +756,7 @@ fn a_terminal_reports_a_pause_with_the_next_step() {
     assert_eq!(run.code(), Some(0), "screen:\n{}", run.screen());
     assert_eq!(run.stdout(), "");
     assert_eq!(run.stderr(), "");
-    let lines = run.screen().lines().map(str::trim).collect::<Vec<_>>();
-    assert!(lines.contains(&"OK Pausing Chat"), "{}", run.screen());
-    assert!(lines.contains(&"dotc application list"), "{}", run.screen());
+    assert_eq!(run.screen().trim(), "OK Pausing Chat");
     assert_eq!(
         manager.application_deployment("app-1").desired_state(),
         Paused
@@ -685,14 +773,13 @@ fn a_terminal_teardown_warns_about_data_and_removes_when_accepted() {
             Step::Wait("Tear down Chat?"),
             Step::Wait("[no]"),
             Step::Send(b"yes\n"),
-            Step::Wait("Tearing down Chat"),
         ]),
     ) else {
         return;
     };
 
     assert_eq!(run.code(), Some(0), "screen:\n{}", run.screen());
-    assert_eq!(run.stdout(), "");
+    assert_eq!(run.stdout(), "OK Tearing down Chat\n");
     assert_eq!(run.stderr(), "");
     let screen = run
         .screen()
@@ -748,10 +835,7 @@ fn show_prints_parameters_in_catalog_order_with_secrets_masked() {
     assert_eq!(output.status.code(), Some(0));
     let stdout = text(&output.stdout);
     assert!(!stdout.contains("s3cretPassw0rd"), "{stdout}");
-    assert_eq!(
-        support::parameter_lines(&stdout, PARAMETER_PREFIX),
-        PARAMETER_LINES_MASKED
-    );
+    assert_eq!(support::parameter_rows(&stdout), PARAMETER_ROWS_MASKED);
 }
 
 #[test]
@@ -803,8 +887,8 @@ fn show_prints_only_retained_parameters() {
 
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(
-        support::parameter_lines(&text(&output.stdout), PARAMETER_PREFIX),
-        ["DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER_REQUIRE_LOGIN=false"]
+        support::parameter_rows(&text(&output.stdout)),
+        ["Require login false"]
     );
 }
 
@@ -817,11 +901,8 @@ fn show_reveals_secret_parameters_with_the_flag() {
     let output = run(&manager, &["show", "Chat", "--reveal-secrets"]);
 
     assert_eq!(output.status.code(), Some(0));
-    let revealed = PARAMETER_LINES_MASKED.map(|line| line.replace("********", "s3cretPassw0rd"));
-    assert_eq!(
-        support::parameter_lines(&text(&output.stdout), PARAMETER_PREFIX),
-        revealed
-    );
+    let revealed = PARAMETER_ROWS_MASKED.map(|line| line.replace("********", "s3cretPassw0rd"));
+    assert_eq!(support::parameter_rows(&text(&output.stdout)), revealed);
 }
 
 #[test]
@@ -849,7 +930,7 @@ fn a_terminal_shows_parameters_under_their_own_heading() {
 
     let Some(run) = run_in_pty(
         terminal_command(&manager, &["show", "Chat"]),
-        Session::new([]),
+        Session::new([]).with_stdout_on_terminal(),
     ) else {
         return;
     };
@@ -877,13 +958,12 @@ fn a_terminal_shows_parameters_under_their_own_heading() {
     );
 }
 
-const PARAMETER_PREFIX: &str = "DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER_";
-const PARAMETER_LINES_MASKED: [&str; 5] = [
-    "DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER_WEB_SEARCH=true",
-    "DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER_MEMORY_LIMIT=2048 MB",
-    "DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER_MODE=fast",
-    "DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER_WELCOME_NOTE=Empty",
-    "DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER_ADMIN_PASSWORD=********",
+const PARAMETER_ROWS_MASKED: [&str; 5] = [
+    "Web search true",
+    "Memory limit 2048 MB",
+    "Mode fast",
+    "Welcome note Empty",
+    "Admin password ********",
 ];
 
 /// A deployment with one parameter of each kind: a default boolean, a non-default integer with a
@@ -1025,27 +1105,6 @@ fn service(name: &str, state: ApplicationServiceLifecycleState) -> ApplicationSe
         lifecycle_state: state as i32,
         ..Default::default()
     }
-}
-
-/// The record block `application list` prints for one seeded deployment.
-fn list_block(id: &str, name: &str, state: &str, stale: &str) -> String {
-    block(&[
-        ("ID", id),
-        ("NAME", name),
-        ("STATE", state),
-        ("STALE", stale),
-        ("NODE", "gb10-host"),
-        ("APPLICATION", "Open WebUI"),
-    ])
-}
-
-/// Renders `fields` as an application deployment record block.
-fn block(fields: &[(&str, &str)]) -> String {
-    let mut block = "Application deployment\n".to_owned();
-    for (key, value) in fields {
-        block.push_str(&format!("DOTCORE_APPLICATION_DEPLOYMENT_{key}={value}\n"));
-    }
-    block
 }
 
 fn call(rpc: Rpc, id: Option<&str>) -> Call {

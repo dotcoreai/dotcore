@@ -170,10 +170,10 @@ fn confirm(
             live.len()
         );
     }
-    terminal.message(&Message::Heading(
+    terminal.prompt_context(&Message::Heading(
         "These development workloads will be stopped and removed:".to_owned(),
     ))?;
-    terminal.message(&Message::KeyValues(
+    terminal.prompt_context(&Message::KeyValues(
         live.iter()
             .map(|handle| {
                 (

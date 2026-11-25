@@ -41,15 +41,32 @@ pub fn canonical_tempdir() -> std::io::Result<tempfile::TempDir> {
     tempfile::tempdir_in(canonical_temp_dir())
 }
 
-/// The lines of a record block whose key starts with the given prefix, such as one deployment's
-/// parameters.
+/// The rows under the `Parameters` heading of a shown deployment, one per parameter with its
+/// whitespace collapsed, such as `Memory limit 2048 MB`.
 #[allow(
     dead_code,
-    reason = "only the deployment contracts read parameter records"
+    reason = "only the deployment contracts read parameter rows"
 )]
-pub fn parameter_lines<'a>(stdout: &'a str, prefix: &str) -> Vec<&'a str> {
+pub fn parameter_rows(stdout: &str) -> Vec<String> {
     stdout
         .lines()
-        .filter(|line| line.starts_with(prefix))
+        .skip_while(|line| *line != "Parameters")
+        .skip(1)
+        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|line| !line.is_empty())
+        .collect()
+}
+
+/// Parses stdout as a stream of YAML documents, each as the JSON value it maps to, so a test
+/// compares whole documents field by field.
+#[allow(
+    dead_code,
+    reason = "only the deployment contracts read YAML documents"
+)]
+pub fn yaml_documents(stdout: &str) -> Vec<serde_json::Value> {
+    use serde::Deserialize;
+
+    serde_yaml_ng::Deserializer::from_str(stdout)
+        .map(|document| serde_json::Value::deserialize(document).expect("YAML document"))
         .collect()
 }

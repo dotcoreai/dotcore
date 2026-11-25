@@ -1,64 +1,124 @@
 //! `dotc node list`: shows the nodes a site declares, with their addresses, execution targets,
 //! and placed deployments, for example the manager and one GPU worker.
 //!
-//! It reads the site without locking it, so it works while the manager runs. On a terminal it
-//! prints a table, with optional detail columns and execution targets; without one it prints one
-//! record block per node on stdout, always carrying every field.
+//! It reads the site without locking it, so it works while the manager runs. It prints a table,
+//! with optional detail columns and execution targets, on the terminal or as plain text without
+//! one. Asked for YAML, it prints the site's nodes with every fact, whatever the detail flags.
 
 use anyhow::Context;
 use clap::Args;
-use dotcore_site::membership::{ListedNode, list_site_nodes};
+use dotcore_proto::dotcore::site::v1::SiteNode;
+use dotcore_site::membership::{ListedNode, ListedTarget, list_site_nodes};
+use serde::Serialize;
 
-use super::{record_value, write_records};
 use crate::{
     RootPathArgs,
-    terminal::{Message, TerminalCondition, controlling_terminal_condition, open_terminal},
+    output::{OutputFormat, present, write_yaml},
+    terminal::Message,
 };
 
 /// Arguments of `dotc node list`.
 #[derive(Debug, Args)]
 pub struct NodeListArgs {
     /// Also show the address each node uses to reach the manager and whether the manager trusts
-    /// the node's certificate; terminal output only.
+    /// the node's certificate.
     #[arg(long)]
     pub details: bool,
 
-    /// Also list each node's execution targets; terminal output only.
+    /// Also list each node's execution targets.
     #[arg(long)]
     pub execution_targets: bool,
 }
 
-/// Lists the site's nodes on the terminal, else as records.
-pub(crate) fn node_list(paths: &RootPathArgs, arguments: NodeListArgs) -> anyhow::Result<()> {
+/// Lists the site's nodes as YAML when asked, else as a table.
+pub(crate) fn node_list(
+    paths: &RootPathArgs,
+    arguments: NodeListArgs,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
     let site_dir = paths.site_dir()?;
     let listing = list_site_nodes(&site_dir, &dotcore::model::site_declaration_rules())
         .with_context(|| format!("cannot list the nodes of {}", site_dir.display()))?;
 
-    if controlling_terminal_condition() == TerminalCondition::Interactive {
-        let mut terminal = open_terminal();
-        terminal.message(&Message::Heading(format!(
-            "Nodes of site {}",
-            listing.site_id
-        )))?;
-        terminal.message(&table(&listing.nodes, arguments.details))?;
-        let targets = if arguments.execution_targets {
-            target_rows(&listing.nodes)
-        } else {
-            Vec::new()
-        };
-        if !targets.is_empty() {
-            terminal.message(&Message::Heading("Execution targets".to_owned()))?;
-            terminal.message(&Message::KeyValues(targets))?;
-        }
-        return Ok(());
+    if format == OutputFormat::Yaml {
+        return write_yaml(&NodeListDocument::of(&listing.site_id, &listing.nodes));
     }
 
-    let blocks = listing
-        .nodes
-        .iter()
-        .map(record_block)
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    write_records(&blocks.join("\n"))
+    let mut messages = vec![
+        Message::Heading(format!("Nodes of site {}", listing.site_id)),
+        table(&listing.nodes, arguments.details),
+    ];
+    let targets = if arguments.execution_targets {
+        target_rows(&listing.nodes)
+    } else {
+        Vec::new()
+    };
+    if !targets.is_empty() {
+        messages.push(Message::Heading("Execution targets".to_owned()));
+        messages.push(Message::KeyValues(targets));
+    }
+    present(&messages)
+}
+
+/// The site's nodes read from its folder: each declared node as the site declares it, plus what
+/// the manager's folder knows about it.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NodeListDocument<'a> {
+    site_id: &'a str,
+    nodes: Vec<NodeDocument<'a>>,
+}
+
+/// One declared node with its role, trust and placements.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NodeDocument<'a> {
+    node: &'a SiteNode,
+    is_manager: bool,
+
+    /// Whether the manager holds a pin for the node's certificate; the manager has none.
+    pinned: bool,
+    execution_targets: Vec<TargetDocument<'a>>,
+    placed_models: usize,
+    placed_applications: usize,
+}
+
+/// One execution target a node provides.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TargetDocument<'a> {
+    id: &'a str,
+    display_name: &'a str,
+    kind: &'static str,
+    platform: &'a str,
+}
+
+impl<'a> NodeListDocument<'a> {
+    fn of(site_id: &'a str, nodes: &'a [ListedNode]) -> Self {
+        Self {
+            site_id,
+            nodes: nodes
+                .iter()
+                .map(|listed| NodeDocument {
+                    node: &listed.node,
+                    is_manager: listed.is_manager,
+                    pinned: listed.pinned,
+                    execution_targets: listed.execution_targets.iter().map(target).collect(),
+                    placed_models: listed.placed_models,
+                    placed_applications: listed.placed_applications,
+                })
+                .collect(),
+        }
+    }
+}
+
+fn target(target: &ListedTarget) -> TargetDocument<'_> {
+    TargetDocument {
+        id: &target.id,
+        display_name: &target.display_name,
+        kind: target.kind,
+        platform: &target.platform,
+    }
 }
 
 /// Builds the nodes table, header first. `details` adds the manager address and trust columns.
@@ -113,54 +173,11 @@ fn target_rows(nodes: &[ListedNode]) -> Vec<(String, String)> {
         .collect()
 }
 
-/// Renders one node as a record block ending in a newline.
-fn record_block(listed: &ListedNode) -> anyhow::Result<String> {
-    let node = &listed.node;
-    let mut block = format!(
-        "Node\nDOTCORE_NODE_ID={}\nDOTCORE_NODE_NAME={}\nDOTCORE_NODE_ROLE={}\nDOTCORE_NODE_HOST={}\nDOTCORE_NODE_MANAGER_HOST={}\nDOTCORE_NODE_PIN={}\n",
-        record_value(&node.node_id)?,
-        record_value(&node.display_name)?,
-        role(listed),
-        record_value(&node.host)?,
-        record_value(manager_host(listed))?,
-        pin(listed),
-    );
-    for target in &listed.execution_targets {
-        block.push_str(&format!(
-            "DOTCORE_NODE_EXECUTION_TARGET={} {} {}\n",
-            record_value(&target.id)?,
-            target.kind,
-            record_value(&target.platform)?
-        ));
-    }
-    block.push_str(&format!(
-        "DOTCORE_NODE_MODEL_DEPLOYMENTS={}\nDOTCORE_NODE_APPLICATION_DEPLOYMENTS={}\n",
-        listed.placed_models, listed.placed_applications
-    ));
-    Ok(block)
-}
-
 fn role(listed: &ListedNode) -> &'static str {
     if listed.is_manager {
         "manager"
     } else {
         "worker"
-    }
-}
-
-fn manager_host(listed: &ListedNode) -> &str {
-    if listed.node.manager_host.is_empty() {
-        "default"
-    } else {
-        &listed.node.manager_host
-    }
-}
-
-fn pin(listed: &ListedNode) -> &'static str {
-    match (listed.is_manager, listed.pinned) {
-        (true, _) => "own identity",
-        (false, true) => "yes",
-        (false, false) => "no",
     }
 }
 
@@ -279,26 +296,6 @@ mod tests {
                         .to_owned()
                 ),
             ]
-        );
-    }
-
-    #[test]
-    fn target_record_keeps_the_id_kind_and_platform() {
-        let mut spark = listed("spark", "node-2", "spark.example", "", false, true);
-        spark.execution_targets = vec![ListedTarget {
-            id: "execution-target-0a1b".to_owned(),
-            display_name: "Simulated models".to_owned(),
-            kind: "model",
-            platform: "linux/arm64".to_owned(),
-        }];
-
-        let block = record_block(&spark).expect("record");
-
-        assert!(
-            block.contains(
-                "DOTCORE_NODE_EXECUTION_TARGET=execution-target-0a1b model linux/arm64\n"
-            ),
-            "{block}"
         );
     }
 }

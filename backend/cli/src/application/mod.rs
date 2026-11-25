@@ -3,8 +3,9 @@
 //!
 //! Deployments are named by id or name and shown with the same state words as the web console,
 //! for example "Pausing" for a deployment asked to pause whose workload still runs. On a
-//! terminal the commands print tables and messages; without one they print result records on
-//! stdout, for example `DOTCORE_APPLICATION_DEPLOYMENT_STATE=Ready`.
+//! terminal the commands print tables and messages, and as plain text without one. Asked for YAML,
+//! every command prints the
+//! manager's own message instead.
 
 mod list;
 mod parameters;
@@ -26,13 +27,16 @@ use dotcore_proto::dotcore::{
 use futures_util::StreamExt;
 use tonic::Status;
 
-use crate::management::{
-    DeploymentGroup, Lifecycle, LogEntry, LogEvent, LogEvents, LogPage, LogPosition, LogSource,
-    LogSourceState, LoggedDeployment, LogsArgs, ManagedDeployment, Manager, ManagerArgs, NodeNames,
-    change_lifecycle, deployment_logs, single_line, teardown,
+use crate::{
+    management::{
+        DeploymentDocument, DeploymentGroup, Lifecycle, LogEntry, LogEvent, LogEvents, LogPage,
+        LogPosition, LogSource, LogSourceState, LoggedDeployment, LogsArgs, ManagedDeployment,
+        Manager, ManagerArgs, NodeNames, change_lifecycle, deployment_logs, single_line, teardown,
+    },
+    output::OutputFormat,
 };
 use list::{ApplicationListArgs, application_list};
-use projection::{desired_state_label, state_label};
+use projection::desired_state_label;
 use show::{ApplicationShowArgs, application_show};
 
 /// Commands that manage the application deployments of a running site.
@@ -46,40 +50,50 @@ pub struct ApplicationCommand {
 /// Actions supported by the application command group.
 #[derive(Debug, Subcommand)]
 enum ApplicationSubcommand {
-    /// List the application deployments with their state, node and application; runs against
-    /// the running site manager (`--manager`).
+    /// List the application deployments with their state and node
+    ///
+    /// Runs against the running site manager.
     #[command(alias = "ls")]
     List(ApplicationListArgs),
 
-    /// Show one application deployment by name or id.
+    /// Show one application deployment by name or ID
     Show(ApplicationShowArgs),
 
-    /// Ask the manager to pause an application deployment; returns without waiting for the pause.
+    /// Pause an application deployment, without waiting for it to pause
     Pause(LifecycleArgs),
 
-    /// Ask the manager to resume a paused application deployment; returns without waiting.
+    /// Resume a paused application deployment, without waiting for it to resume
     Resume(LifecycleArgs),
 
-    /// Remove an application deployment, its workloads and the data placed with it after
-    /// confirmation; data shared by the app is kept.
+    /// Remove an application deployment and its workloads after confirmation
+    ///
+    /// Removes the data placed with the deployment; data shared by the app is kept.
     Teardown(ApplicationTeardownArgs),
 
-    /// Print the most recent log lines of an application deployment, on any node, and follow
-    /// new ones with --follow; lines go to stdout and source states to stderr.
+    /// Print the recent log lines of an application deployment
+    ///
+    /// Reads from any node. With `--follow`, keeps printing new lines. Lines go to stdout and
+    /// source states to stderr.
+    #[command(mut_arg("reference", |argument| argument.help("Name or ID of the application deployment")))]
     Logs(LogsArgs),
 }
 
 impl ApplicationCommand {
     /// Runs the chosen action.
-    pub(crate) async fn dispatch(self) -> anyhow::Result<()> {
+    pub(crate) async fn dispatch(self, format: OutputFormat) -> anyhow::Result<()> {
         match self.command {
-            Some(ApplicationSubcommand::List(arguments)) => application_list(arguments).await,
-            Some(ApplicationSubcommand::Show(arguments)) => application_show(arguments).await,
+            Some(ApplicationSubcommand::List(arguments)) => {
+                application_list(arguments, format).await
+            }
+            Some(ApplicationSubcommand::Show(arguments)) => {
+                application_show(arguments, format).await
+            }
             Some(ApplicationSubcommand::Pause(arguments)) => {
                 change_lifecycle::<ApplicationDeployment>(
                     &arguments.manager,
                     &arguments.reference,
                     Lifecycle::Pause,
+                    format,
                 )
                 .await
             }
@@ -88,6 +102,7 @@ impl ApplicationCommand {
                     &arguments.manager,
                     &arguments.reference,
                     Lifecycle::Resume,
+                    format,
                 )
                 .await
             }
@@ -96,11 +111,12 @@ impl ApplicationCommand {
                     &arguments.manager,
                     &arguments.reference,
                     arguments.yes,
+                    format,
                 )
                 .await
             }
             Some(ApplicationSubcommand::Logs(arguments)) => {
-                deployment_logs::<ApplicationDeployment>(arguments).await
+                deployment_logs::<ApplicationDeployment>(arguments, format).await
             }
             None => anyhow::bail!("application command requires an action"),
         }
@@ -115,7 +131,7 @@ impl ApplicationCommand {
 /// Arguments selecting the application deployment to pause or resume.
 #[derive(Debug, Args)]
 struct LifecycleArgs {
-    /// Name or id of the application deployment.
+    /// Name or ID of the application deployment.
     #[arg(value_name = "DEPLOYMENT")]
     reference: String,
 
@@ -126,7 +142,7 @@ struct LifecycleArgs {
 /// Arguments selecting the application deployment to tear down.
 #[derive(Debug, Args)]
 struct ApplicationTeardownArgs {
-    /// Name or id of the application deployment.
+    /// Name or ID of the application deployment.
     #[arg(value_name = "DEPLOYMENT")]
     reference: String,
 
@@ -177,6 +193,10 @@ impl ManagedDeployment for ApplicationDeployment {
         }
     }
 
+    fn placement(&self) -> Option<&ExactPlacement> {
+        self.placement.as_ref()
+    }
+
     fn accepts(&self, lifecycle: Lifecycle) -> bool {
         self.desired_state()
             == match lifecycle {
@@ -186,16 +206,16 @@ impl ManagedDeployment for ApplicationDeployment {
             }
     }
 
-    fn state_label(&self) -> &'static str {
-        state_label(self)
-    }
-
     fn desired_state_label(&self) -> &'static str {
         desired_state_label(self.desired_state())
     }
 
     /// What tearing a deployment down does to its data: storage placed with the deployment is
     /// deleted, storage shared by the app is kept, each listed by binding name.
+    fn mask_secrets(&mut self) {
+        parameters::mask_secrets(self);
+    }
+
     fn teardown_consequence(&self) -> String {
         let bindings = |placement: StoragePlacement| {
             self.storage_attachments
@@ -224,12 +244,14 @@ impl ManagedDeployment for ApplicationDeployment {
 }
 
 impl LoggedDeployment for ApplicationDeployment {
+    type Entry = DeploymentLogEntry;
+
     async fn read_logs(
         manager: &Manager,
         id: String,
         sources: Vec<String>,
         page_size: u32,
-    ) -> Result<LogPage, Status> {
+    ) -> Result<LogPage<DeploymentLogEntry>, Status> {
         let page = manager
             .applications()
             .read_deployment_logs(ReadDeploymentLogsRequest {
@@ -267,7 +289,7 @@ impl LoggedDeployment for ApplicationDeployment {
         id: String,
         sources: Vec<String>,
         positions: Vec<LogPosition>,
-    ) -> Result<LogEvents, Status> {
+    ) -> Result<LogEvents<DeploymentLogEntry>, Status> {
         let events = manager
             .applications()
             .follow_deployment_logs(FollowDeploymentLogsRequest {
@@ -316,13 +338,14 @@ fn log_source(name: String, label: String, state: DeploymentLogSourceState) -> L
     }
 }
 
-fn log_entry(entry: DeploymentLogEntry) -> LogEntry {
+fn log_entry(entry: DeploymentLogEntry) -> LogEntry<DeploymentLogEntry> {
     LogEntry {
-        source_name: entry.source_name,
-        source_label: entry.source_label,
+        source_name: entry.source_name.clone(),
+        source_label: entry.source_label.clone(),
         timestamp: entry.timestamp,
-        content: entry.content,
+        content: entry.content.clone(),
         truncated: entry.truncated,
+        message: entry,
     }
 }
 
@@ -334,9 +357,16 @@ fn node_of<'a>(deployment: &'a ApplicationDeployment, nodes: &'a NodeNames) -> &
         .map_or("", |placement| nodes.display(&placement.site_node_id))
 }
 
-/// The exact placement of a deployment.
-fn placement(deployment: &ApplicationDeployment) -> Option<&ExactPlacement> {
-    deployment.placement.as_ref()
+/// The YAML document of a deployment, with its secret values masked unless revealed.
+fn document(
+    mut deployment: ApplicationDeployment,
+    nodes: &NodeNames,
+    reveal_secrets: bool,
+) -> DeploymentDocument<ApplicationDeployment> {
+    if !reveal_secrets {
+        parameters::mask_secrets(&mut deployment);
+    }
+    DeploymentDocument::new(deployment, nodes)
 }
 
 #[cfg(test)]

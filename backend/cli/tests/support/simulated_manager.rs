@@ -206,7 +206,7 @@ fn initialize_site() -> PathBuf {
     std::fs::write(
         site.join("site.yaml"),
         format!(
-            "siteId: {SITE_ID}\nnodes:\n- nodeId: {NODE_ID}\n  host: 127.0.0.2\n  displayName: {NODE_NAME}\n  siteManager: {{}}\nexecutionTargets:\n- executionTargetId: {APPLICATION_TARGET_ID}\n  siteNodeId: {NODE_ID}\n  displayName: {APPLICATION_TARGET_ID}\n  platform: {{ operatingSystem: linux, architecture: amd64 }}\n  applicationRuntime: {{ simulatedRuntime: {{}} }}\nmodelDeployments: []\nmodelDeploymentIdentityAllocator:\n  namespace: 6c1a9f0e2b7d4c13\n  nextSequence: '1'\ninferenceRoutes: []\napplicationDeployments: []\n"
+            "siteId: {SITE_ID}\nnodes:\n- nodeId: {NODE_ID}\n  host: 127.0.0.2\n  displayName: {NODE_NAME}\n  siteManager: {{}}\nexecutionTargets:\n- executionTargetId: {APPLICATION_TARGET_ID}\n  siteNodeId: {NODE_ID}\n  displayName: {APPLICATION_TARGET_ID}\n  platform: {{ operatingSystem: linux, architecture: amd64 }}\n  applicationRuntime: {{ simulatedRuntime: {{}} }}\nmodelDeployments: []\ndeploymentIdentityAllocator:\n  suffixKey: 6c1a9f0e2b7d4c13\n  nextSequence: '1'\ninferenceRoutes: []\napplicationDeployments: []\n"
         ),
     )
     .expect("desired site");

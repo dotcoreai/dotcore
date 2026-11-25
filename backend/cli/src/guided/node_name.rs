@@ -34,7 +34,7 @@ pub(super) fn collect_node_name(
             return Ok(None);
         }
         if !is_valid_display_name(name) {
-            terminal.message(&Message::Error(
+            terminal.prompt_context(&Message::Error(
                 "Node name must contain 1 to 128 non-control characters".to_owned(),
             ))?;
             continue;

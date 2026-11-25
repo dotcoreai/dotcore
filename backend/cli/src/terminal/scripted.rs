@@ -4,7 +4,8 @@
 //! Each answer names the prompt kind it answers, for example a choice index
 //! or a yes/no decision, and a test fails immediately when the flow asks a
 //! different kind of question than the script expects. Every prompt and the
-//! plain text of every message are recorded for assertions.
+//! plain text of every message, output or prompt context, are recorded in order for
+//! assertions.
 
 use std::collections::{BTreeSet, VecDeque};
 
@@ -167,6 +168,10 @@ impl Terminal for ScriptedTerminal {
         self.lines.extend(message.plain_lines());
         self.messages.push(message.clone());
         Ok(())
+    }
+
+    fn prompt_context(&mut self, message: &Message) -> Result<(), PromptError> {
+        self.message(message)
     }
 }
 
