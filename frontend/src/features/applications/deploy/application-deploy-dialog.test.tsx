@@ -819,7 +819,8 @@ describe("Application deployment dialog", () => {
         .getAllByRole("button")
         .map((button) => button.textContent),
     ).toEqual(["Cancel", "Next"]);
-    expect(dialog).toHaveStyle({ zIndex: "calc(var(--layer-modal) + 1)" });
+    // jsdom computes a `calc()` over a custom property to `auto`, so read the inline style.
+    expect(dialog.style.zIndex).toBe("calc(var(--layer-modal) + 1)");
   });
 
   it("orders the advanced steps with Target before Deploy", async () => {

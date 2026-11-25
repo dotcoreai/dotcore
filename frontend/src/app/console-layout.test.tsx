@@ -579,10 +579,14 @@ describe("ConsoleLayout hover peek (R5)", () => {
     // A click focuses its target exactly as Tab does, but that focus never blurs on its own once
     // the pointer leaves — this is the bug: without the `:focus-visible` gate, focusWithin latches
     // true forever and the peek never closes again.
+    // jsdom has no input modality and matches `:focus-visible` on any focus, so give the link the
+    // browser's answer for a pointer focus.
     const routesLink = screen.getByRole("link", { name: "Routes" });
+    vi.spyOn(routesLink, "matches").mockImplementation((selector) =>
+      selector === ":focus-visible" ? false : Element.prototype.matches.call(routesLink, selector),
+    );
     await user.click(routesLink);
     expect(document.activeElement).toBe(routesLink);
-    expect(routesLink.matches(":focus-visible")).toBe(false);
 
     fireEvent.pointerLeave(container);
     await waitFor(() => expect(sidebar).not.toHaveAttribute("data-peek"));

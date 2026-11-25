@@ -3053,9 +3053,10 @@ describe("ModelDeployDialog", () => {
         inspectorTitle(screen.getByRole("dialog", { name: "Test Model — Deploy model" })),
         "model-1",
       );
-      expect(screen.getByRole("dialog", { name: "Test Model — Deploy model" })).toHaveStyle({
-        zIndex: "calc(var(--layer-modal) + 1)",
-      });
+      // jsdom computes a `calc()` over a custom property to `auto`, so read the inline style.
+      expect(screen.getByRole("dialog", { name: "Test Model — Deploy model" }).style.zIndex).toBe(
+        "calc(var(--layer-modal) + 1)",
+      );
     });
 
     it("uses a bounded modal shell and groups runtime fields by responsibility", async () => {
