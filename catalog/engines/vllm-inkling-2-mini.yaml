@@ -1,6 +1,7 @@
-# Upstream's pre-release Inkling-2-Mini image, built from an unmerged vLLM pull request and pinned per
-# architecture by `engines/vllm/inkling-2-mini/docker-image.nix`. It is a CUDA 13.0.3 build, which the
-# R580 driver floor covers.
+# Upstream's pre-release Inkling-2-Mini image, built before a stable vLLM release carries Inkling
+# support (the pull request merged on 2026-11-21), and pinned per architecture by
+# `engines/vllm/inkling-2-mini/docker-image.nix`. It is a CUDA 13.0.3 build, which the R580 driver
+# floor covers.
 # CHECK(https://github.com/vllm-project/vllm/pull/69028): in a stable vLLM release
 #   -> move Inkling-2-Mini to the stable vLLM engine and delete this release and its image folder.
 engineReleaseId: "vllm-inkling-2-mini"

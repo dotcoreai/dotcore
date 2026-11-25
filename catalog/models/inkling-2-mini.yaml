@@ -21,13 +21,13 @@ artifacts:
     weightQuantization: "NVFP4"
     source:
       repository: "thinkingmachines/Inkling-2-Mini"
-      revision: "6e7c8248f75265bdd4fbab5273304243b5d8c2cb"
+      revision: "c9d028302cd0f035fdf8e7e91f089a4ce94d2195"
       snapshot:
         files:
           - path: "chat_template.jinja"
             provenanceDigest: "53a9035f3255945704b5857657cfb00c1165090c0641c4f782a0cbf268cc16dc"
           - path: "config.json"
-            provenanceDigest: "8216dd43157f5474cfff88f486a1e433fef703c674f694e485a86a761c412b1e"
+            provenanceDigest: "a7a349601f0984c4abf999c480ef775d8567d21f5f84b4e8a3e035b44f288dc2"
           - path: "generation_config.json"
             provenanceDigest: "a08737c07a65a8fdf69f7cf086576210e5aad4b241437090b26d7b0c4f7905f7"
           - path: "hf_quant_config.json"
@@ -94,7 +94,7 @@ auxiliaryArtifacts:
   - auxiliaryArtifactId: "inkling-chat-template"
     source:
       repository: "thinkingmachines/Inkling-2-Mini"
-      revision: "6e7c8248f75265bdd4fbab5273304243b5d8c2cb"
+      revision: "c9d028302cd0f035fdf8e7e91f089a4ce94d2195"
       file:
         path: "chat_template.jinja"
         provenanceDigest: "53a9035f3255945704b5857657cfb00c1165090c0641c4f782a0cbf268cc16dc"
@@ -268,8 +268,8 @@ configurations:
             + ${promptBytesPerToken} * ${total-context}
     hardwareSupport:
       - hardwareClassId: "nvidia-gb202"
-        # The largest binding, sq-20, at 2 parallel requests and 32,768 tokens each is 28.15 GB with its allowance;
-        # the minimum adds the 1% the placement keeps free. A deployment picks those values; profiles keep the
+        # The largest binding, sq-20, at 2 parallel requests and 32,768 tokens each (65,536 total) estimates
+        # 31.71 GB with its allowance, above this minimum. A deployment picks those values; profiles keep the
         # engine defaults.
         hardwareRequirements:
           minimumMemoryBytesPerDevice: "28500000000"
