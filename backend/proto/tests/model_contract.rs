@@ -720,6 +720,8 @@ fn generated_bindings_preserve_typed_option_defaults_overrides_and_resolved_valu
         options: vec![ModelOption {
             option_id: "vision".to_owned(),
             display_name: "Vision".to_owned(),
+            description: "Fixture option.".to_owned(),
+            visibility: dotcore_proto::dotcore::catalog::v1::ParameterVisibility::Advanced as i32,
             kind: Some(ModelOptionKind::Vision(VisionModelOption {})),
         }],
         configurations: vec![
@@ -1236,6 +1238,8 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
         [
             ("option_id", 1),
             ("display_name", 2),
+            ("description", 6),
+            ("visibility", 7),
             ("vision", 3),
             ("speculative_decoding", 4),
             ("kv_cache_precision", 5),
