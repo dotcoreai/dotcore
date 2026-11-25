@@ -8,7 +8,7 @@
 
 use dotcore_proto::dotcore::deployment::v1::ExactPlacement;
 use serde::Serialize;
-use tonic::Status;
+use tonic::{Code, Status};
 
 use super::{
     DeploymentDocument, DeploymentGroup, ManagementError, Manager, ManagerArgs, call_failed,
@@ -29,6 +29,13 @@ pub(crate) trait ManagedDeployment: Referable + Clone + Serialize {
 
     /// Reads every deployment of this kind the manager knows.
     async fn list(manager: &Manager) -> Result<Vec<Self>, Status>;
+
+    /// Reads the deployment with this exact id, or `None` when the manager has no single read for
+    /// the kind. A manager failing with `NotFound` or `InvalidArgument` means the text is not the
+    /// id of a deployment.
+    async fn get(_manager: &Manager, _id: &str) -> Result<Option<Self>, Status> {
+        Ok(None)
+    }
 
     /// Asks the manager for a lifecycle change of the deployment with this id and returns the
     /// deployment as the manager now holds it.
@@ -97,10 +104,23 @@ pub(crate) async fn list_deployments<T: ManagedDeployment>(
 }
 
 /// Finds the one deployment an operator reference names, failing when it names none or several.
+/// An exact id is the resolver's first step, so a single read of it decides without the list; any
+/// other reference resolves against the list.
 pub(crate) async fn find_deployment<T: ManagedDeployment>(
     manager: &Manager,
     reference: &str,
 ) -> anyhow::Result<T> {
+    match T::get(manager, reference).await {
+        Ok(Some(deployment)) => return Ok(deployment),
+        Ok(None) => {}
+        Err(status) if matches!(status.code(), Code::NotFound | Code::InvalidArgument) => {}
+        Err(status) => {
+            return Err(
+                call_failed(T::GROUP, format!("read the {}", T::GROUP.noun()))(status).into(),
+            );
+        }
+    }
+
     let deployments = list_deployments::<T>(manager).await?;
     Ok(resolve(ReferenceKind::Deployment(T::GROUP), reference, &deployments)?.clone())
 }

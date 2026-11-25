@@ -17,8 +17,8 @@ use dotcore_proto::dotcore::{
     application::v1::{
         ApplicationDeployment, ApplicationDeploymentDesiredState, DeploymentLogEntry,
         DeploymentLogResumePosition, DeploymentLogSourceState, FollowDeploymentLogsRequest,
-        ListApplicationDeploymentsRequest, PauseDeploymentRequest, ReadDeploymentLogsRequest,
-        RemoveApplicationDeploymentRequest, ResumeDeploymentRequest,
+        GetApplicationDeploymentRequest, ListApplicationDeploymentsRequest, PauseDeploymentRequest,
+        ReadDeploymentLogsRequest, RemoveApplicationDeploymentRequest, ResumeDeploymentRequest,
         follow_deployment_logs_response,
     },
     catalog::v1::StoragePlacement,
@@ -163,6 +163,16 @@ impl ManagedDeployment for ApplicationDeployment {
             .list_application_deployments(ListApplicationDeploymentsRequest {})
             .await
             .map(|response| response.into_inner().deployments)
+    }
+
+    async fn get(manager: &Manager, id: &str) -> Result<Option<Self>, Status> {
+        manager
+            .applications()
+            .get_application_deployment(GetApplicationDeploymentRequest {
+                application_deployment_id: id.to_owned(),
+            })
+            .await
+            .map(|response| response.into_inner().deployment)
     }
 
     async fn request(

@@ -258,6 +258,8 @@ pub enum Rpc {
 
     RemoveModelDeployment,
 
+    GetApplicationDeployment,
+
     ListApplicationDeployments,
 
     PauseApplicationDeployment,
@@ -736,9 +738,27 @@ impl ApplicationDeploymentService for FakeApplications {
 
     async fn get_application_deployment(
         &self,
-        _request: Request<application::GetApplicationDeploymentRequest>,
+        request: Request<application::GetApplicationDeploymentRequest>,
     ) -> Result<Response<application::GetApplicationDeploymentResponse>, Status> {
-        Err(not_faked())
+        let id = request.into_inner().application_deployment_id;
+        let mut state = self.state.lock().expect("fake manager state");
+        record(&mut state, Rpc::GetApplicationDeployment, Some(&id))?;
+        if id.is_empty() || id.contains(char::is_whitespace) {
+            return Err(Status::invalid_argument(
+                "Application lifecycle request contains an invalid ID",
+            ));
+        }
+        let deployment = state
+            .application_deployments
+            .iter()
+            .find(|deployment| deployment.application_deployment_id == id)
+            .cloned()
+            .ok_or_else(|| Status::not_found("application deployment was not found"))?;
+        Ok(Response::new(
+            application::GetApplicationDeploymentResponse {
+                deployment: Some(deployment),
+            },
+        ))
     }
 
     async fn create_application_deployment(

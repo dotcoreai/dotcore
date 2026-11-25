@@ -113,6 +113,35 @@ fn show_prints_every_key_for_a_running_deployment_with_its_endpoint() {
 }
 
 #[test]
+fn show_reads_one_deployment_by_exact_id_and_lists_to_resolve_a_name() {
+    let manager = FakeManager::start(FakeState::with_applications(mixed_deployments()));
+
+    let by_id = run(&manager, &["show", "app-1"]);
+    let id_calls = manager.calls();
+    let by_name = run(&manager, &["show", "Chat"]);
+    let name_calls = manager.calls()[id_calls.len()..].to_vec();
+
+    assert_eq!(by_id.status.code(), Some(0), "{}", text(&by_id.stderr));
+    assert_eq!(by_name.status.code(), Some(0), "{}", text(&by_name.stderr));
+    assert_eq!(text(&by_name.stdout), text(&by_id.stdout));
+    assert_eq!(
+        id_calls,
+        vec![
+            call(Rpc::GetApplicationDeployment, Some("app-1")),
+            call(Rpc::ListConfiguredExecutionTargets, None)
+        ]
+    );
+    assert_eq!(
+        name_calls,
+        vec![
+            call(Rpc::GetApplicationDeployment, Some("Chat")),
+            call(Rpc::ListApplicationDeployments, None),
+            call(Rpc::ListConfiguredExecutionTargets, None)
+        ]
+    );
+}
+
+#[test]
 fn show_reports_stage_failure_and_stale_observation_by_id() {
     let manager = FakeManager::start(FakeState::with_applications(mixed_deployments()));
 
