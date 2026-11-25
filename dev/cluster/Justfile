@@ -58,7 +58,7 @@ join target *args:
   added="$(mktemp)"
   mkdir -p "$(dirname "$token_file")"
   rm -f "$token_file"
-  dotc node add --site-dir "$DOTCORE_SITE_DIR" --yes --token-file "$token_file" > "$added" &
+  dotc --yaml node add --site-dir "$DOTCORE_SITE_DIR" --yes --token-file "$token_file" > "$added" &
   add_pid=$!
   trap 'kill "$add_pid" 2>/dev/null || true; rm -f "$token_file" "$added"' EXIT
   for _ in $(seq 1 600); do
@@ -86,7 +86,7 @@ join target *args:
   step 'wait for node add'
   wait "$add_pid" || fail 'node add'
   cat "$added"
-  record_node_id "$target" "$(sed -n 's/^DOTCORE_NODE_ID=//p' "$added")"
+  record_node_id "$target" "$(sed -n 's/^nodeId: //p' "$added")"
   trap - EXIT
   rm -f "$token_file" "$added"
 
@@ -168,7 +168,7 @@ clean target="":
     # The worker stops first, so a running manager accepts forgetting its deployments.
     stop_worker "$target"
     leave_worker "$target" || { echo "cluster clean: the worker on $target did not leave" >&2; exit 1; }
-    if test -n "$node_id" && test -e "$DOTCORE_SITE_DIR" && dotc node list --site-dir "$DOTCORE_SITE_DIR" | grep -qx "DOTCORE_NODE_ID=$node_id"; then
+    if test -n "$node_id" && test -e "$DOTCORE_SITE_DIR" && dotc --yaml node list --site-dir "$DOTCORE_SITE_DIR" | grep -qx "    nodeId: $node_id"; then
       dotc node remove --site-dir "$DOTCORE_SITE_DIR" "$node_id" --forget-deployments ${yes_args[@]+"${yes_args[@]}"}
     elif test -z "$node_id" && test -e "$DOTCORE_SITE_DIR"; then
       # Without a manager site there is no node left to remove, so only an existing site needs a check.

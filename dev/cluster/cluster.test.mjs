@@ -24,11 +24,11 @@ test("join local builds, records the target, hands the token over and records th
   const tokenFile = `${f.workerDir}.join-token`;
   assert.deepEqual(await f.calls(), [
     "nix build .#dotc --no-link",
-    `dotc node add --site-dir ${f.site} --yes --token-file ${tokenFile}`,
+    `dotc --yaml node add --site-dir ${f.site} --yes --token-file ${tokenFile}`,
     `dotc node join --site-dir ${f.workerDir} --token-file ${tokenFile} --name Worker one --inference simulated --applications docker --host 127.0.0.2 --private-port 61053 --yes`,
   ]);
   assert.match(joined.stderr, /cluster join local: prepare\n(.*\n)*cluster join local: token\n(.*\n)*cluster join local: join on local\n(.*\n)*cluster join local: wait for node add/);
-  assert.match(joined.stdout, /^DOTCORE_NODE_ID=node-1$/m);
+  assert.match(joined.stdout, /^nodeId: node-1$/m);
   assert.equal(await f.record(), "local node-1\n");
   assert.equal((await stat(f.workerDir)).mode & 0o777, 0o700);
   await assert.rejects(stat(tokenFile), { code: "ENOENT" });
@@ -87,7 +87,7 @@ test("join on a remote host resolves it, prepares through run and joins through 
   assert.equal(joined.status, 0, joined.stderr);
   const calls = await f.calls();
   assert.deepEqual(calls.slice(0, 2), ["remote resolve gb10", "remote run gb10:spark dev::cluster::_worker-prepare"]);
-  assert.match(calls[2], /^dotc node add .*--token-file /);
+  assert.match(calls[2], /^dotc --yaml node add .*--token-file /);
   assert.equal(calls[3], "remote exec gb10:spark just dev::cluster::_worker-join --token 'secret-token' '--name' 'Spark one' '--note' 'it'\\''s'");
   assert.equal(calls.length, 4);
   // The remote shell re-parses the command, so every argument survives as one word.
@@ -180,7 +180,7 @@ test("clean with a target makes that worker leave and removes its node while the
     "remote resolve gb10",
     "remote exec gb10:spark just dev::cluster::_worker-down",
     "remote exec gb10:spark DOTCORE_YES=1 just dev::cluster::_worker-leave",
-    `dotc node list --site-dir ${f.site}`,
+    `dotc --yaml node list --site-dir ${f.site}`,
     `dotc node remove --site-dir ${f.site} node-2 --forget-deployments --yes`,
   ]);
   assert.equal(await f.record(), "local node-1\n");
@@ -266,7 +266,7 @@ test("remote clean removes the host's worker through the cluster, then the remot
     "remote resolve gb10:spark",
     "remote exec gb10:spark just dev::cluster::_worker-down",
     "remote exec gb10:spark DOTCORE_YES=1 just dev::cluster::_worker-leave",
-    `dotc node list --site-dir ${f.site}`,
+    `dotc --yaml node list --site-dir ${f.site}`,
     `dotc node remove --site-dir ${f.site} node-2 --forget-deployments --yes`,
     "remote clean gb10:spark",
   ]);
@@ -379,7 +379,7 @@ test("remote clean in a terminal shows what it removes and asks once before any 
     "remote resolve gb10:spark",
     "remote exec gb10:spark just dev::cluster::_worker-down",
     "remote exec gb10:spark DOTCORE_YES=1 just dev::cluster::_worker-leave",
-    `dotc node list --site-dir ${f.site}`,
+    `dotc --yaml node list --site-dir ${f.site}`,
     `dotc node remove --site-dir ${f.site} node-2 --forget-deployments --yes`,
     "remote clean gb10:spark",
   ]);
@@ -440,7 +440,7 @@ test("two-node-init joins a local worker, and the local worker stops and leaves 
   const allCalls = await f.calls();
   const started = allCalls.findIndex((call) => call.startsWith("process-compose") && call.endsWith("--detached"));
   assert.ok(started > allCalls.findIndex((call) => call.startsWith("dotc site init")), allCalls.join("\n"));
-  assert.ok(started < allCalls.findIndex((call) => call.startsWith("dotc node add")), allCalls.join("\n"));
+  assert.ok(started < allCalls.findIndex((call) => call.startsWith("dotc --yaml node add")), allCalls.join("\n"));
 
   const again = f.run("dev::cluster::two-node-init", "simulated", "docker");
   assert.equal(again.status, 2);
@@ -460,7 +460,7 @@ test("two-node-init joins a local worker, and the local worker stops and leaves 
   // The worker's workloads stop through the node leave rather than being orphaned by a plain removal.
   assert.deepEqual((await f.calls()).filter((call) => call.startsWith("dotc")), [
     `dotc node leave --site-dir ${f.workerDir}`,
-    `dotc node list --site-dir ${f.site}`,
+    `dotc --yaml node list --site-dir ${f.site}`,
     `dotc node remove --site-dir ${f.site} node-1 --forget-deployments`,
   ]);
   assert.equal(await f.exists(f.workerDir), false);
@@ -524,6 +524,7 @@ async function fixture(t) {
   // node add publishes its token, waits for the join, then reports the next node id, as the real command does.
   await stub("dotc", `printf 'dotc %s\\n' "$*" >> "$TEST_CALLS"
 previous=""
+test "$1" != --yaml || shift
 for argument in "$@"; do
   case "$previous" in
     --token-file) token_file="$argument" ;;
@@ -539,13 +540,13 @@ case "$*" in
     rm -f "$TEST_JOINED"
     id="node-$(( $(cat "$TEST_NODES" 2>/dev/null | wc -l) + 1 ))"
     echo "$id" >> "$TEST_NODES"
-    printf 'Node added\\nDOTCORE_NODE_ID=%s\\n' "$id" ;;
+    printf 'outcome: added\\nnodeId: %s\\n' "$id" ;;
   "node join"*)
     printf '%s\\n' "\${DOTCORE_MACHINE_HOST-unset}" > "$TEST_JOIN_MACHINE_HOST"
     mkdir -m 700 -p "$site_dir"
     printf 'joined node\\n' > "$site_dir/worker.yaml"
     touch "$TEST_JOINED" ;;
-  "node list"*) sed 's/^/DOTCORE_NODE_ID=/' "$TEST_NODES" ;;
+  "node list"*) printf 'nodes:\\n'; sed 's/^/- node:\\n    nodeId: /' "$TEST_NODES" ;;
   "node remove"*) id="$5"; grep -vx "$id" "$TEST_NODES" > "$TEST_NODES.tmp" || true; mv "$TEST_NODES.tmp" "$TEST_NODES" ;;
   "node leave"*|"site delete"*) rm -rf "$site_dir" ;;
   "site init"*) mkdir -p "$site_dir" ;;
