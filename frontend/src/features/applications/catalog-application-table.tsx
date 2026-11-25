@@ -17,7 +17,7 @@ import {
 
 /** A column of the Application Catalog table, in display order. */
 export type CatalogApplicationColumnId =
-  "application" | "version" | "uses" | "platforms" | "services";
+  "application" | "version" | "uses" | "platforms" | "services" | "license";
 
 /** A filter field of the Application Catalog table. */
 export type CatalogApplicationField = "uses" | "platform";
@@ -49,6 +49,7 @@ export const catalogApplicationTableDefinition: DataTableDefinition<
       label: "Services",
       sort: { kind: "value", value: (application) => application.serviceCount },
     },
+    { id: "license", key: "license", label: "License" },
   ],
   defaultSort: { column: "application", direction: "asc" },
   fields: [
@@ -101,6 +102,10 @@ export const catalogApplicationTableUi: DataTableUiDefinition<
       cell: ({ row }) => <Tags values={row.uses.map(applicationUseLabel)} />,
     },
     services: { cell: ({ row }) => <span className="tabular-nums">{row.serviceCount}</span> },
+    // An application without a declared licence leaves the cell empty.
+    license: {
+      cell: ({ row }) => (row.licenseId ? <Tags values={[row.licenseId]} /> : null),
+    },
     version: {
       cell: ({ row }) =>
         row.version ? (

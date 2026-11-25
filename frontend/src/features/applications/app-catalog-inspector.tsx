@@ -6,6 +6,7 @@ import { DeployActionIcon } from "@/components/ui/action-icons";
 import { Detail, DetailList } from "@/components/ui/detail-list";
 import { InspectorSectionHeader } from "@/components/ui/inspector-section-header";
 import { InspectorShell } from "@/components/ui/inspector-shell";
+import { LicenseDetail } from "@/components/ui/license-detail";
 import { Notice } from "@/components/ui/notice";
 import { ResourceTitle } from "@/components/ui/resource-marker";
 import { applicationDeploymentPresentationName } from "@/domain/application-deployment-name";
@@ -80,6 +81,7 @@ export function CatalogApplicationInspector({
             <DetailList>
               <Detail label="Application ID" value={application.applicationId} />
               <Detail label="Version" value={application.version} />
+              <LicenseDetail license={application.license} />
             </DetailList>
           </section>
           {onOpenDeployment && (deployments || deploymentsUnreachable) ? (

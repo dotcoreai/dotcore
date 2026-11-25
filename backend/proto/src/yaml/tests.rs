@@ -9,7 +9,7 @@ use yaml_rust2::{
 };
 
 use super::*;
-use crate::dotcore::catalog::v1::{License, Model};
+use crate::dotcore::catalog::v1::{Application, License, Model};
 
 #[test]
 fn parser_rejects_anchors_and_non_string_keys_directly() {
@@ -316,6 +316,29 @@ fn model_license_decodes_in_both_spellings_and_stays_optional() {
     assert_eq!(
         from_str::<Model>("modelId: model\n")
             .expect("model without a licence should decode")
+            .license,
+        None
+    );
+}
+
+#[test]
+fn application_license_decodes_in_both_spellings_and_stays_optional() {
+    let camel =
+        from_str::<Application>("license:\n  id: MIT\n  termsUrl: https://example.test/mit\n")
+            .expect("camelCase licence should decode");
+    let snake =
+        from_str::<Application>("license:\n  id: MIT\n  terms_url: https://example.test/mit\n")
+            .expect("snake_case licence should decode");
+    let expected = License {
+        id: "MIT".to_owned(),
+        terms_url: "https://example.test/mit".to_owned(),
+    };
+
+    assert_eq!(camel.license, Some(expected));
+    assert_eq!(camel, snake);
+    assert_eq!(
+        from_str::<Application>("applicationId: app\n")
+            .expect("application without a licence should decode")
             .license,
         None
     );

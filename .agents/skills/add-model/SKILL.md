@@ -21,6 +21,7 @@ Sizing is owned by the `model-sizing` skill. Catalog loading and validation live
    * Pin every file to a full repository revision and a SHA-256 digest. HF reports digests only for LFS files, so hash the small files yourself; launches verify downloads against them.
 
 3. Write the model file from the closest existing one by engine, weight format and features (vision, MTP, mixture of experts), following `catalog/AGENTS.md`.
+   * Declare the model's `license` as `catalog/AGENTS.md` describes.
    * Prefer the engine-embedded chat template; add a template artifact only when the smoke test shows the embedded one fails.
    * Size each configuration with the `model-sizing` skill.
 

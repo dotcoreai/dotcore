@@ -4,6 +4,9 @@ applicationId: "open-webui"
 displayName: "Open WebUI"
 description: "Self-hosted chat interface for the models on this site."
 version: "0.11.4"
+license:
+  id: LicenseRef-Open-WebUI
+  termsUrl: https://docs.openwebui.com/license/
 useCases: ["USE_CASE_CHAT_ASSISTANT"]
 graph:
   parameterGroups:

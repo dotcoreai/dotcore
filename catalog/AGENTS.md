@@ -10,6 +10,9 @@ skill to bump an engine. [`engines/AGENTS.md`](../engines/AGENTS.md) says where 
 ## Declarations
 
 - Leave out optional fields you cannot support.
+- A model or an app declares its upstream `license`: an SPDX id, and a `termsUrl` to the terms.
+  Use `custom` or `LicenseRef-<name>` for non-standard terms; they require the URL. Take it from the
+  upstream repository at the pinned version. It is display metadata only.
 
 ## Parameters
 

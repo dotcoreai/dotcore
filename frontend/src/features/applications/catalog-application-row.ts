@@ -18,6 +18,8 @@ export interface CatalogApplicationRow {
   colorKey: string;
   description?: string;
   displayName: string;
+  /** The application's upstream licence identifier. */
+  licenseId?: string;
   /** Platforms every service supports, such as "linux/arm64/v8", in the first service's order. */
   platforms: string[];
   /** What any service uses, in `applicationUses` order. */
@@ -80,6 +82,7 @@ function projectCatalogApplicationRow(
     colorKey: application.applicationId,
     ...(application.description ? { description: application.description } : {}),
     displayName: application.displayName,
+    ...(application.license ? { licenseId: application.license.id } : {}),
     platforms: commonPlatforms(services),
     uses: applicationUses.filter((use) => services.some((service) => serviceUses(service, use))),
     runningCount,

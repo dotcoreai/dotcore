@@ -299,6 +299,7 @@ mod tests {
             version: "1".to_owned(),
             use_cases: Vec::new(),
             preferred_accelerators: Vec::new(),
+            license: None,
             graph: Some(ApplicationGraph {
                 services: vec![ApplicationService {
                     service_name: "web".to_owned(),

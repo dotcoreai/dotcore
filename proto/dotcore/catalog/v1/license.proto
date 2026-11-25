@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package dotcore.catalog.v1;
+
+// Declares the licence an upstream project is published under. It records the
+// licence and a link to its terms; it does not assess compliance.
+message License {
+  // SPDX-style licence identifier, or `custom` for terms without one.
+  string id = 1;
+
+  // http(s) link to the licence text. Required for `custom` and `LicenseRef-` identifiers.
+  string terms_url = 2;
+}

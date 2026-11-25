@@ -8,6 +8,7 @@ import {
   ApplicationSchema,
   ApplicationServiceSchema,
 } from "@/gen/dotcore/catalog/v1/application_pb";
+import { LicenseSchema } from "@/gen/dotcore/catalog/v1/license_pb";
 import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
 import { setupUser } from "@/test/user";
 
@@ -38,6 +39,35 @@ describe("Catalog application inspector", () => {
     expect(screen.queryByLabelText("Execution target")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Deploy" }));
     expect(onDeploy).toHaveBeenCalledOnce();
+  });
+
+  it("links the licence identifier to its terms and shows no row without a licence", () => {
+    const renderInspector = (license?: { id: string; termsUrl: string }) =>
+      renderUi(
+        <CatalogApplicationInspector
+          application={create(ApplicationSchema, {
+            ...application,
+            license: license ? create(LicenseSchema, license) : undefined,
+          })}
+          onDeploy={vi.fn()}
+          onOpenChange={vi.fn()}
+          open
+          openerRef={createRef<HTMLElement>()}
+          pending={false}
+        />,
+      );
+
+    const licensed = renderInspector({ id: "MIT", termsUrl: "https://opensource.org/license/mit" });
+    const details = screen.getByRole("region", { name: "Catalog application" });
+    expect(within(details).getByText("License")).toBeVisible();
+    const link = within(details).getByRole("link", { name: "MIT" });
+    expect(link).toHaveAttribute("href", "https://opensource.org/license/mit");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    licensed.unmount();
+
+    renderInspector();
+    expect(screen.queryByText("License")).not.toBeInTheDocument();
   });
 
   it("shows notes in their own section only when the application declares them", () => {
