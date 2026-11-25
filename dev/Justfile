@@ -10,7 +10,7 @@ help:
 
 # Test development-owned workspace, process, backend, and site recipe behavior.
 test:
-  node --test workspace-environment.test.mjs process-compose.test.mjs site-recipes.test.mjs clean-recipe.test.mjs bootstrap-check.test.mjs publish-recipe.test.mjs cluster/cluster.test.mjs remote/remote-exec.test.mjs
+  node --test workspace-environment.test.mjs process-compose.test.mjs site-recipes.test.mjs clean-recipe.test.mjs ensure-bootstrap.test.mjs publish-recipe.test.mjs cluster/cluster.test.mjs remote/remote-exec.test.mjs
 
 # Run all validation operations (format, clippy, test).
 check:
@@ -56,21 +56,19 @@ docker-images-smoke:
 secret-scan:
   cd .. && dev/secret-scan.sh
 
-# Fail unless the frontend and backend are bootstrapped, reporting everything that is missing.
+# Bootstrap the frontend and backend when either is missing; the stack recipes run it first.
 [private]
 [no-exit-message]
 [script]
-bootstrap-check:
+ensure-bootstrap:
   #!/usr/bin/env bash
-  set -uo pipefail
+  set -euo pipefail
   cd ../
-  status=0
-  just frontend::bootstrap-check || status=1
-  just backend::bootstrap-check || status=1
-  exit "$status"
+  just frontend::ensure-bootstrap
+  just backend::ensure-bootstrap
 
-# Launch the full-stack development environment in the foreground Process Compose TUI; refuses to start before `just bootstrap`.
-up *args: bootstrap-check
+# Launch the full-stack development environment in the foreground Process Compose TUI, bootstrapping the workspace first when needed.
+up *args: ensure-bootstrap
   cd ../ && exec process-compose --config dev/process-compose.yaml --disable-dotenv --use-uds --unix-socket "$PC_SOCKET_PATH" "$@"
 
 # Shut down the full-stack development environment; succeeds when no stack is running and removes a socket left behind by a stack that died without cleanup.
