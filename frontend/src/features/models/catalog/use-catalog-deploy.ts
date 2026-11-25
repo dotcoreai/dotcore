@@ -344,10 +344,6 @@ export function modelDeployRequests(
           snapshot.selectedTarget?.acceleratorMemoryArchitecture ??
           AcceleratorMemoryArchitecture.UNSPECIFIED,
         advisories,
-        engineRelease: snapshot.engineArtifact && {
-          engineReleaseId: snapshot.engineArtifact.engineReleaseId,
-          version: snapshot.engineArtifact.engineVersion,
-        },
         memoryPoolTotalBytes: snapshot.selectedTarget?.acceleratorMemoryPoolTotalBytes,
         minimumMemoryBytesPerDevice: minimum || undefined,
       };

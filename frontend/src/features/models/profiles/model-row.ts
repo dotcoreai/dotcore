@@ -81,6 +81,11 @@ export interface ProfileRow {
   modelId: string;
   platforms: ProfilePlatform[];
   profileId: string;
+  /**
+   * The largest context one request can use where the profile would launch, with the parallel
+   * requests that value assumes; absent when unknown.
+   */
+  fitsPerRequest?: ProfileFitsPerRequest;
   /** The default binding's weight quantization label. */
   quantization?: string;
   /** The model's reference score, carried by each profile because the table sorts on profiles. */
@@ -96,6 +101,12 @@ export interface ProfileRow {
    * from on the location's machines that run it. Absent when unknown.
    */
   totalContext?: number;
+}
+
+/** The largest context per request a profile fits on a target, at a number of parallel requests. */
+export interface ProfileFitsPerRequest {
+  contextTokens: number;
+  parallelRequests?: number;
 }
 
 /**

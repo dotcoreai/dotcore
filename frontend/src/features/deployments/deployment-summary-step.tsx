@@ -21,6 +21,8 @@ interface DeploymentSummaryStepProps {
   onNameChange: (name: string) => void;
   /** Fields that follow the name, such as the route name. */
   nameFields?: ReactNode;
+  /** The step's name for assistive technology; Deploy by default. */
+  stepName?: string;
 }
 
 /**
@@ -39,12 +41,13 @@ export function DeploymentSummaryStep({
   onNameBlur,
   onNameChange,
   nameFields,
+  stepName = "Deploy",
 }: DeploymentSummaryStepProps) {
   const errorId = `${nameInputId}-error`;
 
   return (
     <div className="grid gap-4">
-      <DeploymentStepHeading>Deploy</DeploymentStepHeading>
+      <DeploymentStepHeading>{stepName}</DeploymentStepHeading>
       {notices}
       {/* The error sits outside the label so it describes the field instead of naming it. */}
       <div className="grid gap-1 text-sm">

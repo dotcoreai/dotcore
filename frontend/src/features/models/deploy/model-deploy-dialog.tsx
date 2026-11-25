@@ -1,81 +1,85 @@
-import type { RefObject } from "react";
+import { type RefObject, useEffect, useRef } from "react";
 
 import { Notice } from "@/components/ui/notice";
 import { validateDeploymentName } from "@/domain/deployment-name";
 import { deployWizardShellProps } from "@/features/deployments/deploy-wizard-shell-props";
+import {
+  DeploymentForm,
+  DeploymentStepHeading,
+} from "@/features/deployments/deployment-form-layout";
 import { DeploymentWizardShell } from "@/features/deployments/deployment-wizard-shell";
 import { ModelDeployMemoryStrip } from "@/features/models/deploy/memory/model-deploy-memory-strip";
 import { deriveRouteName } from "@/features/models/deployment-exposure";
 import { DeploymentExposureFields } from "@/features/models/deployment-exposure-fields";
-import { configurationSpeculativeOptions } from "@/features/models/profiles/model-row";
 import { profileTargetVerdict } from "@/features/models/profiles/profile-compatibility";
 import { profileCompatibilityStatus } from "@/features/models/profiles/profile-compatibility-copy";
-import {
-  speculativeChoiceError,
-  speculativeMethodChoice,
-} from "@/features/models/runtime/speculative-choice";
 
-import { CommandPreviewDialog } from "./model-command-preview-dialog";
-import { ModelDeployAdvancedStep } from "./model-deploy-advanced-step";
-import { exactPlacement, moveToken } from "./model-deploy-launch";
-import { ModelDeployProfileStep } from "./model-deploy-profile-step";
-import { ModelDeploySettingsStep } from "./model-deploy-settings-step";
+import { ModelDeployContextStep } from "./model-deploy-context-step";
+import { ModelDeployEngineStep } from "./model-deploy-engine-step";
+import type { ModelDeployFormOptions } from "./model-deploy-form-options";
+import { exactPlacement } from "./model-deploy-launch";
+import { ModelDeployMachineStep } from "./model-deploy-machine-step";
+import { ModelDeployOptionFields } from "./model-deploy-option-fields";
+import { ModelDeployPerformanceStep } from "./model-deploy-performance-step";
 import { ModelDeploySummaryStep } from "./model-deploy-summary-step";
-import { ModelDeployTargetStep } from "./model-deploy-target-step";
-import { type ModelDeployFormOptions, useModelDeployForm } from "./use-model-deploy-form";
+import { useModelDeployForm } from "./use-model-deploy-form";
 
 /**
- * Deploys a catalog model to a local execution target. Basic mode asks for the profile, the
- * settings (the context and the profile's basic parameters), and the deployment name, plus the
- * target when more than one can deploy the profile; the Advanced checkbox adds every target, the
- * advanced parameters and options, and routing without discarding entered values. The Settings step
- * and the profile table's "Sized for" edit one shared context. The opener receives the launch on
- * submit and can name the last action after what it does with it, such as keeping the choices
- * without deploying.
+ * Deploys a catalog model to a local execution target. Basic mode asks for the machine and
+ * profile, the capabilities the catalog marks basic, the context, and the deployment name; the
+ * Advanced checkbox adds the performance and memory settings and the engine's command and custom
+ * arguments, and turning it off returns those to the profile's values. The opener receives the
+ * launch on submit and can name the last action after what it does with it, such as keeping the
+ * choices without deploying.
  */
 export function ModelDeployDialog(props: ModelDeployDialogProps) {
   const { error, labels = deployLabels, model, onOpenChange, open, openerRef, pending } = props;
   const form = useModelDeployForm(props);
   const {
-    commandPreview,
-    compatibility,
+    context,
+    customArguments,
     dirtyFields,
-    effectiveTargetsError,
-    executionTargets,
-    executionTargetsCurrent,
     fieldErrors,
+    machine,
     memory,
-    placement,
-    selectedProfileRow,
+    modelOptions,
+    parameters,
+    revealEngine,
     setFieldError,
     wizard,
   } = form;
-  const { advanced, step, steps } = wizard;
+  const { compatibility, executionTargets, placement, selectedProfileRow } = machine;
+  const { advanced, step } = wizard;
+  const disabled = pending;
 
-  const siteNotice = effectiveTargetsError ? (
+  // A create the backend rejects while custom arguments are set returns to them, since they are
+  // the likeliest cause. Only a new rejection moves the operator, so the rest is read as it stands.
+  const latestRef = useRef({ hasArguments: false, revealEngine });
+  useEffect(() => {
+    latestRef.current = { hasArguments: customArguments.tokens.length > 0, revealEngine };
+  });
+  useEffect(() => {
+    const latest = latestRef.current;
+    if (!error || !latest.hasArguments) return;
+    latest.revealEngine();
+  }, [error]);
+
+  const siteNotice = machine.effectiveTargetsError ? (
     <Notice role="alert" tone="destructive">
-      {effectiveTargetsError}
+      {machine.effectiveTargetsError}
     </Notice>
-  ) : executionTargetsCurrent && executionTargets.length === 0 ? (
+  ) : machine.executionTargetsCurrent && executionTargets.length === 0 ? (
     <Notice role="alert" tone="destructive">
       No model execution targets are configured. Configure one before deploying.
     </Notice>
-  ) : executionTargetsCurrent && form.deployableExecutionTargets.length === 0 ? (
+  ) : machine.executionTargetsCurrent && machine.deployableExecutionTargets.length === 0 ? (
     <Notice role="alert" tone="destructive">
       No configured execution target can deploy models right now.
     </Notice>
   ) : undefined;
-  const firstStepNotice =
-    step !== steps[0] ? undefined : form.targetsLoadingVisible && !steps.includes("Target") ? (
-      <p className="text-xs text-muted-foreground" role="status">
-        Loading configured execution targets…
-      </p>
-    ) : (
-      siteNotice
-    );
-  const ineligibleNotice = form.ineligibleTarget ? (
+  const ineligibleNotice = machine.ineligibleTarget ? (
     <Notice role="alert" tone="destructive">
-      {`${form.ineligibleTarget} is no longer eligible to run this deployment.`}
+      {`${machine.ineligibleTarget} is no longer eligible to run this deployment.`}
     </Notice>
   ) : undefined;
 
@@ -91,78 +95,20 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
           <ModelDeployMemoryStrip memory={memory.predictedMemory} />
         ) : undefined
       }
-      primaryDisabled={step === "Deploy" && form.deployDisabled}
+      primaryDisabled={step === "Review & deploy" && form.deployDisabled}
       resourceColorKey={model.modelId}
       resourceName={model.displayName}
-      submitError={step === "Deploy" ? error : undefined}
+      submitError={step === "Review & deploy" || step === "Engine" ? error : undefined}
       title={labels.title}
     >
-      {step === "Target" ? (
-        <ModelDeployTargetStep
-          disabled={pending}
-          error={fieldErrors.get("placement")}
-          executionTargets={
-            advanced ? executionTargets : (form.profileLaunchCandidates ?? executionTargets)
-          }
-          inputRef={form.executionTargetRef}
-          loading={form.targetsLoading}
-          loadingMessageVisible={form.targetsLoadingVisible && !effectiveTargetsError}
-          loadingPresentation={form.targetsLoadingPresentation}
-          notices={
-            <>
-              {ineligibleNotice}
-              {!advanced && form.profileLaunchCandidates?.length === 0 ? (
-                <Notice role="alert" tone="destructive">
-                  No execution target can run this profile right now.
-                </Notice>
-              ) : null}
-            </>
-          }
-          onBlur={() => {
-            if (!dirtyFields.isDirty("placement")) return;
-            setTimeout(
-              () =>
-                setFieldError("placement", placement ? undefined : "Execution target is required."),
-              0,
-            );
-          }}
-          onSelect={(target) => {
-            dirtyFields.markDirty("placement");
-            form.setPickedPlacement(target ? exactPlacement(target) : null);
-            form.setIneligibleTarget(undefined);
-            if (fieldErrors.has("placement"))
-              setFieldError("placement", target ? undefined : "Execution target is required.");
-            commandPreview.invalidatePreview();
-          }}
-          placement={placement}
-          targetsCurrent={executionTargetsCurrent}
-          unavailableReason={
-            compatibility && selectedProfileRow
-              ? (target) => {
-                  const verdict = profileTargetVerdict(
-                    compatibility,
-                    model.modelId,
-                    form.profileId,
-                    target,
-                  );
-                  return verdict && verdict.status !== "runs"
-                    ? profileCompatibilityStatus(verdict, {
-                        profile: selectedProfileRow,
-                        targets: executionTargets,
-                      })?.text
-                    : undefined;
-                }
-              : undefined
-          }
-        />
-      ) : null}
-      {step === "Profile" ? (
-        <ModelDeployProfileStep
+      {step === "Model & machine" ? (
+        <ModelDeployMachineStep
+          basis={machine.basis}
           compatibilityCheck={
             !compatibility && executionTargets.length
-              ? form.profileCompatibility.error || form.profileCompatibility.compatibility
+              ? machine.tableRead.error || machine.tableRead.compatibility
                 ? "failed"
-                : form.compatibilityLoadingVisible
+                : machine.compatibilityLoadingVisible
                   ? "checking"
                   : undefined
               : undefined
@@ -170,180 +116,164 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
           error={fieldErrors.get("profileId")}
           notices={
             <>
-              {firstStepNotice}
+              {siteNotice}
               {ineligibleNotice}
             </>
           }
-          resetsRuntime={form.customizations.length > 0}
-          sizingFailed={Boolean(
-            form.scenario &&
-            props.listProfileCompatibility &&
-            !form.sizing &&
-            !form.profileCompatibility.estimates.pending,
-          )}
+          onBasisChange={compatibility ? machine.setBasis : undefined}
+          resetsRuntime={form.resetsRuntime}
+          sizingFailed={machine.tableSizingFailed}
           table={{
-            availability: form.profileTable.profileAvailability,
-            chipSettings: form.profileTable.sizedForSettings,
-            disabled: pending,
-            estimatesPending: form.tableEstimates?.pending ?? false,
+            availability: machine.profileTable.profileAvailability,
+            disabled,
+            estimatesPending: machine.tableEstimates?.pending ?? false,
             inputRef: form.profileRef,
             onBlur: () => {
               if (dirtyFields.isDirty("profileId"))
-                setTimeout(() => setFieldError("profileId", form.profileError), 0);
+                setTimeout(() => setFieldError("profileId", machine.profileError), 0);
             },
-            onRunsOnChange: form.profileTable.changeRunsOn,
-            onSelect: form.chooseProfile,
-            onShownChange: form.updateShownProfiles,
-            profiles: form.shownProfileRows,
-            runsOn: form.profileTable.runsOn,
-            selectedProfileId: form.profileId,
-            start: form.profileTable.start,
+            onRunsOnChange: machine.profileTable.changeRunsOn,
+            onSelect: machine.chooseProfile,
+            onShownChange: machine.updateShownProfiles,
+            profiles: machine.profileTable.rows,
+            runsOn: machine.profileTable.runsOn,
+            selectedProfileId: machine.profileId,
+            start: machine.profileTable.start,
+          }}
+          target={{
+            disabled,
+            error: fieldErrors.get("placement"),
+            // Basic mode lists the targets that can launch the profile in the Runs on scope;
+            // Advanced lists every target, with those that can't run it disabled.
+            executionTargets: advanced
+              ? executionTargets
+              : (machine.profileLaunchCandidates ?? executionTargets),
+            inputRef: form.executionTargetRef,
+            loading: machine.targetsLoading,
+            loadingMessageVisible: machine.targetsLoadingVisible && !machine.effectiveTargetsError,
+            loadingPresentation: machine.targetsLoadingPresentation,
+            onBlur: () => {
+              if (!dirtyFields.isDirty("placement")) return;
+              setTimeout(
+                () =>
+                  setFieldError(
+                    "placement",
+                    placement ? undefined : "Execution target is required.",
+                  ),
+                0,
+              );
+            },
+            onSelect: (target) => {
+              dirtyFields.markDirty("placement");
+              machine.setPickedPlacement(target ? exactPlacement(target) : null);
+              machine.setIneligibleTarget(undefined);
+              if (fieldErrors.has("placement"))
+                setFieldError("placement", target ? undefined : "Execution target is required.");
+            },
+            placement,
+            targetsCurrent: machine.executionTargetsCurrent,
+            unavailableReason:
+              compatibility && selectedProfileRow
+                ? (target) => {
+                    const verdict = profileTargetVerdict(
+                      compatibility,
+                      model.modelId,
+                      machine.profileId,
+                      target,
+                    );
+                    return verdict && verdict.status !== "runs"
+                      ? profileCompatibilityStatus(verdict, {
+                          profile: selectedProfileRow,
+                          targets: executionTargets,
+                        })?.text
+                      : undefined;
+                  }
+                : undefined,
           }}
         />
       ) : null}
-      {step === "Settings" ? (
-        <ModelDeploySettingsStep
-          contextFits={form.contextFits}
-          contextHints={form.contextHints}
-          disabled={pending}
-          engineParameterRefs={form.engineParameterRefs}
-          exposedParameters={form.contextParameters}
-          fieldErrors={form.contextFieldErrors}
+      {step === "Capabilities" ? (
+        <DeploymentForm className="gap-4">
+          <DeploymentStepHeading>Capabilities</DeploymentStepHeading>
+          <ModelDeployOptionFields
+            controls={modelOptions.basicControls}
+            disabled={disabled}
+            fieldErrors={fieldErrors}
+            options={modelOptions}
+          />
+        </DeploymentForm>
+      ) : null}
+      {step === "Context" ? (
+        <ModelDeployContextStep
+          contextFits={context.contextFits}
+          contextHints={context.contextHints}
+          disabled={disabled}
+          engineParameterRefs={parameters.engineParameterRefs}
+          exposedParameters={parameters.contextParameters}
+          fieldErrors={context.contextFieldErrors}
           filledContextPerRequest={memory.estimate.filledContextPerRequest}
-          inputs={form.engineParameterInputs}
+          inputs={parameters.engineParameterInputs}
           memoryParameterSizes={memory.estimate.memoryParameterSizes}
           model={model}
-          onFollowTotal={form.followTotal}
-          onParameterBlur={form.blurContext}
-          onParameterChange={form.changeContext}
+          onFollowTotal={context.followTotal}
+          onParameterBlur={context.blurContext}
+          onParameterChange={context.changeContext}
           parameters={{
-            onBlur: form.blurParameter,
-            groups: form.parameterGroups,
-            onChange: form.changeParameter,
+            onBlur: parameters.blurParameter,
+            groups: machine.engineRelease?.parameterSchema?.parameterGroups ?? [],
+            onChange: parameters.changeParameter,
             revealedErrors: wizard.revealedErrors,
-            shown: form.settingsParameters,
+            shown: parameters.basicParameters,
           }}
-          profile={form.profile}
-          totalFollows={form.totalFollows}
+          profile={machine.profile}
+          totalFollows={context.totalFollows}
         />
       ) : null}
-      {step === "Advanced" ? (
-        <ModelDeployAdvancedStep
-          artifactRef={form.artifactRef}
-          bindingId={form.bindingId}
-          customArgumentTokens={form.customArgumentTokens}
-          customArguments={{
-            add: () => form.updateCustomArguments((tokens) => [...tokens, ""]),
-            move: (index, direction) =>
-              form.updateCustomArguments((tokens) => moveToken(tokens, index, direction)),
-            remove: (index) =>
-              form.updateCustomArguments((tokens) => tokens.filter((_, item) => item !== index)),
-            update: (index, value) =>
-              form.updateCustomArguments((tokens) =>
-                tokens.map((token, item) => (item === index ? value : token)),
-              ),
-          }}
-          disabled={pending}
-          engineParameterRefs={form.engineParameterRefs}
-          engineReleases={memory.engineReleaseLabels}
-          exposedParameters={form.advancedParameters}
+      {step === "Performance & memory" ? (
+        <ModelDeployPerformanceStep
+          engineParameterRefs={parameters.engineParameterRefs}
+          exposedParameters={parameters.advancedParameters}
           fieldErrors={fieldErrors}
           hostKvOffloadSharesMemory={memory.hostKvOffloadSharesMemory}
-          inputs={form.engineParameterInputs}
+          inputs={parameters.engineParameterInputs}
           memoryParameterSizes={memory.estimate.memoryParameterSizes}
-          model={model}
-          onArtifactBlur={() => {
-            if (!dirtyFields.isDirty("artifact")) return;
-            setTimeout(
-              () =>
-                setFieldError("artifact", form.binding ? undefined : "Select a model artifact."),
-              0,
-            );
-          }}
-          onArtifactChange={(nextBindingId) => {
-            dirtyFields.markDirty("artifact");
-            form.setBindingId(nextBindingId);
-            if (fieldErrors.has("artifact"))
-              setFieldError("artifact", nextBindingId ? undefined : "Select a model artifact.");
-            commandPreview.invalidatePreview();
-          }}
-          onParameterBlur={form.blurParameter}
-          onParameterChange={form.changeParameter}
-          onPreview={() => void form.runPreview()}
-          parameterGroups={form.parameterGroups}
-          previewButtonRef={commandPreview.previewButtonRef}
-          previewDisabled={
-            pending ||
-            !form.exposedParameters.length ||
-            !form.configuration ||
-            form.deploymentPrerequisiteUnavailable
+          onParameterBlur={parameters.blurParameter}
+          onParameterChange={parameters.changeParameter}
+          options={
+            <ModelDeployOptionFields
+              controls={modelOptions.advancedControls}
+              disabled={disabled}
+              fieldErrors={fieldErrors}
+              options={modelOptions}
+            />
           }
-          previewPending={commandPreview.previewPending}
-          profile={form.profile}
+          parameterGroups={machine.engineRelease?.parameterSchema?.parameterGroups ?? []}
           revealedErrors={wizard.revealedErrors}
-          schemaExposesParameters={form.exposedParameters.length > 0}
-          kvCachePrecision={{
-            onChange: (precision) => {
-              form.setPickedKvCachePrecision(precision);
-              commandPreview.invalidatePreview();
-            },
-            option: form.kvCachePrecisionOption,
-            precision: form.kvCachePrecision,
-          }}
-          speculative={{
-            choice: form.speculativeChoice,
-            countRef: form.speculativeCountRef,
-            onCountChange: (count) => {
-              const nextChoice = { ...form.speculativeChoice, count };
-              dirtyFields.markDirty("speculativeCount");
-              form.setSpeculativeChoice(nextChoice);
-              if (fieldErrors.has("speculativeCount"))
-                setFieldError(
-                  "speculativeCount",
-                  speculativeChoiceError(form.speculativeOptions, nextChoice),
-                );
-              commandPreview.invalidatePreview();
-            },
-            // A kept count can fall outside the new method's range, so the method change validates
-            // it at once rather than waiting for a blur the count input never received.
-            onMethodChange: (optionId) => {
-              const nextChoice = speculativeMethodChoice(
-                form.speculativeOptions,
-                configurationSpeculativeOptions(model, form.configuration),
-                form.speculativeChoice,
-                optionId,
-              );
-              dirtyFields.markDirty("speculativeCount");
-              form.setSpeculativeChoice(nextChoice);
-              setFieldError(
-                "speculativeCount",
-                speculativeChoiceError(form.speculativeOptions, nextChoice),
-              );
-              commandPreview.invalidatePreview();
-            },
-            // Validates at once: a deferred check would run after a method change that the blur
-            // precedes and overwrite its error with the previous method's verdict.
-            onCountBlur: () => {
-              if (dirtyFields.isDirty("speculativeCount"))
-                setFieldError(
-                  "speculativeCount",
-                  speculativeChoiceError(form.speculativeOptions, form.speculativeChoice),
-                );
-            },
-            options: form.speculativeOptions,
-          }}
         />
       ) : null}
-      {step === "Deploy" ? (
+      {step === "Engine" ? (
+        <ModelDeployEngineStep
+          blockedBy={form.commandBlockedBy}
+          customArgumentTokens={customArguments.tokens}
+          disabled={disabled}
+          inputRef={customArguments.inputRef}
+          onTextChange={customArguments.setText}
+          preview={form.commandPreview.result}
+          text={customArguments.text}
+          updating={form.commandPreview.updating}
+        />
+      ) : null}
+      {step === "Review & deploy" ? (
         <ModelDeploySummaryStep
-          changedParameters={form.changedParameters}
-          customizations={form.deployCustomizations}
-          disabled={pending}
+          capabilities={modelOptions.summary}
+          changedParameters={parameters.changedParameters}
+          customizations={form.summaryCustomizations}
+          disabled={disabled}
           exposureFields={
             <DeploymentExposureFields
               advanced={advanced}
               defaultRouteName={deriveRouteName(form.name)}
-              disabled={pending}
+              disabled={disabled}
               onChange={(next) => {
                 if (next.routeName !== form.exposureValues.routeName)
                   dirtyFields.markDirty("routeName");
@@ -351,7 +281,6 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
                 if (next.exposure === "hidden") setFieldError("routeName", undefined);
                 else if (fieldErrors.has("routeName"))
                   setFieldError("routeName", form.validateRoute(next));
-                commandPreview.invalidatePreview();
               }}
               onRouteNameBlur={(next) => {
                 if (dirtyFields.isDirty("routeName"))
@@ -367,8 +296,8 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
             />
           }
           filledContextPerRequest={memory.estimate.filledContextPerRequest}
-          inputs={form.engineParameterInputs}
-          launchValuesLoadingVisible={form.launchValuesLoadingVisible}
+          inputs={parameters.engineParameterInputs}
+          launchValuesLoadingVisible={machine.launchValuesLoadingVisible}
           memoryPreview={memory.memoryPreview}
           name={form.name}
           nameError={fieldErrors.get("name")}
@@ -383,25 +312,15 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
             if (fieldErrors.has("name")) setFieldError("name", validateDeploymentName(nextName));
             if (form.following && fieldErrors.has("routeName"))
               setFieldError("routeName", form.validateRoute(form.exposureValues, nextName));
-            commandPreview.invalidatePreview();
           }}
           poolBelowDeviceMinimum={memory.poolBelowDeviceMinimum}
           predictedMemory={memory.predictedMemory}
-          profileName={form.profile?.displayName || form.profileId}
+          profileName={machine.profile?.displayName || machine.profileId}
           siteNotice={siteNotice}
-          target={form.selectedExecutionTarget}
+          target={machine.selectedExecutionTarget}
+          weights={selectedProfileRow?.quantization}
         />
       ) : null}
-      <CommandPreviewDialog
-        error={commandPreview.previewError}
-        loadingMessageVisible={commandPreview.previewLoadingVisible}
-        onOpenChange={commandPreview.setPreviewOpen}
-        onRetry={() => void form.runPreview()}
-        open={commandPreview.previewOpen}
-        openerRef={commandPreview.previewButtonRef}
-        pending={commandPreview.previewPending}
-        snapshot={commandPreview.preview}
-      />
     </DeploymentWizardShell>
   );
 }

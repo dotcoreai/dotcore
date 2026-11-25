@@ -15,21 +15,20 @@ import {
 import {
   modelWithKvCachePrecision,
   modelWithStrata,
+  modelWithVision,
   runtimeSchemaModel,
   runtimeSchemaReleases,
   strataRelease,
   unsignedValue,
 } from "@/features/models/runtime/runtime-schema-test-support";
 import {
-  ModelArtifactBindingSchema,
-  ModelArtifactSchema,
   ModelConfigurationOptionSchema,
   ModelOptionSchema,
   ModelOptionValuesSchema,
   ModelSchema,
   SpeculativeDecodingMethod,
 } from "@/gen/dotcore/catalog/v1/model_pb";
-import { ParameterVisibility } from "@/gen/dotcore/catalog/v1/parameter_pb";
+import { ParameterValuesSchema, ParameterVisibility } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import { AcceleratorMemoryArchitecture } from "@/gen/dotcore/observation/v1/observation_pb";
 import {
   ConfiguredExecutionTargetSchema,
@@ -41,6 +40,7 @@ import { setupUser } from "@/test/user";
 
 import { ModelDeployDialog } from "./model-deploy-dialog";
 import type { LocalDeploymentValues } from "./model-deploy-launch";
+import { goToStep, openAdvancedStep } from "./model-deploy-test-steps";
 import { sharedContextEstimate } from "./resource-estimate-test-support";
 
 const poolPlacement = { executionTargetId: "pool", siteNodeId: "node" };
@@ -50,9 +50,9 @@ describe("ModelDeployDialog Settings step", () => {
     const user = setupUser();
     renderDialog({ initialProfileId: "q4-xl" });
 
-    await screen.findByText("Step 1 of 3 — Profile");
+    await screen.findByText("Step 1 of 3 — Model & machine");
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByText("Step 2 of 3 — Settings")).toBeVisible();
+    expect(screen.getByText("Step 2 of 3 — Context")).toBeVisible();
     // The total context starts at the context per request times the parallel requests.
     expect(textboxValues()).toEqual([
       ["engine-parameter-context-per-request", "32k"],
@@ -73,7 +73,7 @@ describe("ModelDeployDialog Settings step", () => {
     await user.click(preset("64k", "Context per request"));
     expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("256k");
     await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
-    expect(screen.getByText("Step 3 of 5 — Settings")).toBeVisible();
+    expect(screen.getByText("Step 2 of 5 — Context")).toBeVisible();
     expect(textboxValues()).toEqual([
       ["engine-parameter-context-per-request", "64k"],
       ["engine-parameter-parallel-requests", "4"],
@@ -162,7 +162,7 @@ describe("ModelDeployDialog Settings step", () => {
     await user.clear(kvOffload);
     await user.type(kvOffload, "2t");
     expect(within(hostMemory).queryByText(/must be/)).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Next" }));
+    await deployFromAdvanced(user);
     await user.click(screen.getByRole("button", { name: "Deploy" }));
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
@@ -401,31 +401,19 @@ describe("ModelDeployDialog Advanced step", () => {
       expect(screen.queryByRole("textbox", { name })).not.toBeInTheDocument();
   });
 
-  it("keeps the llama.cpp prompt cache at the top level, and the artifact and custom arguments in collapsed sections", async () => {
+  it("keeps the llama.cpp prompt cache at the top level, ahead of the speculative decoding choice", async () => {
     const user = setupUser();
     renderDialog({ initialProfileId: "q4-xl" });
 
     await openAdvancedStep(user);
-    // llama.cpp declares no parameter group, so its prompt cache leads, ahead of the speculative
-    // decoding choice.
+    // llama.cpp declares no parameter group, so its prompt cache leads.
     expect(screen.getAllByRole("textbox").map((input) => input.id)).toEqual([
       "engine-parameter-prompt-cache-memory-mib",
       "speculative-decoding-count",
     ]);
-    expect(screen.getAllByRole("group").map((group) => group.getAttribute("aria-label"))).toEqual([
-      "Engine and artifact",
-      "Custom arguments and command",
-    ]);
-    expect(sectionToggle("Engine and artifact")).toHaveAttribute("aria-expanded", "false");
-    expect(sectionToggle("Custom arguments and command")).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryAllByRole("group")).toEqual([]);
+    // The profile decides the weights, so no step offers them.
     expect(screen.queryByRole("combobox", { name: "Model artifact" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Add token" })).not.toBeInTheDocument();
-
-    await user.click(sectionToggle("Engine and artifact"));
-    expect(screen.getByRole("combobox", { name: "Model artifact" })).toHaveValue("Q4_K_XL");
-    await user.click(sectionToggle("Custom arguments and command"));
-    expect(screen.getByRole("button", { name: "Add token" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Preview resolved command" })).toBeVisible();
   });
 
   it("shows the Strata expert memory group open, with its help", async () => {
@@ -496,7 +484,7 @@ describe("ModelDeployDialog Advanced step", () => {
     await user.type(box, "6g");
     await user.tab();
     expect(box).toHaveValue("6 GiB");
-    await user.click(screen.getByRole("button", { name: "Next" }));
+    await deployFromAdvanced(user);
     await user.click(screen.getByRole("button", { name: "Deploy" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
     expect(submittedValues(onSubmit)).toContainEqual(["expert-vram-mib", 6144n]);
@@ -536,9 +524,11 @@ describe("ModelDeployDialog Advanced step", () => {
       excludedEngineParameterIds: ["expert-vram-mib", "expert-host-memory-mib"],
     });
 
-    await openAdvancedStep(user);
+    await openAdvancedStep(user, "Context");
     expect(screen.queryByRole("group", { name: "Expert memory" })).not.toBeInTheDocument();
-    expect(screen.queryAllByRole("textbox")).toEqual([]);
+    // With no advanced input left, Performance & memory doesn't show.
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText("Step 3 of 4 — Engine")).toBeVisible();
   });
 
   it("previews once per configuration when the configuration excludes parameters", async () => {
@@ -583,31 +573,13 @@ describe("ModelDeployDialog Advanced step", () => {
       expect(screen.queryByRole("textbox", { name: "Expert host memory" })).not.toBeInTheDocument(),
     );
 
-    // Leaving Advanced re-opens the group and focuses the field.
+    // Next re-opens the group and focuses the field.
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByText("Step 4 of 5 — Advanced")).toBeVisible();
+    expect(screen.getByText("Step 3 of 5 — Performance & memory")).toBeVisible();
     expect(sectionToggle("Expert memory")).toHaveAttribute("aria-expanded", "true");
     await waitFor(() =>
       expect(screen.getByRole("textbox", { name: "Expert host memory" })).toHaveFocus(),
     );
-    expect(screen.getByText(error)).toBeVisible();
-
-    // With Advanced off, Deploy turns it back on and reveals the same field.
-    await user.click(sectionToggle("Expert memory"));
-    await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
-    expect(screen.getByText("Step 3 of 3 — Deploy")).toBeVisible();
-    // The new step takes focus in an effect after it renders; acting earlier loses that move.
-    await waitFor(() =>
-      expect(document.activeElement).toHaveAttribute("data-deployment-step-heading"),
-    );
-    await user.click(screen.getByRole("button", { name: "Deploy" }));
-
-    expect(await screen.findByText("Step 4 of 5 — Advanced")).toBeVisible();
-    expect(screen.getByRole("checkbox", { name: "Advanced" })).toBeChecked();
-    expect(sectionToggle("Expert memory")).toHaveAttribute("aria-expanded", "true");
-    const revealed = screen.getByRole("textbox", { name: "Expert host memory" });
-    await waitFor(() => expect(revealed).toHaveFocus());
-    expect(revealed).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByText(error)).toBeVisible();
     expect(onSubmit).not.toHaveBeenCalled();
   });
@@ -691,8 +663,8 @@ describe("ModelDeployDialog Advanced step", () => {
 
       await openAdvancedStep(user);
       await user.selectOptions(kvCachePrecision(), "q8_0");
-      await user.click(screen.getByRole("button", { name: "Custom arguments and command" }));
-      await user.click(screen.getByRole("button", { name: "Preview resolved command" }));
+      // The Engine step previews the command as it opens.
+      await user.click(screen.getByRole("button", { name: "Next" }));
 
       await waitFor(() => expect(onPreview).toHaveBeenCalledOnce());
       expect(estimatedOverrides(onPreview as unknown as ReturnType<typeof vi.fn>, 0)).toEqual([
@@ -896,7 +868,7 @@ describe("ModelDeployDialog Advanced step", () => {
       expect(speculativeCount()).toHaveAttribute("aria-invalid", "true");
 
       await user.click(screen.getByRole("button", { name: "Next" }));
-      expect(screen.getByText("Step 4 of 5 — Advanced")).toBeVisible();
+      expect(screen.getByText("Step 3 of 5 — Performance & memory")).toBeVisible();
       expect(speculativeCount()).toHaveFocus();
 
       await user.clear(speculativeCount());
@@ -904,27 +876,142 @@ describe("ModelDeployDialog Advanced step", () => {
       expect(screen.queryByText(error)).not.toBeInTheDocument();
 
       // The vLLM configuration declares no speculative option.
-      await user.click(screen.getByRole("button", { name: /Profile/ }));
+      await user.click(screen.getByRole("button", { name: /Model & machine/ }));
       await user.click(screen.getByRole("radio", { name: /NVFP4 text/ }));
-      await user.click(screen.getByRole("button", { name: "Next" }));
-      await user.click(screen.getByRole("button", { name: "Next" }));
-      await user.click(screen.getByRole("button", { name: "Next" }));
-      expect(screen.getByText("Step 4 of 5 — Advanced")).toBeVisible();
+      await goToStep(user, "Performance & memory");
       expect(screen.queryByRole("combobox", { name: "Speculative decoding" })).toBeNull();
       expect(onSubmit).not.toHaveBeenCalled();
     });
   });
 });
 
+describe("ModelDeployDialog model options by visibility", () => {
+  it("asks a basic option on Capabilities, and skips the step for a profile without one", async () => {
+    const user = setupUser();
+    renderDialog({ initialProfileId: "q4-xl", model: modelWithVision() });
+
+    await screen.findByText("Step 1 of 4 — Model & machine");
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText("Step 2 of 4 — Capabilities")).toBeVisible();
+    const vision = screen.getByRole("switch", { name: "Vision" });
+    expect(vision).not.toBeChecked();
+    expect(vision).toHaveAccessibleDescription("Lets requests include images.");
+
+    // The vLLM configuration declares no vision option, so there is nothing to ask.
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    await user.click(screen.getByRole("radio", { name: /NVFP4 text/ }));
+    expect(screen.getByText("Step 1 of 3 — Model & machine")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText("Step 2 of 3 — Context")).toBeVisible();
+  });
+
+  it.each([
+    { label: "advanced", visibility: ParameterVisibility.ADVANCED },
+    { label: "without a declared visibility", visibility: ParameterVisibility.UNSPECIFIED },
+  ])("places an option $label on Performance & memory only", async ({ visibility }) => {
+    const user = setupUser();
+    renderDialog({ initialProfileId: "q4-xl", model: modelWithVision(visibility) });
+
+    await screen.findByText("Step 1 of 3 — Model & machine");
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText("Step 2 of 3 — Context")).toBeVisible();
+    expect(screen.queryByRole("switch", { name: "Vision" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
+    await goToStep(user, "Performance & memory");
+    expect(screen.getByRole("switch", { name: "Vision" })).toBeVisible();
+  });
+
+  it("shows a hidden option on no step and sends the profile's value", async () => {
+    const user = setupUser();
+    const onSubmit = vi.fn();
+    renderDialog({
+      initialProfileId: "q4-xl",
+      model: modelWithVision(ParameterVisibility.HIDDEN),
+      onSubmit,
+    });
+
+    await openAdvancedStep(user, "Context");
+    for (const step of ["Context", "Performance & memory", "Engine"] as const) {
+      await goToStep(user, step);
+      expect(screen.queryByRole("switch", { name: "Vision" })).not.toBeInTheDocument();
+    }
+    await deployFromAdvanced(user);
+    await user.click(screen.getByRole("button", { name: "Deploy" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(submittedOverrides(onSubmit)).toEqual([]);
+  });
+
+  it("starts a hidden speculative option from the profile default when an invalid value is restored", async () => {
+    const user = setupUser();
+    const onSubmit = vi.fn();
+    const model = clone(ModelSchema, runtimeSchemaModel);
+    const mtp = model.options.find((option) => option.optionId === "mtp");
+    if (mtp) mtp.visibility = ParameterVisibility.HIDDEN;
+    renderDialog({
+      initialConfiguration: {
+        customArgumentTokens: [],
+        engineParameterValues: create(ParameterValuesSchema, {}),
+        modelArtifactBindingId: "",
+        // Above the option's maximum of 5.
+        optionOverrides: [
+          create(ModelOptionValuesSchema, {
+            optionId: "mtp",
+            values: [unsignedValue("token-count", 9n)],
+          }),
+        ],
+      },
+      initialProfileId: "q4-xl",
+      model,
+      onSubmit,
+    });
+
+    await screen.findByText("Step 1 of 3 — Model & machine");
+    await goToStep(user, "Review & deploy");
+    await user.click(screen.getByRole("button", { name: "Deploy" }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(submittedOverrides(onSubmit)).toEqual([]);
+  });
+
+  it("sends a changed vision choice, summarizes it and restores it from the launch", async () => {
+    const user = setupUser();
+    const model = modelWithVision();
+    const first = vi.fn();
+    const { unmount } = renderDialog({ initialProfileId: "q4-xl", model, onSubmit: first });
+
+    await screen.findByText("Step 1 of 4 — Model & machine");
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("switch", { name: "Vision" }));
+    await deployFromSettings(user);
+    expect(screen.getByText("Vision").nextElementSibling).toHaveTextContent("On");
+    await user.click(screen.getByRole("button", { name: "Deploy" }));
+    await waitFor(() => expect(first).toHaveBeenCalledOnce());
+    expect(submittedOverrides(first)).toEqual([["vision", "enabled", true]]);
+    const applied = first.mock.calls[0][0] as LocalDeploymentValues;
+    unmount();
+
+    const onSubmit = vi.fn();
+    renderDialog({ ...reopenedOn(applied), model, onSubmit });
+    await screen.findByText("Step 1 of 4 — Model & machine");
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByRole("switch", { name: "Vision" })).toBeChecked();
+    await deployFromSettings(user);
+    await user.click(screen.getByRole("button", { name: "Deploy" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(onSubmit.mock.calls[0][0]).toEqual(applied);
+  });
+});
+
 describe("ModelDeployDialog reopened on an applied launch", () => {
   it("shows every applied value and submits the same launch again", async () => {
     const user = setupUser();
-    const model = modelWithArtifactChoice();
+    const model = modelWithKvCachePrecision();
     const applied = await applyEveryRuntimeEdit(user, model);
     expect(applied).toMatchObject({
       configuration: {
         customArgumentTokens: ["--foo", "bar"],
-        modelArtifactBindingId: "q5-xl",
+        modelArtifactBindingId: "",
       },
       exposure: { kind: { case: "direct", value: { routeName: "team-route" } } },
       name: "Team model",
@@ -947,14 +1034,11 @@ describe("ModelDeployDialog reopened on an applied launch", () => {
     expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveValue("2");
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByRole("textbox", { name: "Prompt cache memory" })).toHaveValue("4 GiB");
-    await user.click(sectionToggle("Engine and artifact"));
-    expect(screen.getByRole("combobox", { name: "Model artifact" })).toHaveValue("q5-xl");
     expect(kvCachePrecision()).toHaveValue("q8_0");
     expect(speculativeMethod()).toHaveValue("mtp");
     expect(speculativeCount()).toHaveValue("5");
-    await user.click(sectionToggle("Custom arguments and command"));
-    expect(screen.getByRole("textbox", { name: "Custom token 1" })).toHaveValue("--foo");
-    expect(screen.getByRole("textbox", { name: "Custom token 2" })).toHaveValue("bar");
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByRole("textbox", { name: "Custom arguments" })).toHaveValue("--foo\nbar");
 
     await deployFromAdvanced(user);
     expect(screen.getByRole("textbox", { name: "Deployment name" })).toHaveValue("Team model");
@@ -966,7 +1050,7 @@ describe("ModelDeployDialog reopened on an applied launch", () => {
 
   it("resets the profile's runtime values on a profile change and keeps the launch's own", async () => {
     const user = setupUser();
-    const model = modelWithArtifactChoice();
+    const model = modelWithKvCachePrecision();
     const applied = await applyEveryRuntimeEdit(user, model);
 
     const onSubmit = vi.fn();
@@ -982,13 +1066,10 @@ describe("ModelDeployDialog reopened on an applied launch", () => {
     expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveValue("2");
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByRole("textbox", { name: "Prompt cache memory" })).toHaveValue("8 GiB");
-    await user.click(sectionToggle("Engine and artifact"));
-    expect(screen.getByRole("combobox", { name: "Model artifact" })).toHaveValue("Q4_K_XL");
     expect(kvCachePrecision()).toHaveValue("f16");
     expect(speculativeMethod()).toHaveValue("");
-    await user.click(sectionToggle("Custom arguments and command"));
-    expect(screen.getByRole("textbox", { name: "Custom token 1" })).toHaveValue("--foo");
-    expect(screen.getByRole("textbox", { name: "Custom token 2" })).toHaveValue("bar");
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByRole("textbox", { name: "Custom arguments" })).toHaveValue("--foo\nbar");
 
     await deployFromAdvanced(user);
     expect(screen.getByRole("textbox", { name: "Deployment name" })).toHaveValue("Team model");
@@ -996,7 +1077,7 @@ describe("ModelDeployDialog reopened on an applied launch", () => {
     await user.click(screen.getByRole("button", { name: "Deploy" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
     expect(onSubmit.mock.calls[0][0]).toMatchObject({
-      configuration: { customArgumentTokens: ["--foo", "bar"], modelArtifactBindingId: "q4-xl" },
+      configuration: { customArgumentTokens: ["--foo", "bar"], modelArtifactBindingId: "" },
       exposure: { kind: { case: "direct", value: { routeName: "team-route" } } },
       name: "Team model",
       profileId: "q4-xl-no-mtp",
@@ -1012,7 +1093,7 @@ describe("ModelDeployDialog reopened on an applied launch", () => {
 
   it("reads an applied hidden exposure and speculative decoding off back", async () => {
     const user = setupUser();
-    const model = modelWithArtifactChoice();
+    const model = modelWithKvCachePrecision();
     const first = vi.fn();
     const { unmount } = renderDialog({ initialProfileId: "q4-xl", model, onSubmit: first });
 
@@ -1096,25 +1177,12 @@ function modelWithDflash() {
 }
 
 /**
- * The fixture model with the KV cache precision option and a second llama.cpp artifact, "q5-xl",
- * that no profile defaults to.
- */
-function modelWithArtifactChoice() {
-  const model = modelWithKvCachePrecision();
-  model.artifacts.push(clone(ModelArtifactSchema, { ...model.artifacts[0], artifactId: "q5-xl" }));
-  model.configurations[0].artifactBindings.push(
-    create(ModelArtifactBindingSchema, { bindingId: "q5-xl", modelArtifactId: "q5-xl" }),
-  );
-  return model;
-}
-
-/**
  * Deploys "q4-xl" with every runtime field, the name and the route edited, the way Customize
  * applies a launch, and returns the submitted launch.
  */
 async function applyEveryRuntimeEdit(
   user: UserEvent,
-  model: ReturnType<typeof modelWithArtifactChoice>,
+  model: ReturnType<typeof modelWithKvCachePrecision>,
 ): Promise<LocalDeploymentValues> {
   const onSubmit = vi.fn();
   const { unmount } = renderDialog({
@@ -1134,17 +1202,11 @@ async function applyEveryRuntimeEdit(
   const promptCache = screen.getByRole("textbox", { name: "Prompt cache memory" });
   await user.clear(promptCache);
   await user.type(promptCache, "4096");
-  await user.click(sectionToggle("Engine and artifact"));
-  await user.click(screen.getByRole("combobox", { name: "Model artifact" }));
-  await user.click((await screen.findAllByText("q5-xl"))[0]);
   await user.selectOptions(kvCachePrecision(), "q8_0");
   await user.clear(speculativeCount());
   await user.type(speculativeCount(), "5");
-  await user.click(sectionToggle("Custom arguments and command"));
-  await user.click(screen.getByRole("button", { name: "Add token" }));
-  await user.type(screen.getByRole("textbox", { name: "Custom token 1" }), "--foo");
-  await user.click(screen.getByRole("button", { name: "Add token" }));
-  await user.type(screen.getByRole("textbox", { name: "Custom token 2" }), "bar");
+  await user.click(screen.getByRole("button", { name: "Next" }));
+  await user.type(screen.getByRole("textbox", { name: "Custom arguments" }), "--foo bar");
 
   await deployFromAdvanced(user);
   const name = screen.getByRole("textbox", { name: "Deployment name" });
@@ -1210,19 +1272,9 @@ function poolTarget() {
   });
 }
 
+/** Turns Advanced on and moves to the Context step. */
 async function openAdvancedSettings(user: UserEvent) {
-  await screen.findByText("Step 1 of 3 — Profile");
-  await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
-  await user.click(screen.getByRole("button", { name: "Next" }));
-  expect(screen.getByText("Step 2 of 5 — Target")).toBeVisible();
-  await user.click(screen.getByRole("button", { name: "Next" }));
-  expect(screen.getByText("Step 3 of 5 — Settings")).toBeVisible();
-}
-
-async function openAdvancedStep(user: UserEvent) {
-  await openAdvancedSettings(user);
-  await user.click(screen.getByRole("button", { name: "Next" }));
-  expect(screen.getByText("Step 4 of 5 — Advanced")).toBeVisible();
+  await openAdvancedStep(user, "Context");
 }
 
 /** The engine parameter values of the first submitted deployment, as `[parameterId, value]`. */
@@ -1258,13 +1310,11 @@ function sectionToggle(name: string) {
 }
 
 async function deployFromSettings(user: UserEvent) {
-  await user.click(screen.getByRole("button", { name: "Next" }));
-  await deployFromAdvanced(user);
+  await goToStep(user, "Review & deploy");
 }
 
 async function deployFromAdvanced(user: UserEvent) {
-  await user.click(screen.getByRole("button", { name: "Next" }));
-  expect(screen.getByText("Step 5 of 5 — Deploy")).toBeVisible();
+  await goToStep(user, "Review & deploy");
 }
 
 /** The option overrides of the first submitted deployment, as `[optionId, parameterId, value]`. */

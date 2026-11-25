@@ -16,6 +16,7 @@ import type { ResolvedLocalModelDeploymentSnapshot } from "@/gen/dotcore/model/v
 export interface KvCachePrecisionOption {
   choices: string[];
   defaultPrecision: string;
+  description: string;
   displayName: string;
   optionId: string;
 }
@@ -57,6 +58,7 @@ export function configurationKvCachePrecision(
     return {
       choices,
       defaultPrecision,
+      description: option.description,
       displayName: option.displayName,
       optionId: option.optionId,
     };

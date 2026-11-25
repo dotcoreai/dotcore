@@ -1,7 +1,11 @@
 import { useMemo, useState } from "react";
 
 import type { DataTablePredicate } from "@/components/data-table/data-table-view";
-import { profileEstimateKey, type ProfileRow } from "@/features/models/profiles/model-row";
+import {
+  profileEstimateKey,
+  type ProfileFitsPerRequest,
+  type ProfileRow,
+} from "@/features/models/profiles/model-row";
 import {
   catalogLocation,
   catalogRunsOn,
@@ -11,7 +15,8 @@ import {
 import {
   type MemoryBasis,
   type ProfileCompatibility,
-  profileScopeStartingTotalContext,
+  profileTargetVerdicts,
+  type RunsOnScope,
 } from "@/features/models/profiles/profile-compatibility";
 import type { ProfileTableField } from "@/features/models/profiles/profile-table-model";
 import {
@@ -19,21 +24,21 @@ import {
   profileTableStart,
 } from "@/features/models/profiles/profile-table-seed";
 import type { SizingScenario } from "@/features/models/profiles/sizing-scenario";
-import { useSizedForChipSettings } from "@/features/models/profiles/use-sized-for-chip-settings";
 import {
   engineParameterInputs as engineParameterInputsOf,
+  PARALLEL_REQUESTS_PARAMETER_ID,
   profileStartingValues,
-  TOTAL_CONTEXT_PARAMETER_ID,
 } from "@/features/models/runtime/engine-parameter-values";
 import { profileEngineRelease } from "@/features/models/runtime/local-deployment-configuration";
 import type { EngineRelease } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import type { Model } from "@/gen/dotcore/catalog/v1/model_pb";
+import type { ParameterValues } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import type { ConfiguredExecutionTarget } from "@/gen/dotcore/site/v1/service_pb";
 
 /**
- * The deploy dialog's profile table: its Runs on chip with "Sized for" and the memory basis, the
- * chips it starts from, the scope the chip selects, which profiles can launch there, and the
- * total context each row shows.
+ * The deploy dialog's profile table: its Runs on chip, the chips it starts from, the scope the chip
+ * selects, which profiles can launch there on the memory basis, and the context per request each
+ * row fits there.
  */
 export function useModelDeployProfileTable({
   basis,
@@ -44,14 +49,9 @@ export function useModelDeployProfileTable({
   executionTargets,
   initialProfileId,
   model,
-  onBasisChange,
-  onSizedForChange,
   profileRows,
   scenario,
   sizingFailed,
-  sizingRead,
-  startBasis,
-  startScenario,
 }: ModelDeployProfileTableOptions) {
   // The Runs on chip's values once the operator changes them, with the starting values they replace.
   const [operatorChip, setOperatorChip] = useState<{
@@ -79,13 +79,6 @@ export function useModelDeployProfileTable({
   // The catalog's chips, less any that would hide the requested profile. Runs on joins them when
   // the read first lands, and they stay fixed from then on, so later reads never move them.
   const initialProfileRow = profileRows.find((row) => row.profileId === initialProfileId);
-  const sizedForSettings = useSizedForChipSettings(
-    runsOnFilter
-      ? { onChange: onSizedForChange, start: startScenario, value: scenario }
-      : undefined,
-    runsOnFilter ? { onChange: onBasisChange, start: startBasis, value: basis } : undefined,
-    profileRows,
-  );
   const [landedStart, setLandedStart] = useState<DataTablePredicate<ProfileTableField>[]>();
   if (runsOnFilter && !landedStart)
     setLandedStart(profileTableStart(catalogChips, runsOnFilter.field, initialProfileRow));
@@ -114,37 +107,37 @@ export function useModelDeployProfileTable({
         : undefined,
     [basis, compatibility, executionTargets, model.modelId, scopes],
   );
-  // The table's rows show the total context each profile's launch starts from in the Runs on scope:
-  // the scenario's, else the most a target there starts from, else the read's starting value.
-  const tableProfileRows = useMemo(
+  // Each row shows how much context per request it fits in the scope, at the parallel requests
+  // the table's read sizes it with.
+  const rows = useMemo(
     () =>
       profileRows.map((row) => {
         const rowProfile = model.profiles.find(
           (candidate) => candidate.profileId === row.profileId,
         );
-        const starting = engineParameterInputsOf(
-          sizingRead?.engineValues.get(profileEstimateKey(model.modelId, row.profileId)) ??
+        const parallelRequests =
+          parallelRequestsOf(
+            compatibilityRead?.engineValues.get(profileEstimateKey(model.modelId, row.profileId)),
+            scenario,
+          ) ??
+          parallelRequestsOf(
             profileStartingValues(
               profileEngineRelease(model, rowProfile, engineReleases),
               rowProfile,
             ),
-        );
-        const startingTotal = starting.get(TOTAL_CONTEXT_PARAMETER_ID);
+          );
         return {
           ...row,
-          totalContext:
-            scenario?.totalContextTokens ??
-            (compatibilityRead &&
-              profileScopeStartingTotalContext(
-                compatibilityRead,
-                model.modelId,
-                row.profileId,
-                scopes,
-              )) ??
-            (startingTotal === undefined ? undefined : Number(startingTotal)),
+          fitsPerRequest: fitsPerRequest(
+            compatibilityRead,
+            model,
+            row.profileId,
+            scopes,
+            parallelRequests,
+          ),
         };
       }),
-    [engineReleases, model, compatibilityRead, sizingRead, profileRows, scenario, scopes],
+    [compatibilityRead, engineReleases, model, profileRows, scenario, scopes],
   );
   const changeRunsOn = (values: readonly string[]) =>
     setOperatorChip({ start: startChipKey, values });
@@ -153,32 +146,60 @@ export function useModelDeployProfileTable({
     changeRunsOn,
     chipKey,
     profileAvailability,
+    rows,
     runsOn,
     scopes,
-    sizedForSettings,
     start,
-    tableProfileRows,
   };
 }
 
 export interface ModelDeployProfileTableOptions {
   basis: MemoryBasis;
   catalogChips: CatalogChips;
-  /** The dialog's compatibility read once it evaluated a target; absent before and on failure. */
+  /** The table's compatibility read once it evaluated a target; absent before and on failure. */
   compatibility?: ProfileCompatibility;
-  /** The dialog's latest compatibility read, whether or not it evaluated a target. */
+  /** The table's latest compatibility read, whether or not it evaluated a target. */
   compatibilityRead?: ProfileCompatibility;
   engineReleases: readonly EngineRelease[];
   executionTargets: readonly ConfiguredExecutionTarget[];
   initialProfileId?: string;
   model: Model;
-  onBasisChange: (basis: MemoryBasis) => void;
-  onSizedForChange: (scenario: SizingScenario | undefined) => void;
   profileRows: readonly ProfileRow[];
+  /** The scenario the table's read sizes. */
   scenario?: SizingScenario;
+  /** Whether the latest read of the table's scenario failed, so fit can't be judged. */
   sizingFailed: boolean;
-  /** The dialog's read when it sized the requested scenario. */
-  sizingRead?: ProfileCompatibility;
-  startBasis: MemoryBasis;
-  startScenario?: SizingScenario;
+}
+
+/**
+ * The largest context per request any target in the Runs on scope that runs the profile fits, the
+ * most of them, at the given parallel requests. Undefined when no such target reports one.
+ */
+function fitsPerRequest(
+  compatibility: ProfileCompatibility | undefined,
+  model: Model,
+  profileId: string,
+  scopes: readonly RunsOnScope[],
+  parallelRequests: number | undefined,
+): ProfileFitsPerRequest | undefined {
+  if (!compatibility) return undefined;
+
+  const fits = scopes.flatMap((scope) =>
+    profileTargetVerdicts(compatibility, model.modelId, profileId, scope).flatMap((verdict) =>
+      verdict.status === "runs" && verdict.largestContextTokensPerRequest !== undefined
+        ? [verdict.largestContextTokensPerRequest]
+        : [],
+    ),
+  );
+  return fits.length ? { contextTokens: Math.max(...fits), parallelRequests } : undefined;
+}
+
+// The parallel requests a read's values or the scenario size with: the scenario's when it sets them.
+function parallelRequestsOf(
+  values: ParameterValues | undefined,
+  scenario?: SizingScenario,
+): number | undefined {
+  if (scenario?.parallelRequests !== undefined) return scenario.parallelRequests;
+  const input = engineParameterInputsOf(values).get(PARALLEL_REQUESTS_PARAMETER_ID);
+  return input === undefined ? undefined : Number(input);
 }

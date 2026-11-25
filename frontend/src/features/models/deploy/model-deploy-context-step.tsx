@@ -20,7 +20,7 @@ import type { ParameterDefinition, ParameterGroup } from "@/gen/dotcore/catalog/
 import type { FieldErrors } from "@/lib/form-validation";
 import { formatCompactCount } from "@/lib/format";
 
-interface ModelDeploySettingsStepProps {
+interface ModelDeployContextStepProps {
   /** The largest values that fit the selected target, offered as each context field's last chip. */
   contextFits: ContextValues<SizeLargestFit>;
   /** The largest values that fit the selected target, in each context field's help. */
@@ -63,12 +63,12 @@ export interface ContextValues<T> {
 }
 
 /**
- * The Settings step of the model deploy dialog: the context one request may use, the requests
+ * The Context step of the model deploy dialog: the context one request may use, the requests
  * served at once, and the total context they share, which follows the other two until set, then
  * the profile's other basic engine parameters. Each field shows only when the selected profile
  * exposes its engine parameter.
  */
-export function ModelDeploySettingsStep({
+export function ModelDeployContextStep({
   contextFits,
   contextHints,
   disabled,
@@ -85,7 +85,7 @@ export function ModelDeploySettingsStep({
   parameters,
   profile,
   totalFollows,
-}: ModelDeploySettingsStepProps) {
+}: ModelDeployContextStepProps) {
   const configuration = model.configurations.find(
     (candidate) => candidate.configurationId === profile?.configurationId,
   );
@@ -130,7 +130,7 @@ export function ModelDeploySettingsStep({
 
   return (
     <DeploymentForm className="gap-5">
-      <DeploymentStepHeading>Settings</DeploymentStepHeading>
+      <DeploymentStepHeading>Context</DeploymentStepHeading>
       {totalContext || contextPerRequest ? null : (
         <p className="text-xs text-muted-foreground" role="status">
           This profile sets its context itself.

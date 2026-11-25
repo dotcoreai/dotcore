@@ -52,8 +52,6 @@ import { type ResourceEstimateLoader } from "./use-resource-estimate";
 
 const modelId = runtimeSchemaModel.modelId;
 const scenario: SizingScenario = { contextTokensPerRequest: 65536, totalContextTokens: 524288 };
-// The Runs on chip's summary of that scenario.
-const sizedFor = "64k per request · 512k total";
 const poolPlacement = { executionTargetId: "pool", siteNodeId: "node" };
 const workerPlacement = { executionTargetId: "worker-gpu", siteNodeId: "worker" };
 
@@ -153,7 +151,7 @@ describe("ModelDeployDialog scenario prefill", () => {
     expect(screen.queryByText(/Estimate unavailable/)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByText("Step 2 of 3 — Settings")).toBeVisible();
+    expect(screen.getByText("Step 2 of 3 — Context")).toBeVisible();
     expect(screen.getByRole("textbox", { name: /Context per request/ })).toHaveFocus();
 
     await user.clear(perRequest);
@@ -180,37 +178,6 @@ describe("ModelDeployDialog scenario prefill", () => {
     expect(await screen.findByRole("button", { name: /^Runs on filter: .*worker/i })).toBeVisible();
   });
 
-  it("shows the total context in the Runs on scope: the largest fitting at defaults, else the scenario's", async () => {
-    const targets = [
-      targetCompatibility(poolPlacement, {
-        "ninfer-nvfp4": { largestTotalContextTokens: 98304, startingTotalContextTokens: 98304 },
-      }),
-      targetCompatibility(workerPlacement, {
-        "ninfer-nvfp4": { largestTotalContextTokens: 65536, startingTotalContextTokens: 65536 },
-      }),
-    ];
-    const totalContext = () =>
-      within(screen.getByRole("row", { name: "NVFP4 ninfer" }))
-        .getAllByRole("cell")
-        .at(-1)!.textContent;
-    const props = {
-      initialProfileId: "ninfer-nvfp4",
-      catalogChips: [{ field: "runsOn" as const, values: ["node:worker"] }],
-      listConfiguredExecutionTargets: () =>
-        Promise.resolve({ executionTargets: [poolTarget(), workerTarget()] }),
-      listProfileCompatibility: scenarioLoader({}, targets),
-    };
-    // At defaults, the worker's largest fitting total rather than the pool's larger one.
-    const { unmount } = renderDialog(props);
-    await screen.findByRole("button", { name: /^Runs on filter: .*worker/i });
-    await waitFor(() => expect(totalContext()).toBe("64k"));
-    unmount();
-
-    renderDialog({ ...props, scenario });
-    await screen.findByRole("button", { name: /^Runs on filter: .*worker/i });
-    await waitFor(() => expect(totalContext()).toBe("512k"));
-  });
-
   it("starts the Runs on chip at every machine the catalog selects", async () => {
     renderDialog({
       initialProfileId: "ninfer-nvfp4",
@@ -225,7 +192,7 @@ describe("ModelDeployDialog scenario prefill", () => {
     });
 
     expect(
-      await screen.findByRole("button", { name: `Runs on filter: node, Worker, ${sizedFor}` }),
+      await screen.findByRole("button", { name: `Runs on filter: node, Worker` }),
     ).toBeVisible();
   });
 
@@ -243,9 +210,7 @@ describe("ModelDeployDialog scenario prefill", () => {
       scenario,
     });
 
-    expect(
-      await screen.findByRole("button", { name: `Runs on filter: this site, ${sizedFor}` }),
-    ).toBeVisible();
+    expect(await screen.findByRole("button", { name: `Runs on filter: this site` })).toBeVisible();
     await waitFor(() => expect(profilesFooter()).toBe("1 of 4 profiles · 1 hidden"));
     expect(profileRows()).toEqual(["NVFP4 text"]);
     await waitFor(() => expect(screen.getByRole("radio", { name: "NVFP4 text" })).toBeChecked());
@@ -274,34 +239,6 @@ describe("ModelDeployDialog scenario prefill", () => {
 
     expect(await screen.findByText("No profile runs here")).toBeVisible();
     expect(profilesFooter()).toBe("0 of 4 profiles · 2 hidden");
-  });
-
-  it("keeps the shown verdicts while a new scenario's read is pending, and drops the fit once it fails", async () => {
-    const reads: { reject: (error: Error) => void }[] = [];
-    const fitRead = scenarioLoader({}, [
-      targetCompatibility(poolPlacement, {
-        "ninfer-nvfp4": { memoryFit: MemoryFit.EXCEEDS },
-        "nvfp4-text": {},
-      }),
-    ]);
-    const listProfileCompatibility = vi.fn((id: string, requested?: SizingScenario) =>
-      requested === scenario
-        ? fitRead(id, requested)
-        : new Promise<never>((_resolve, reject) => reads.push({ reject })),
-    );
-    const user = setupUser();
-    renderDialog({ listProfileCompatibility, scenario });
-    await waitFor(() => expect(profilesFooter()).toBe("1 of 4 profiles · 1 hidden"));
-
-    await chooseSizedFor(user, `Runs on filter: this site, ${sizedFor}`, "Defaults");
-    await waitFor(() => expect(reads).toHaveLength(1));
-    // Still hidden by the previous read.
-    expect(profileRows()).toEqual(["NVFP4 text"]);
-    expect(profilesFooter()).toBe("1 of 4 profiles · 1 hidden");
-
-    act(() => reads[0].reject(new Error("read failed")));
-    await waitFor(() => expect(profileRows()).toEqual(["NVFP4 ninfer", "NVFP4 text"]));
-    expect(profilesFooter()).toBe("2 of 4 profiles");
   });
 
   it("keeps a requested profile that exceeds memory visible and selected, without the Runs on chip", async () => {
@@ -337,9 +274,7 @@ describe("ModelDeployDialog scenario prefill", () => {
       scenario,
     });
 
-    expect(
-      await screen.findByRole("button", { name: `Runs on filter: this site, ${sizedFor}` }),
-    ).toBeVisible();
+    expect(await screen.findByRole("button", { name: `Runs on filter: this site` })).toBeVisible();
     expect(screen.queryByRole("button", { name: /^Engine filter/ })).not.toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "NVFP4 ninfer" })).toBeChecked();
   });
@@ -410,9 +345,7 @@ describe("ModelDeployDialog scenario prefill", () => {
       release();
       await held;
     });
-    expect(
-      await screen.findByRole("button", { name: `Runs on filter: this site, ${sizedFor}` }),
-    ).toBeVisible();
+    expect(await screen.findByRole("button", { name: `Runs on filter: this site` })).toBeVisible();
     expect(profileRows()).toEqual(["NVFP4 ninfer"]);
     await waitFor(() => expect(screen.getByRole("radio", { name: "NVFP4 ninfer" })).toBeChecked());
   });
@@ -445,7 +378,6 @@ describe("ModelDeployDialog scenario prefill", () => {
 
     await user.click(await screen.findByRole("button", { name: "Next" }));
     await user.click(await screen.findByRole("button", { name: "Next" }));
-    await user.click(screen.getByRole("button", { name: "Next" }));
     await user.click(screen.getByRole("button", { name: "Deploy" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
     expect(onSubmit.mock.calls[0][0].placement).toEqual(
@@ -465,25 +397,15 @@ describe("ModelDeployDialog scenario prefill", () => {
       scenario,
     });
 
-    const chip = `Runs on filter: this site, ${sizedFor}`;
     await waitFor(() => expect(profilesFooter()).toBe("1 of 4 profiles · 1 hidden"));
     expect(profileRows()).toEqual(["NVFP4 text"]);
+    const memory = screen.getByRole("radiogroup", { name: "Memory" });
+    expect(within(memory).getByRole("radio", { name: "Free now" })).toBeChecked();
 
-    await user.click(await screen.findByRole("button", { name: chip }));
-    const menu = await screen.findByRole("menu");
-    expect(within(menu).getByRole("menuitemradio", { name: "Free now" })).toHaveAttribute(
-      "aria-checked",
-      "true",
-    );
-    await user.click(within(menu).getByRole("menuitemradio", { name: "Total" }));
-    await user.keyboard("{Escape}");
-    const totalChip = `Runs on filter: this site, ${sizedFor} · Total memory`;
-    expect(await screen.findByRole("button", { name: totalChip })).toBeVisible();
+    await user.click(within(memory).getByRole("radio", { name: "Total" }));
     await waitFor(() => expect(profilesFooter()).toBe("2 of 4 profiles"));
 
-    // Reset returns to free now.
-    await user.click(screen.getByRole("button", { name: "Reset" }));
-    expect(await screen.findByRole("button", { name: chip })).toBeVisible();
+    await user.click(within(memory).getByRole("radio", { name: "Free now" }));
     await waitFor(() => expect(profilesFooter()).toBe("1 of 4 profiles · 1 hidden"));
   });
 
@@ -508,7 +430,7 @@ describe("ModelDeployDialog scenario prefill", () => {
 
     expect(
       await screen.findByRole("button", {
-        name: `Runs on filter: this site, ${sizedFor} · Total memory`,
+        name: `Runs on filter: this site`,
       }),
     ).toBeVisible();
     await waitFor(() => expect(onEstimate).toHaveBeenCalled());
@@ -539,34 +461,6 @@ describe("ModelDeployDialog scenario prefill", () => {
     expect((onEstimate.mock.calls[0][0] as EstimateCall).placement).toEqual(
       create(ExactPlacementSchema, workerPlacement),
     );
-  });
-
-  it('re-sizes the launch from a "Sized for" changed in the dialog', async () => {
-    const user = setupUser();
-    const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
-    const listProfileCompatibility = scenarioLoader({}, [
-      targetCompatibility(poolPlacement, { "ninfer-nvfp4": {} }),
-    ]);
-    renderDialog({
-      initialProfileId: "ninfer-nvfp4",
-      listProfileCompatibility,
-      onSubmit,
-      scenario,
-    });
-
-    await chooseSizedFor(user, `Runs on filter: this site, ${sizedFor}`, "Defaults");
-    expect(await screen.findByRole("button", { name: "Runs on filter: this site" })).toBeVisible();
-    await waitFor(() => expect(listProfileCompatibility).toHaveBeenLastCalledWith(modelId));
-    await user.click(await screen.findByRole("button", { name: "Next" }));
-    await user.click(screen.getByRole("button", { name: "Next" }));
-    await user.click(screen.getByRole("button", { name: "Deploy" }));
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
-    expect(pairs(onSubmit.mock.calls[0][0].configuration.engineParameterValues.values)).toEqual([
-      ["parallel-requests", 4n],
-      ["host-context-mib", 20480n],
-      ["context-per-request", 32768n],
-      ["total-context", 131072n],
-    ]);
   });
 
   it("opens a profile with an engine-owned total context at the read's value and submits it", async () => {
@@ -656,84 +550,6 @@ describe("ModelDeployDialog scenario prefill", () => {
     expect(submitted.find(([id]) => id === "total-context")).toEqual(["total-context", 131072n]);
   });
 
-  it('shows Reset once "Sized for" leaves the opener\'s, and restores it', async () => {
-    const user = setupUser();
-    const listProfileCompatibility = scenarioLoader({}, [
-      targetCompatibility(poolPlacement, { "ninfer-nvfp4": {} }),
-    ]);
-    renderDialog({ initialProfileId: "ninfer-nvfp4", listProfileCompatibility, scenario });
-    const chip = `Runs on filter: this site, ${sizedFor}`;
-    expect(await screen.findByRole("button", { name: chip })).toBeVisible();
-    expect(screen.queryByRole("button", { name: "Reset" })).not.toBeInTheDocument();
-
-    await chooseSizedFor(user, chip, "Defaults");
-    await user.click(await screen.findByRole("button", { name: "Reset" }));
-
-    expect(await screen.findByRole("button", { name: chip })).toBeVisible();
-    expect(screen.queryByRole("button", { name: "Reset" })).not.toBeInTheDocument();
-    await waitFor(() =>
-      expect(listProfileCompatibility).toHaveBeenLastCalledWith(modelId, scenario),
-    );
-  });
-
-  it('drops "Sized for" with the Runs on chip, and Reset restores both', async () => {
-    const user = setupUser();
-    const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
-    const listProfileCompatibility = scenarioLoader({}, [
-      targetCompatibility(poolPlacement, { "ninfer-nvfp4": {} }),
-    ]);
-    renderDialog({
-      initialProfileId: "ninfer-nvfp4",
-      listProfileCompatibility,
-      onSubmit,
-      scenario,
-    });
-    const chip = `Runs on filter: this site, ${sizedFor}`;
-    expect(await screen.findByRole("button", { name: chip })).toBeVisible();
-
-    await user.click(screen.getByRole("button", { name: "Remove Runs on filter" }));
-    await waitFor(() => expect(listProfileCompatibility).toHaveBeenLastCalledWith(modelId));
-
-    // Added back, the chip starts without a "Sized for".
-    await user.click(screen.getByRole("button", { name: "Filter" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Runs on" }));
-    await user.keyboard("{Escape}");
-    expect(await screen.findByRole("button", { name: /^Runs on filter/ })).not.toHaveAccessibleName(
-      new RegExp(sizedFor),
-    );
-    await user.click(screen.getByRole("button", { name: "Remove Runs on filter" }));
-
-    await user.click(await screen.findByRole("button", { name: "Next" }));
-    await user.click(screen.getByRole("button", { name: "Next" }));
-    await user.click(screen.getByRole("button", { name: "Deploy" }));
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
-    expect(pairs(onSubmit.mock.calls[0][0].configuration.engineParameterValues.values)).toEqual([
-      ["parallel-requests", 4n],
-      ["host-context-mib", 20480n],
-      ["context-per-request", 32768n],
-      ["total-context", 131072n],
-    ]);
-  });
-
-  it('restores the chip and its "Sized for" in one Reset after the chip is removed', async () => {
-    const user = setupUser();
-    const listProfileCompatibility = scenarioLoader({}, [
-      targetCompatibility(poolPlacement, { "ninfer-nvfp4": {} }),
-    ]);
-    renderDialog({ initialProfileId: "ninfer-nvfp4", listProfileCompatibility, scenario });
-    const chip = `Runs on filter: this site, ${sizedFor}`;
-    expect(await screen.findByRole("button", { name: chip })).toBeVisible();
-
-    await user.click(screen.getByRole("button", { name: "Remove Runs on filter" }));
-    await user.click(await screen.findByRole("button", { name: "Reset" }));
-
-    expect(await screen.findByRole("button", { name: chip })).toBeVisible();
-    expect(screen.queryByRole("button", { name: "Reset" })).not.toBeInTheDocument();
-    await waitFor(() =>
-      expect(listProfileCompatibility).toHaveBeenLastCalledWith(modelId, scenario),
-    );
-  });
-
   it("launches the profile defaults without a scenario", async () => {
     const user = setupUser();
     const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
@@ -777,11 +593,11 @@ describe("ModelDeployDialog largest fitting total context", () => {
     await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
     await pickTarget(user, /^node \/ NVIDIA GeForce RTX 5090/);
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByText("Step 3 of 5 — Settings")).toBeVisible();
+    expect(screen.getByText("Step 2 of 5 — Context")).toBeVisible();
     const hint = "Up to 124k on node / NVIDIA GeForce RTX 5090";
     expect(await readFieldHelpFacts("Total context")).toContain(hint);
 
-    await user.click(screen.getByRole("button", { name: /Target/ }));
+    await user.click(screen.getByRole("button", { name: /Model & machine/ }));
     await pickTarget(user, /^Worker \/ NVIDIA GB10/);
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(await readFieldHelpFacts("Total context")).toContain(
@@ -792,43 +608,57 @@ describe("ModelDeployDialog largest fitting total context", () => {
 });
 
 describe("ModelDeployDialog largest fit under a new scenario", () => {
-  it('picks up the fit of a new "Sized for" from its own read', async () => {
+  it("reads an edited context for the Context step's hints, while the table keeps the opening read", async () => {
     const user = setupUser();
-    renderDialog({
-      initialProfileId: "ninfer-nvfp4",
-      listProfileCompatibility: vi.fn((_modelId: string, requested?: SizingScenario) =>
-        Promise.resolve(
-          scenarioResponse(
-            [
-              targetCompatibility(poolPlacement, {
-                "ninfer-nvfp4": requested
-                  ? { largestTotalContextTokens: 126976, startingTotalContextTokens: 126976 }
-                  : { largestTotalContextTokens: 98304, startingTotalContextTokens: 98304 },
-              }),
-            ],
-            requested ? scenarioValues : undefined,
-          ),
+    const listProfileCompatibility = vi.fn((_modelId: string, requested?: SizingScenario) =>
+      Promise.resolve(
+        scenarioResponse(
+          [
+            targetCompatibility(poolPlacement, {
+              "ninfer-nvfp4":
+                requested?.contextTokensPerRequest === 16384
+                  ? { largestTotalContextTokens: 98304, startingTotalContextTokens: 98304 }
+                  : {
+                      largestContextTokensPerRequest: 32768,
+                      largestTotalContextTokens: 126976,
+                      startingTotalContextTokens: 126976,
+                    },
+            }),
+          ],
+          requested ? scenarioValues : undefined,
         ),
       ),
-      scenario,
-    });
+    );
+    renderDialog({ initialProfileId: "ninfer-nvfp4", listProfileCompatibility, scenario });
 
-    const chip = `Runs on filter: this site, ${sizedFor}`;
-    await screen.findByRole("button", { name: chip });
+    await screen.findByRole("button", { name: "Runs on filter: this site" });
+    // The opening scenario's read fits 32k per request at its 8 parallel requests.
+    await waitFor(() => expect(fitsCell("NVFP4 ninfer")).toBe("32k8 parallel requests"));
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect((await readFieldHelpFacts("Total context")).join("\n")).toMatch(/^Up to 124k on /m);
 
-    await user.click(screen.getByRole("button", { name: "Back" }));
-    await chooseSizedFor(user, chip, "Defaults");
-    await user.click(screen.getByRole("button", { name: "Next" }));
+    const perRequest = screen.getByRole("textbox", { name: "Context per request" });
+    await user.clear(perRequest);
+    await user.type(perRequest, "16384");
+    await user.tab();
+    await waitFor(() =>
+      expect(listProfileCompatibility).toHaveBeenCalledWith(modelId, {
+        contextTokensPerRequest: 16384,
+        totalContextTokens: 524288,
+      }),
+    );
+    await waitFor(async () =>
+      expect((await readFieldHelpFacts("Total context")).join("\n")).toMatch(/^Up to 96k on /m),
+    );
 
-    expect((await readFieldHelpFacts("Total context")).join("\n")).toMatch(/^Up to 96k on /m);
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("96k");
+    // The table answers the opening scenario, so the edit leaves its column alone.
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    expect(fitsCell("NVFP4 ninfer")).toBe("32k8 parallel requests");
   });
 });
 
 describe("ModelDeployDialog shared context", () => {
-  it("starts total context at the read's starting value, as the table shows", async () => {
+  it("starts total context at the read's starting value", async () => {
     const user = setupUser();
     const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
     renderDialog({
@@ -842,9 +672,10 @@ describe("ModelDeployDialog shared context", () => {
     });
 
     await screen.findByRole("button", { name: "Runs on filter: this site" });
-    await waitFor(() => expect(totalContextCell("Q4_K_XL")).toBe("889k"));
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("889k");
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("889k"),
+    );
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(summaryContext()).toBe("32k per request · 4 parallel · 889k total");
     await user.click(screen.getByRole("button", { name: "Deploy" }));
@@ -1160,7 +991,7 @@ describe("ModelDeployDialog shared context", () => {
     await user.click(screen.getByRole("button", { name: "Back" }));
     expect(
       screen.getByRole("button", {
-        name: "Runs on filter: this site, 32k per request · 64k total",
+        name: "Runs on filter: this site",
       }),
     ).toBeVisible();
 
@@ -1175,7 +1006,7 @@ describe("ModelDeployDialog shared context", () => {
     await user.click(screen.getByRole("button", { name: "Back" }));
     expect(
       screen.getByRole("button", {
-        name: "Runs on filter: this site, 32k per request · 889k total",
+        name: "Runs on filter: this site",
       }),
     ).toBeVisible();
   });
@@ -1285,28 +1116,6 @@ describe("ModelDeployDialog shared context", () => {
     expect(largestFitChip("889k")).toHaveAttribute("aria-pressed", "false");
   });
 
-  it('drops a stale total context error when "Sized for" chooses the context', async () => {
-    const user = setupUser();
-    renderDialog({
-      initialProfileId: "q4-xl",
-      listProfileCompatibility: ruleLoader(910336),
-    });
-
-    await screen.findByRole("button", { name: "Runs on filter: this site" });
-    await user.click(screen.getByRole("button", { name: "Next" }));
-    const total = screen.getByRole("textbox", { name: "Total context" });
-    await user.clear(total);
-    await user.type(total, "1.3k");
-    await user.tab();
-    expect(await screen.findByText(totalContextError)).toBeVisible();
-
-    await user.click(screen.getByRole("button", { name: /Profile/ }));
-    await chooseSizedFor(user, "Runs on filter: this site", "Custom");
-    await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("128k");
-    expect(screen.queryByText(totalContextError)).not.toBeInTheDocument();
-  });
-
   it("keeps the operator's parallel requests and their error when using the largest fit", async () => {
     const user = setupUser();
     renderDialog({ initialProfileId: "q4-xl", listProfileCompatibility: ruleLoader(910336) });
@@ -1325,87 +1134,7 @@ describe("ModelDeployDialog shared context", () => {
     expect(parallel).toHaveValue("0");
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(await screen.findByText(parallelError)).toBeVisible();
-    expect(screen.getByText("Step 2 of 3 — Settings")).toBeVisible();
-  });
-
-  it('returns every context value to the read\'s when "Sized for" returns to defaults', async () => {
-    const user = setupUser();
-    renderDialog({ initialProfileId: "q4-xl", listProfileCompatibility: ruleLoader(910336) });
-
-    await screen.findByRole("button", { name: "Runs on filter: this site" });
-    await user.click(screen.getByRole("button", { name: "Next" }));
-    const parallel = screen.getByRole("textbox", { name: "Parallel requests" });
-    await user.clear(parallel);
-    await user.type(parallel, "2");
-    await user.tab();
-    await user.click(
-      within(screen.getByRole("group", { name: "Total context presets" })).getByRole("button", {
-        name: "32k",
-      }),
-    );
-    await user.click(screen.getByRole("button", { name: "Back" }));
-    await chooseSizedFor(
-      user,
-      "Runs on filter: this site, 32k per request · 2 parallel · 32k total",
-      "Defaults",
-    );
-    await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveValue("4");
-    await waitFor(() =>
-      expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("128k"),
-    );
-    expect(screen.queryByRole("button", { name: /^Follow/ })).not.toBeInTheDocument();
-  });
-
-  it('shares the context between the Settings step and "Sized for", with the fit verdicts following', async () => {
-    const user = setupUser();
-    const listProfileCompatibility = vi.fn((_id: string, requested?: SizingScenario) =>
-      Promise.resolve(
-        scenarioResponse([
-          targetCompatibility(poolPlacement, {
-            "q4-xl": {
-              largestTotalContextTokens: 910336,
-              startingTotalContextTokens: requested?.totalContextTokens ?? 131072,
-            },
-            "nvfp4-text": requested ? { memoryFit: MemoryFit.EXCEEDS } : {},
-          }),
-        ]),
-      ),
-    );
-    renderDialog({ initialProfileId: "q4-xl", listProfileCompatibility });
-
-    await screen.findByRole("button", { name: "Runs on filter: this site" });
-    await waitFor(() => expect(profileRows()).toEqual(["NVFP4 text", "Q4_K_XL"]));
-    await user.click(screen.getByRole("button", { name: "Next" }));
-    const total = screen.getByRole("textbox", { name: "Total context" });
-    await user.clear(total);
-    await user.type(total, "65536");
-    await user.tab();
-    await user.click(screen.getByRole("button", { name: "Back" }));
-
-    const chip = "Runs on filter: this site, 32k per request · 64k total";
-    expect(await screen.findByRole("button", { name: chip })).toBeVisible();
-    await waitFor(() =>
-      expect(listProfileCompatibility).toHaveBeenCalledWith(modelId, {
-        contextTokensPerRequest: 32768,
-        totalContextTokens: 65536,
-      }),
-    );
-    await waitFor(() => expect(profileRows()).toEqual(["Q4_K_XL"]));
-    expect(totalContextCell("Q4_K_XL")).toBe("64k");
-
-    // "Sized for" back to defaults returns the Settings step to the read's starting values.
-    await chooseSizedFor(user, chip, "Defaults");
-    await user.click(screen.getByRole("button", { name: "Next" }));
-    await waitFor(() =>
-      expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("128k"),
-    );
-
-    // A custom "Sized for" shows on the Settings step.
-    await user.click(screen.getByRole("button", { name: "Back" }));
-    await chooseSizedFor(user, "Runs on filter: this site", "Custom");
-    await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("textbox", { name: "Context per request" })).toHaveValue("32k");
+    expect(screen.getByText("Step 2 of 3 — Context")).toBeVisible();
   });
 
   it("keeps an edited total context across profile and target changes", async () => {
@@ -1428,10 +1157,11 @@ describe("ModelDeployDialog shared context", () => {
       onSubmit,
     });
 
-    await screen.findByText("Step 1 of 4 — Profile");
+    await screen.findByText("Step 1 of 3 — Model & machine");
+    await waitFor(() => expect(screen.getByRole("radio", { name: "Q4_K_XL" })).toBeChecked());
     await pickTarget(user, /^node/);
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByText("Step 3 of 4 — Settings")).toBeVisible();
+    expect(screen.getByText("Step 2 of 3 — Context")).toBeVisible();
     expect(await readFieldHelpFacts("Total context")).toContain(
       "Up to 889k on node / NVIDIA GeForce RTX 5090",
     );
@@ -1448,7 +1178,7 @@ describe("ModelDeployDialog shared context", () => {
     );
     expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("64k");
 
-    await user.click(screen.getByRole("button", { name: /Profile/ }));
+    await user.click(screen.getByRole("button", { name: /Model & machine/ }));
     await user.click(screen.getByRole("radio", { name: "NVFP4 text" }));
     while (!screen.queryByRole("button", { name: "Deploy" }))
       await user.click(screen.getByRole("button", { name: "Next" }));
@@ -1478,7 +1208,7 @@ describe("ModelDeployDialog shared context", () => {
     });
 
     await screen.findByRole("button", {
-      name: "Runs on filter: this site, 16k per request · 128k total",
+      name: "Runs on filter: this site",
     });
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByRole("textbox", { name: "Context per request" })).toHaveValue("16k");
@@ -1643,41 +1373,6 @@ describe("ModelDeployDialog scenario polling", () => {
     await expectFit("96k");
   });
 
-  it("shows the selected profile's frozen starting total context in the table, and other rows live", async () => {
-    setTiming(productionTiming);
-    vi.useFakeTimers();
-    let reads = 0;
-    const listProfileCompatibility = vi.fn(() => {
-      const later = reads++ > 0;
-      return Promise.resolve(
-        scenarioResponse([
-          targetCompatibility(poolPlacement, {
-            "ninfer-nvfp4": {
-              largestTotalContextTokens: later ? 98304 : 126976,
-              startingTotalContextTokens: later ? 98304 : 126976,
-            },
-            "nvfp4-text": {
-              largestTotalContextTokens: later ? 32768 : 65536,
-              startingTotalContextTokens: later ? 32768 : 65536,
-            },
-          }),
-        ]),
-      );
-    });
-    renderDialog({ initialProfileId: "ninfer-nvfp4", listProfileCompatibility });
-    await advance();
-    expect(totalContextCell("NVFP4 ninfer")).toBe("124k");
-    expect(totalContextCell("NVFP4 text")).toBe("64k");
-
-    await advance(productionTiming.profileCompatibilityRefreshMs);
-
-    expect(listProfileCompatibility).toHaveBeenCalledTimes(2);
-    expect(totalContextCell("NVFP4 ninfer")).toBe("124k");
-    expect(totalContextCell("NVFP4 text")).toBe("32k");
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("124k");
-  });
-
   it("sets the total context to the largest fit chip's live value, which keeps following reads", async () => {
     setTiming(productionTiming);
     useFakeTimersWithWaits();
@@ -1765,15 +1460,16 @@ describe("ModelDeployDialog scenario polling", () => {
     });
     await advance();
     expect(screen.getByRole("button", { name: "Runs on filter: Worker" })).toBeVisible();
-    expect(ninferTotalContext()).toBe("64k");
+    expect(ninferFits()).toBe("16k");
 
+    // Across the site, the most any machine fits.
     fireEvent.click(screen.getByRole("button", { name: "Remove Runs on filter" }));
-    expect(ninferTotalContext()).toBe("96k");
+    expect(ninferFits()).toBe("24k");
 
     await advance(productionTiming.profileCompatibilityRefreshMs);
     expect(listProfileCompatibility).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole("button", { name: /^Runs on filter/ })).not.toBeInTheDocument();
-    expect(ninferTotalContext()).toBe("96k");
+    expect(ninferFits()).toBe("24k");
     expect(screen.getByRole("radio", { name: "NVFP4 ninfer" })).toBeChecked();
   });
 
@@ -1793,14 +1489,14 @@ describe("ModelDeployDialog scenario polling", () => {
     });
     await advance();
     fireEvent.click(screen.getByRole("button", { name: "Remove Runs on filter" }));
-    expect(ninferTotalContext()).toBe("96k");
+    expect(ninferFits()).toBe("24k");
 
     await advance(productionTiming.profileCompatibilityRefreshMs);
     await advance(productionTiming.profileCompatibilityRefreshMs);
     expect(listProfileCompatibility).toHaveBeenCalledTimes(3);
     // The table puts its starting chip back, and the dialog's place follows it.
     expect(screen.getByRole("button", { name: "Runs on filter: Worker" })).toBeVisible();
-    expect(ninferTotalContext()).toBe("64k");
+    expect(ninferFits()).toBe("16k");
   });
 
   it("says the context couldn't be sized when its read fails, and starts the other values from the defaults", async () => {
@@ -1831,24 +1527,36 @@ describe("ModelDeployDialog scenario polling", () => {
   });
 });
 
-const totalContextError = "Total context must be an integer from 512 to 2,147,483,647 tokens.";
-
-// The fixture model with a 256k maximum context, which caps the default total context.
-// NVFP4 ninfer fits up to 96k total context on the pool and 64k on the worker.
+// NVFP4 ninfer fits up to 96k total context, 24k per request, on the pool and 64k, 16k per
+// request, on the worker.
 const twoTargetContexts = [
   targetCompatibility(poolPlacement, {
-    "ninfer-nvfp4": { largestTotalContextTokens: 98304, startingTotalContextTokens: 98304 },
+    "ninfer-nvfp4": {
+      largestContextTokensPerRequest: 24576,
+      largestTotalContextTokens: 98304,
+      startingTotalContextTokens: 98304,
+    },
   }),
   targetCompatibility(workerPlacement, {
-    "ninfer-nvfp4": { largestTotalContextTokens: 65536, startingTotalContextTokens: 65536 },
+    "ninfer-nvfp4": {
+      largestContextTokensPerRequest: 16384,
+      largestTotalContextTokens: 65536,
+      startingTotalContextTokens: 65536,
+    },
   }),
 ];
 
-function ninferTotalContext(): string | null {
-  return totalContextCell("NVFP4 ninfer");
+// The context per request the ninfer profile fits in the Runs on scope, without its parallel
+// requests.
+function ninferFits(): string | null | undefined {
+  return within(screen.getByRole("row", { name: "NVFP4 ninfer" }))
+    .getAllByRole("cell")
+    .at(-1)!
+    .querySelector("span")?.textContent;
 }
 
-function totalContextCell(profile: string): string | null {
+// A profile row's Fits up to cell: the context per request, then its parallel requests.
+function fitsCell(profile: string): string | null {
   return within(screen.getByRole("row", { name: profile }))
     .getAllByRole("cell")
     .at(-1)!.textContent;
@@ -1899,10 +1607,8 @@ function scenarioResponse(
   });
 }
 
-/** Moves from the Profile step to the Target step and picks the target the pattern names. */
+/** Picks the target the pattern names on the Model & machine step. */
 async function pickTarget(user: UserEvent, name: RegExp) {
-  if (!screen.queryByText(/— Target$/))
-    await user.click(screen.getByRole("button", { name: "Next" }));
   await user.click(screen.getByRole("combobox", { name: "Execution target" }));
   await user.click(screen.getByRole("option", { name }));
 }
@@ -1914,18 +1620,8 @@ async function advance(ms = 0) {
   });
 }
 
-// Picks a "Sized for" choice in the Runs on chip's menu, then closes the menu.
-/** The total context's last chip, named by the largest fit it stands for. */
 function largestFitChip(size: string) {
   return screen.getByRole("button", { name: `${size}, largest fit` });
-}
-
-async function chooseSizedFor(user: UserEvent, chip: string, choice: "Custom" | "Defaults") {
-  await user.click(await screen.findByRole("button", { name: chip }));
-  await user.click(
-    within(await screen.findByRole("menu")).getByRole("menuitemradio", { name: choice }),
-  );
-  await user.keyboard("{Escape}");
 }
 
 function renderDialog(props: Partial<ComponentProps<typeof ModelDeployDialog>> = {}) {

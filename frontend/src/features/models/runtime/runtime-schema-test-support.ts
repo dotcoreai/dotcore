@@ -265,6 +265,8 @@ export const runtimeSchemaModel = create(ModelSchema, {
     {
       optionId: "mtp",
       displayName: "MTP",
+      description: "Draft tokens per step.",
+      visibility: ParameterVisibility.ADVANCED,
       kind: { case: "speculativeDecoding", value: { method: SpeculativeDecodingMethod.MTP } },
     },
   ],
@@ -399,6 +401,8 @@ export function modelWithKvCachePrecision(profileDefault?: string) {
     create(ModelOptionSchema, {
       optionId: "kv-cache",
       displayName: "KV cache precision",
+      description: "Lower precision fits more context.",
+      visibility: ParameterVisibility.ADVANCED,
       kind: { case: "kvCachePrecision", value: {} },
     }),
   );
@@ -422,6 +426,40 @@ export function modelWithKvCachePrecision(profileDefault?: string) {
         values: [stringValue("precision", profileDefault)],
       }),
     );
+  return model;
+}
+
+/**
+ * The fixture model whose llama.cpp configuration declares a vision option, off by default, at the
+ * given catalog visibility; the other configurations declare none.
+ */
+export function modelWithVision(visibility = ParameterVisibility.BASIC) {
+  const model = clone(ModelSchema, runtimeSchemaModel);
+  model.options.push(
+    create(ModelOptionSchema, {
+      optionId: "vision",
+      displayName: "Vision",
+      description: "Lets requests include images.",
+      visibility,
+      kind: { case: "vision", value: {} },
+    }),
+  );
+  model.configurations[0].options.push(
+    create(ModelConfigurationOptionSchema, {
+      optionId: "vision",
+      parameters: [
+        {
+          parameterId: "enabled",
+          displayName: "Enabled",
+          parameterType: { case: "boolean", value: {} },
+        },
+      ],
+      defaultValues: {
+        optionId: "vision",
+        values: [{ parameterId: "enabled", value: { case: "boolean", value: false } }],
+      },
+    }),
+  );
   return model;
 }
 

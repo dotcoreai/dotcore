@@ -2,32 +2,11 @@ import { useState } from "react";
 
 import { executionTargetName } from "@/domain/execution-target";
 import { previewMemory } from "@/features/models/deploy/memory/model-deploy-memory";
-import { configurationSpeculativeOptions } from "@/features/models/profiles/model-row";
 import type { ProfileCompatibility } from "@/features/models/profiles/profile-compatibility";
-import {
-  configurationKvCachePrecision,
-  currentKvCachePrecision,
-  kvCachePrecisionOverrides,
-} from "@/features/models/runtime/kv-cache-precision";
-import {
-  approvedEngineReleases,
-  engineReleaseLabel,
-  localDeploymentConfiguration,
-} from "@/features/models/runtime/local-deployment-configuration";
-import {
-  currentSpeculativeChoice,
-  type SpeculativeChoice,
-  speculativeOptionOverrides,
-} from "@/features/models/runtime/speculative-choice";
+import { localDeploymentConfiguration } from "@/features/models/runtime/local-deployment-configuration";
 import type { ApplicationDeployment } from "@/gen/dotcore/application/v1/deployment_pb";
 import { type EngineRelease } from "@/gen/dotcore/catalog/v1/engine_release_pb";
-import type {
-  Model,
-  ModelArtifactBinding,
-  ModelEngineConfiguration,
-  ModelOptionValues,
-  ModelProfile,
-} from "@/gen/dotcore/catalog/v1/model_pb";
+import type { Model, ModelOptionValues, ModelProfile } from "@/gen/dotcore/catalog/v1/model_pb";
 import type { ParameterDefinition, ParameterValues } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import type { ExactPlacement } from "@/gen/dotcore/deployment/v1/placement_pb";
 import type { ModelDeployment } from "@/gen/dotcore/model/v1/deployment_pb";
@@ -49,17 +28,13 @@ import {
  */
 export function useModelDeployMemoryPreview({
   applications,
-  binding,
-  bindingId,
   compatibilityRead,
-  configuration,
   customArgumentTokens,
   declaredValues,
   deployments,
   derivedParameterIds,
   engineParameterInputs,
   engineRelease,
-  engineReleases,
   exposedParameters,
   launchValuesPending,
   model,
@@ -67,12 +42,10 @@ export function useModelDeployMemoryPreview({
   onEstimate,
   onPreviewMemory,
   optionOverrides,
-  pickedKvCachePrecision,
   placement,
   profile,
   profileId,
   selectedExecutionTarget,
-  storedSpeculativeChoice,
   targetsLoading,
   targetsLoadingPresentation,
   values,
@@ -80,10 +53,8 @@ export function useModelDeployMemoryPreview({
   const placementNodeId = placement?.siteNodeId;
   const placementTargetId = placement?.executionTargetId;
 
-  const estimateBindingId = binding ? bindingId : undefined;
   const estimateConfiguration = profile
     ? localDeploymentConfiguration(profile, engineRelease, {
-        bindingId: estimateBindingId ?? "",
         customArgumentTokens,
         declaredValues,
         derivedParameterIds,
@@ -94,15 +65,9 @@ export function useModelDeployMemoryPreview({
   const estimateKey =
     // The selected target decides the estimate of a profile supporting several hardware classes,
     // so the estimate waits for the targets instead of asking twice.
-    profile &&
-    estimateBindingId &&
-    values &&
-    optionOverrides &&
-    !targetsLoading &&
-    !launchValuesPending
+    profile && values && optionOverrides && !targetsLoading && !launchValuesPending
       ? [
           profileId,
-          estimateBindingId,
           exposedParameters
             .map(
               (parameter) =>
@@ -114,7 +79,10 @@ export function useModelDeployMemoryPreview({
             .join("|") ?? "",
           JSON.stringify(customArgumentTokens),
           optionOverrides
-            .map((override) => `${override.optionId}=${String(override.values[0]?.value.value)}`)
+            .map(
+              (override) =>
+                `${override.optionId}=${override.values.map((value) => String(value.value.value)).join(",")}`,
+            )
             .join("|"),
           placementNodeId ?? "",
           placementTargetId ?? "",
@@ -165,44 +133,18 @@ export function useModelDeployMemoryPreview({
         targetsLoading: targetsLoadingPresentation,
       })
     : undefined;
-  // The preview builds its own option overrides from the speculative and KV cache choices, so its
-  // key adds them to the estimate's; one preview runs per distinct configuration and target.
-  const previewSpeculativeOptions = configurationSpeculativeOptions(model, configuration, profile);
-  const previewKvCachePrecision = configurationKvCachePrecision(model, configuration, profile);
-  const previewSpeculativeOverrides = speculativeOptionOverrides(
-    previewSpeculativeOptions,
-    currentSpeculativeChoice(previewSpeculativeOptions, storedSpeculativeChoice),
-  );
-  const previewConfiguration = profile
-    ? localDeploymentConfiguration(profile, engineRelease, {
-        bindingId: estimateBindingId ?? "",
-        customArgumentTokens,
-        declaredValues,
-        derivedParameterIds,
-        inputs: engineParameterInputs,
-        optionOverrides: previewSpeculativeOverrides && [
-          ...previewSpeculativeOverrides,
-          ...kvCachePrecisionOverrides(
-            previewKvCachePrecision,
-            currentKvCachePrecision(previewKvCachePrecision, pickedKvCachePrecision),
-          ),
-        ],
-      })
-    : undefined;
-  const previewKey =
-    estimateKey && placement
-      ? [estimateKey, JSON.stringify(storedSpeculativeChoice), pickedKvCachePrecision].join("\0")
-      : undefined;
+  // One preview runs per distinct configuration and target.
+  const previewKey = estimateKey && placement ? estimateKey : undefined;
   const previewRead = useKeyedRead<MemoryPreviewResult>(
-    previewKey && onPreviewMemory && previewConfiguration && placement
+    previewKey && onPreviewMemory && estimateConfiguration && placement
       ? {
           failureLabel: "Could not preview the deployment",
           key: previewKey,
           load: () =>
-            onPreviewMemory({ configuration: previewConfiguration, placement, profileId }).then(
+            onPreviewMemory({ configuration: estimateConfiguration, placement, profileId }).then(
               (preview) => ({ placement, preview, profileId }),
-              // The explicit command preview reports rejections; this background read only drops
-              // its facts.
+              // The Engine step's command preview reports rejections; this background read only
+              // drops its facts.
               () => ({ placement, profileId }),
             ),
         }
@@ -225,15 +167,7 @@ export function useModelDeployMemoryPreview({
       LocalModelDeploymentAdvisory.UNIFIED_MEMORY_POOL_BELOW_DEVICE_MINIMUM,
     ),
   );
-  // The target's preview names the release it selects; until then, every approved release may run.
-  const selectedEngineRelease =
-    memoryPreviewResult?.profileId === profileId ? memoryPreview?.engineRelease : undefined;
-  const engineReleaseLabels = selectedEngineRelease
-    ? [engineReleaseLabel(selectedEngineRelease)]
-    : approvedEngineReleases(model, profile, engineReleases).map(engineReleaseLabel);
-
   return {
-    engineReleaseLabels,
     estimate,
     hostKvOffloadSharesMemory,
     memoryPreview,
@@ -244,11 +178,8 @@ export function useModelDeployMemoryPreview({
 
 export interface ModelDeployMemoryPreviewOptions {
   applications?: readonly ApplicationDeployment[];
-  binding?: ModelArtifactBinding;
-  bindingId: string;
   /** The dialog's latest compatibility read; each new one refreshes the estimate. */
   compatibilityRead?: ProfileCompatibility;
-  configuration?: ModelEngineConfiguration;
   customArgumentTokens: string[];
   declaredValues?: ParameterValues;
   deployments?: readonly ModelDeployment[];
@@ -256,7 +187,6 @@ export interface ModelDeployMemoryPreviewOptions {
   derivedParameterIds: ReadonlySet<string>;
   engineParameterInputs: ReadonlyMap<string, string>;
   engineRelease?: EngineRelease;
-  engineReleases: readonly EngineRelease[];
   exposedParameters: readonly ParameterDefinition[];
   launchValuesPending: boolean;
   model: Model;
@@ -264,12 +194,10 @@ export interface ModelDeployMemoryPreviewOptions {
   onEstimate?: ResourceEstimateLoader;
   onPreviewMemory?: (values: LocalMemoryPreviewValues) => Promise<LocalDeploymentMemoryPreview>;
   optionOverrides?: ModelOptionValues[];
-  pickedKvCachePrecision: string;
   placement: ExactPlacement | null;
   profile?: ModelProfile;
   profileId: string;
   selectedExecutionTarget?: ConfiguredExecutionTarget;
-  storedSpeculativeChoice: SpeculativeChoice;
   targetsLoading: boolean;
   targetsLoadingPresentation: boolean;
   values?: ParameterValues;
@@ -281,14 +209,12 @@ export interface LocalMemoryPreviewValues extends LocalResourceEstimateValues {
 
 /**
  * The facts of a background deployment preview: whether the selected execution target shares host
- * memory with its accelerators, the non-blocking advisories for the previewed configuration, the
- * sizes a memory advisory compares, and the engine release selected for the target.
+ * memory with its accelerators, the non-blocking advisories for the previewed configuration, and
+ * the sizes a memory advisory compares.
  */
 export interface LocalDeploymentMemoryPreview {
   acceleratorMemoryArchitecture: AcceleratorMemoryArchitecture;
   advisories: readonly LocalModelDeploymentAdvisory[];
-  /** The engine release of the artifact selected for the target, absent when unknown. */
-  engineRelease?: { engineReleaseId: string; version: string };
   /** The selected target's memory-pool total, absent when unknown. */
   memoryPoolTotalBytes?: bigint;
   /** The profile's largest per-device accelerator memory minimum, absent when it declares none. */

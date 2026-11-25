@@ -1,7 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { useMemo } from "react";
 
-import type { DeployStep } from "@/features/deployments/use-deploy-wizard";
 import type { deploymentExposure } from "@/features/models/deployment-exposure";
 import { configurationSpeculativeOptions } from "@/features/models/profiles/model-row";
 import {
@@ -32,6 +31,10 @@ import {
   overriddenSpeculativeChoice,
   type SpeculativeChoice,
 } from "@/features/models/runtime/speculative-choice";
+import {
+  configurationVisionOption,
+  overriddenVisionEnabled,
+} from "@/features/models/runtime/vision-option";
 import { type EngineRelease } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import { type Model, type ModelProfile } from "@/gen/dotcore/catalog/v1/model_pb";
 import type { ParameterValues } from "@/gen/dotcore/catalog/v1/parameter_pb";
@@ -52,15 +55,15 @@ export interface LocalDeploymentValues extends LocalResourceEstimateValues {
 }
 
 /**
- * The context a launch carries, which the Settings step and the Runs on chip's "Sized for" both
- * edit: the scenario the compatibility read sizes, and the operator's inputs over the values the
- * read starts the profile from on the target. The total context follows the context per request
- * and parallel requests until the operator or the scenario sets it.
+ * The context a launch carries, which the Context step edits: the scenario the context's
+ * compatibility read sizes, and the operator's inputs over the values the read starts the profile
+ * from on the target. The total context follows the context per request and parallel requests
+ * until the operator or the scenario sets it.
  */
 export interface LaunchContext {
-  /** The operator's inputs on the Settings step; each absent while its starting value stands. */
+  /** The operator's inputs on the Context step; each absent while its starting value stands. */
   edits: Partial<Record<ScenarioInput, string>>;
-  /** The latest valid chosen values, which "Sized for" shows and the compatibility read sizes. */
+  /** The latest valid chosen values, which the context's compatibility read sizes. */
   scenario?: SizingScenario;
 }
 
@@ -76,16 +79,26 @@ export type ModelDeployStep = (typeof MODEL_DEPLOY_STEPS)[number];
 /** A field the operator can change: a named field or an engine parameter ID. */
 export type ModelDeployField = string;
 
-/** Every step in flow order; the dialog shows a subset depending on Advanced and the targets. */
+/**
+ * Every step in flow order. Capabilities shows only when the profile has a basic option to ask, and
+ * Performance & memory and Engine only in advanced mode.
+ */
 export const MODEL_DEPLOY_STEPS = [
-  "Profile",
-  "Target",
-  "Settings",
-  "Advanced",
-  "Deploy",
-] as const satisfies readonly DeployStep[];
+  "Model & machine",
+  "Capabilities",
+  "Context",
+  "Performance & memory",
+  "Engine",
+  "Review & deploy",
+] as const;
 
-/** Keys a launch rejection among the Settings step's errors. */
+/** The steps that show only in advanced mode. */
+export const MODEL_DEPLOY_ADVANCED_STEPS: readonly ModelDeployStep[] = [
+  "Performance & memory",
+  "Engine",
+];
+
+/** Keys a launch rejection among the Context step's errors. */
 export const launchRejectionField = "launchRejection";
 
 /**
@@ -158,7 +171,7 @@ export function totalFollows(context: LaunchContext): boolean {
 }
 
 /**
- * The context with the operator's inputs settled: "Sized for" takes the shown context per request
+ * The context with the operator's inputs settled: the scenario takes the shown context per request
  * with the parallel requests and total context the operator or the scenario chose, when they are
  * valid. Unchanged, the same context.
  */
@@ -209,7 +222,8 @@ export function scenarioInput(parameterId: string): ScenarioInput | undefined {
 /**
  * The runtime fields a launch starts from on a profile: a configuration the dialog submitted
  * before, read back into its fields, or the profile's defaults without one. Its engine parameters
- * become edits, except the context and parallel requests, which `startContext` reads.
+ * become edits, except the context and parallel requests, which the launch's context holds. The
+ * weights always come from the profile, so a configuration's model artifact is not read back.
  */
 export function configurationStart(
   model: Model,
@@ -217,14 +231,12 @@ export function configurationStart(
   profileId: string,
   configuration: LocalDeploymentConfigurationValues | undefined,
 ): ConfigurationStart {
-  const defaults = profileDefaults(model, profileId);
   if (!configuration)
     return {
-      bindingId: defaults.modelArtifactBindingId,
       customArgumentTokens: [],
       edits: new Map(),
       kvCachePrecision: "",
-      speculativeChoice: defaults.speculativeChoice,
+      speculativeChoice: profileSpeculativeChoice(model, profileId),
     };
 
   const profile = model.profiles.find((candidate) => candidate.profileId === profileId);
@@ -240,8 +252,6 @@ export function configurationStart(
   const { optionOverrides } = configuration;
 
   return {
-    // A launch that leaves the artifact unset takes the profile's.
-    bindingId: configuration.modelArtifactBindingId || defaults.modelArtifactBindingId,
     customArgumentTokens: [...configuration.customArgumentTokens],
     edits: new Map(
       [...inputs].filter(
@@ -259,18 +269,23 @@ export function configurationStart(
       configurationSpeculativeOptions(model, modelConfiguration, profile),
       optionOverrides,
     ),
+    vision: overriddenVisionEnabled(
+      configurationVisionOption(model, modelConfiguration, profile),
+      optionOverrides,
+    ),
   };
 }
 
 /** The runtime field values a launch starts from, in the form the dialog's fields hold them. */
 export interface ConfigurationStart {
-  bindingId: string;
   customArgumentTokens: string[];
   /** Engine parameter inputs over the profile's starting values. */
   edits: Map<string, string>;
   /** The picked KV cache precision; empty for the profile's default. */
   kvCachePrecision: string;
   speculativeChoice: SpeculativeChoice;
+  /** Whether vision is on; absent for the profile's default. */
+  vision?: boolean;
 }
 
 export function exactPlacement(target: ConfiguredExecutionTarget): ExactPlacement {
@@ -280,31 +295,17 @@ export function exactPlacement(target: ConfiguredExecutionTarget): ExactPlacemen
   });
 }
 
-export function moveToken(tokens: string[], index: number, direction: -1 | 1): string[] {
-  const nextIndex = index + direction;
-  if (nextIndex < 0 || nextIndex >= tokens.length) return tokens;
-  const next = [...tokens];
-  [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
-  return next;
-}
-
 /** The backend's rejection reason as a sentence of the form. */
 export function operatorSentence(reason: string): string {
   return `${reason.charAt(0).toUpperCase()}${reason.slice(1)}.`;
 }
 
-function profileDefaults(model: Model, profileId: string) {
+function profileSpeculativeChoice(model: Model, profileId: string): SpeculativeChoice {
   const profile = model.profiles.find((candidate) => candidate.profileId === profileId);
   const configuration = model.configurations.find(
     (candidate) => candidate.configurationId === profile?.configurationId,
   );
-
-  return {
-    modelArtifactBindingId: profile?.defaultModelArtifactBindingId ?? "",
-    speculativeChoice: defaultSpeculativeChoice(
-      configurationSpeculativeOptions(model, configuration, profile),
-    ),
-  };
+  return defaultSpeculativeChoice(configurationSpeculativeOptions(model, configuration, profile));
 }
 
 function tokenInput(value: number | undefined): string | undefined {

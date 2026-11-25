@@ -19,11 +19,12 @@ import { formatBytes, formatCompactCount } from "@/lib/format";
 import type { LocalDeploymentMemoryPreview } from "./use-model-deploy-memory-preview";
 
 /**
- * The deploy dialog's Deploy step: the deployment name and route, notices about the site and the
- * launch's memory, and a summary of the target, profile, context, each changed parameter and the
- * other customized advanced settings.
+ * The deploy dialog's Review & deploy step: the deployment name and route, notices about the site
+ * and the launch's memory, and a summary of the target, profile, weights, context, the basic
+ * capabilities, each changed parameter and the other customized advanced settings.
  */
 export function ModelDeploySummaryStep({
+  capabilities,
   changedParameters,
   customizations,
   disabled,
@@ -42,6 +43,7 @@ export function ModelDeploySummaryStep({
   profileName,
   siteNotice,
   target,
+  weights,
 }: ModelDeploySummaryStepProps) {
   return (
     <DeploymentSummaryStep
@@ -67,10 +69,15 @@ export function ModelDeploySummaryStep({
       onNameBlur={onNameBlur}
       onNameChange={onNameChange}
       nameFields={exposureFields}
+      stepName="Review & deploy"
     >
-      <Detail label="Target" value={target ? executionTargetName(target) : "None"} />
+      <Detail label="Runs on" value={target ? executionTargetName(target) : "None"} />
       <Detail label="Profile" value={profileName} />
+      {weights ? <Detail label="Weights" value={weights} /> : null}
       <Detail label="Context" value={contextSummary(inputs, filledContextPerRequest)} />
+      {capabilities.map(({ label, value }) => (
+        <Detail key={label} label={label} value={value} />
+      ))}
       {changedParameters.map(({ parameter, value }) => (
         <Detail
           key={parameter.parameterId}
@@ -86,6 +93,8 @@ export function ModelDeploySummaryStep({
 }
 
 export interface ModelDeploySummaryStepProps {
+  /** The basic model options and their values, such as vision on or off. */
+  capabilities: readonly { label: string; value: string }[];
   /** The engine parameters outside the context whose values differ from the defaults. */
   changedParameters: readonly ChangedEngineParameter[];
   /** The other advanced settings that differ from the defaults, in a few words each. */
@@ -111,6 +120,8 @@ export interface ModelDeploySummaryStepProps {
   /** A notice about the site's execution targets, when none can deploy. */
   siteNotice?: ReactNode;
   target?: ConfiguredExecutionTarget;
+  /** The profile's weights, such as their quantization. */
+  weights?: string;
 }
 
 /**

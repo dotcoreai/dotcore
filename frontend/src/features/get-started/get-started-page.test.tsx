@@ -73,6 +73,7 @@ import {
   ListModelRecommendationsResponseSchema,
   ModelCompatibilityStatus,
   ModelRecommendationFit,
+  PreviewLocalModelDeploymentResponseSchema,
   RecommendedModelProfileSchema,
   UseCaseModelRecommendationsSchema,
 } from "@/gen/dotcore/model/v1/service_pb";
@@ -436,7 +437,7 @@ describe("GetStartedPage", () => {
       await user.tab();
       expect(total).toHaveValue("256k");
       await user.click(within(dialog).getByRole("button", { name: "Next" }));
-      expect(within(dialog).getByText("Step 3 of 3 — Deploy")).toBeVisible();
+      expect(within(dialog).getByText("Step 3 of 3 — Review & deploy")).toBeVisible();
       expect(summaryTarget(dialog)).toBe("gpu1 / NVIDIA GeForce RTX 5090");
       await user.click(within(dialog).getByRole("button", { name: "Apply" }));
 
@@ -478,9 +479,8 @@ describe("GetStartedPage", () => {
         await user.click(await screen.findByRole("button", { name: "Customize" }));
         const dialog = await screen.findByRole("dialog", { name: "Qwen3.8 27B — Customize model" });
         await user.click(await within(dialog).findByRole("checkbox", { name: "Advanced" }));
-        for (let step = 0; step < 2; step += 1)
-          await user.click(within(dialog).getByRole("button", { name: "Next" }));
-        expect(within(dialog).getByText("Step 3 of 5 — Settings")).toBeVisible();
+        await user.click(within(dialog).getByRole("button", { name: "Next" }));
+        expect(within(dialog).getByText("Step 2 of 5 — Context")).toBeVisible();
         return {
           dialog,
           parallel: within(dialog).getByRole("textbox", { name: "Parallel requests" }),
@@ -499,6 +499,8 @@ describe("GetStartedPage", () => {
       expect(hostContext(first.dialog)).toHaveValue("20 GiB");
       await user.clear(hostContext(first.dialog));
       await user.type(hostContext(first.dialog), "1024");
+      // Past the Engine step, which these values leave alone.
+      await user.click(within(first.dialog).getByRole("button", { name: "Next" }));
       await user.click(within(first.dialog).getByRole("button", { name: "Next" }));
       const firstName = within(first.dialog).getByRole("textbox", { name: "Deployment name" });
       expect(firstName).toHaveValue("Qwen3.8 27B");
@@ -519,6 +521,7 @@ describe("GetStartedPage", () => {
       ).toBeVisible();
       await user.click(within(second.dialog).getByRole("button", { name: "Next" }));
       expect(hostContext(second.dialog)).toHaveValue("1 GiB");
+      await user.click(within(second.dialog).getByRole("button", { name: "Next" }));
       await user.click(within(second.dialog).getByRole("button", { name: "Next" }));
       expect(within(second.dialog).getByRole("textbox", { name: "Deployment name" })).toHaveValue(
         "Team model",
@@ -1426,6 +1429,14 @@ async function renderPage(site: Site) {
     model: {
       createLocalModelDeployment,
       removeModelDeployment,
+      // Customize's Engine step previews the launch command.
+      previewLocalModelDeployment: vi.fn(() =>
+        Promise.resolve(
+          create(PreviewLocalModelDeploymentResponseSchema, {
+            resolvedSnapshot: { desiredLaunchPlan: { arguments: [] } },
+          }),
+        ),
+      ),
       listModelProfileCompatibility: vi.fn((request: ListModelProfileCompatibilityRequest) => {
         compatibilityReads.push(request);
         if (failedEstimates > 0) {
@@ -1887,6 +1898,6 @@ function contextValues(
 
 function summaryTarget(dialog: HTMLElement) {
   const summary = within(dialog).getByRole("region", { name: "Summary" });
-  const target = within(summary).getByText("Target");
+  const target = within(summary).getByText("Runs on");
   return target.nextElementSibling?.textContent;
 }

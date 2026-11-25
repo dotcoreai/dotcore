@@ -1,5 +1,6 @@
 import {
   buildDataTable,
+  type DataTableColumn,
   type DataTableDefinition,
   type DataTableField,
   type DataTableResult,
@@ -15,6 +16,8 @@ import {
 import type { ProfileRow } from "./model-row";
 import type { CatalogHiddenReason } from "./profile-availability";
 import {
+  type LaunchProfileColumnId,
+  launchProfileColumns,
   noneRun,
   profileFields,
   type ProfileMetricColumnId,
@@ -24,8 +27,11 @@ import {
   type RunsOnField,
 } from "./profile-fields";
 
+/** A column a profile table may show after Profile. */
+export type ProfileValueColumnId = ProfileMetricColumnId | LaunchProfileColumnId;
+
 /** A column of a profile table, in display order. */
-export type ProfileColumnId = "profile" | ProfileMetricColumnId;
+export type ProfileColumnId = "profile" | ProfileValueColumnId;
 
 /** A filter field of a profile table: the shared profile fields, then Runs on when known. */
 export type ProfileTableField = ProfilePredicateField | RunsOnField;
@@ -95,20 +101,27 @@ export interface ProfileTableRow extends DataTableRow<ProfileRow, ProfileRow> {
 
 /**
  * The profiles of one model as a flat data table, with the catalog page's profile filters and
- * metric columns, plus the Runs on filter when given. `columns` narrows the metric columns, such as
- * for a narrow panel, and `defaultColumns` picks the ones shown by default, leaving the others to
+ * metric columns, plus the Runs on filter when given. `columns` picks and orders the columns, such as
+ * for a narrow panel or the launch columns, and `defaultColumns` picks the ones shown by default, leaving the others to
  * show on demand. Its view stays local to its host rather than in the URL.
  */
 export function profileTableDefinition(
   runsOn?: ProfileTableRunsOn,
-  columns?: readonly ProfileMetricColumnId[],
-  defaultColumns?: readonly ProfileMetricColumnId[],
+  columns?: readonly ProfileValueColumnId[],
+  defaultColumns?: readonly ProfileValueColumnId[],
 ): ProfileTableDefinition {
-  const metricColumns = profileMetricColumns
-    .filter(({ id }) => !columns || columns.includes(id))
-    .map((column) =>
-      defaultColumns ? { ...column, defaultVisible: defaultColumns.includes(column.id) } : column,
-    );
+  // The launch columns show only in a table that lists them, in the listed order.
+  const offered: readonly DataTableColumn<ProfileRow, ProfileValueColumnId>[] = [
+    ...profileMetricColumns,
+    ...launchProfileColumns,
+  ];
+  const metricColumns = (
+    columns
+      ? columns.flatMap((columnId) => offered.filter(({ id }) => id === columnId))
+      : profileMetricColumns
+  ).map((column) =>
+    defaultColumns ? { ...column, defaultVisible: defaultColumns.includes(column.id) } : column,
+  );
   return {
     columns: [
       {

@@ -13,7 +13,7 @@ describe("useDeployWizard", () => {
     document.body.replaceChildren();
   });
 
-  it("shows steps with fields, Advanced in advanced mode and Target when several targets apply", () => {
+  it("shows steps with fields, advanced steps in advanced mode and basic steps by the caller's rule", () => {
     const { result, rerender } = renderWizard({ hasFields: (step) => step !== "Settings" });
     expect(result.current.steps).toEqual(["Profile", "Deploy"]);
 
@@ -41,6 +41,18 @@ describe("useDeployWizard", () => {
     act(() => result.current.goTo("Target"));
     act(() => result.current.toggleAdvanced(false));
     expect(result.current.step).toBe("Settings");
+  });
+
+  it("tells the caller when Advanced turns off, and only then", () => {
+    const onAdvancedOff = vi.fn();
+    const { result } = renderWizard({ onAdvancedOff });
+
+    act(() => result.current.toggleAdvanced(true));
+    expect(onAdvancedOff).not.toHaveBeenCalled();
+
+    act(() => result.current.toggleAdvanced(false));
+    expect(onAdvancedOff).toHaveBeenCalledTimes(1);
+    expect(result.current.steps).toEqual(["Profile", "Settings", "Deploy"]);
   });
 
   it("keeps the Target step decided when leaving the first step until the operator returns", () => {
@@ -117,14 +129,23 @@ describe("useDeployWizard", () => {
   });
 });
 
-function renderWizard(overrides: Partial<DeployWizardOptions<Step>> = {}) {
+// The wizard as a dialog with a target step drives it: Target shows in basic mode only when
+// several targets apply.
+type WizardOverrides = Partial<DeployWizardOptions<Step>> & { severalTargets?: boolean };
+
+function renderWizard(overrides: WizardOverrides = {}) {
   return renderHook((props: DeployWizardOptions<Step>) => useDeployWizard(props), {
     initialProps: options(overrides),
   });
 }
 
-function options(overrides: Partial<DeployWizardOptions<Step>> = {}): DeployWizardOptions<Step> {
+function options({
+  severalTargets = false,
+  ...overrides
+}: WizardOverrides = {}): DeployWizardOptions<Step> {
   return {
+    advancedSteps: ["Advanced"],
+    basicShows: (step) => step !== "Target" || severalTargets,
     errorsFor: () => new Map(),
     fieldControls: () => new Map(),
     hasFields: () => true,
@@ -132,7 +153,6 @@ function options(overrides: Partial<DeployWizardOptions<Step>> = {}): DeployWiza
     open: true,
     order: ORDER,
     setFieldErrors: vi.fn(),
-    severalTargets: false,
     ...overrides,
   };
 }

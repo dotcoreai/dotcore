@@ -22,6 +22,7 @@ const testTiming: Timing = Object.freeze({
   sidebarPeekEnterMs: 0,
   sidebarPeekLeaveMs: 0,
   scenarioInputMs: 0,
+  commandPreviewInputMs: 0,
   tooltipOpenMs: 0,
   copyFeedbackMs: 0,
   pollRetryMs: Object.freeze([10]),

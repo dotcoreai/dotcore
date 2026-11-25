@@ -741,10 +741,13 @@ describe("ModelCatalogPage Runs on memory basis", () => {
     await user.click(within(profiles).getByRole("button", { name: "Reset" }));
     expect(await within(profiles).findByRole("button", { name: totalChip })).toBeVisible();
 
-    // The wizard starts on the panel's Total.
+    // The wizard starts on the panel's machine and Total.
     await user.click(screen.getByRole("button", { name: "Deploy" }));
     const dialog = await screen.findByRole("dialog", { name: /Deploy model/ });
-    expect(await within(dialog).findByRole("button", { name: totalChip })).toBeVisible();
+    expect(
+      await within(dialog).findByRole("button", { name: "Runs on filter: gpu-box" }),
+    ).toBeVisible();
+    expect(within(dialog).getByRole("radio", { name: "Total" })).toBeChecked();
     expect(currentLocation(router)).toBe(search);
   });
 });
@@ -797,14 +800,12 @@ describe("ModelCatalogPage model panel Runs on", () => {
     );
     expect(panelFooter()).toBe("0 of 5 profiles · 2 hidden");
 
-    // Deploy starts from the panel's Sized for, not the catalog's.
+    // Deploy starts from the panel's machine.
     await user.click(screen.getByRole("button", { name: "Deploy" }));
     const dialog = await screen.findByRole("dialog", { name: /Deploy model/ });
     act(() => held.finish());
     expect(
-      await within(dialog).findByRole("button", {
-        name: "Runs on filter: gpu-box, 32k per request",
-      }),
+      await within(dialog).findByRole("button", { name: "Runs on filter: gpu-box" }),
     ).toBeVisible();
   });
 

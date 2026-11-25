@@ -11,6 +11,8 @@ import { type SpeculativeChoice, speculativeEnabledMinimum } from "./speculative
 interface SpeculativeDecodingFieldProps {
   choice: SpeculativeChoice;
   countRef: RefObject<HTMLInputElement | null>;
+  /** What speculative decoding does and costs, from the catalog. */
+  description?: string;
   disabled: boolean;
   error?: string;
   onCountBlur: () => void;
@@ -27,6 +29,7 @@ interface SpeculativeDecodingFieldProps {
 export function SpeculativeDecodingField({
   choice,
   countRef,
+  description,
   disabled,
   error,
   onCountBlur,
@@ -52,7 +55,7 @@ export function SpeculativeDecodingField({
           </p>
         ) : undefined
       }
-      help={option ? "Draft tokens per step." : undefined}
+      help={description || undefined}
       label="Speculative decoding"
     >
       {(control) => (

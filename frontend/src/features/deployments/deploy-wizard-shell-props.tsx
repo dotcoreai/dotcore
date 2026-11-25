@@ -1,6 +1,6 @@
 import { AdvancedToggle } from "./advanced-toggle";
 import type { DeploymentWizardShellProps } from "./deployment-wizard-shell";
-import type { DeployStep, DeployWizard } from "./use-deploy-wizard";
+import type { DeployWizard } from "./use-deploy-wizard";
 
 /** The last step's action, idle and while the dialog's opener works on it. */
 export interface DeploySubmitLabels {
@@ -12,7 +12,7 @@ export interface DeploySubmitLabels {
  * The shell props a deploy wizard drives: its steps and their navigation, the Advanced toggle, the
  * announcement and the primary action, which reads Next until the last step.
  */
-export function deployWizardShellProps<Step extends DeployStep>(
+export function deployWizardShellProps<Step extends string>(
   wizard: DeployWizard<Step>,
   {
     labels = deploySubmitLabels,
