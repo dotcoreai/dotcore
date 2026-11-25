@@ -199,7 +199,7 @@ class StartWrapperTest(unittest.TestCase):
         tokenizer = self.data / "tokenizer" / "tokenizer"
         self.assertEqual(config, {
             "exe": "component:strata-inkling",
-            "args": ["--native", str(model / "SQ-10.strata"), "--max-context", "4096", "--kv", "fp16"],
+            "args": ["--native", str(model / "SQ-10.strata"), "--max-context", "4096", "--kv", "fp16", "--kv-offload", "off"],
             "cwd": str(self.terminal),
             "tokenizer": str(tokenizer),
             "model_name": "m",
@@ -207,6 +207,7 @@ class StartWrapperTest(unittest.TestCase):
             "log": str(self.data / "strata-engine.log"),
             "parallel": 2,
             "drafting": "dspark",
+            "env": {"STRATA_INK_OOM_RETRY": "0"},
         })
         self.assertEqual(
             (self.data / "tokenizer-runs").read_text(),

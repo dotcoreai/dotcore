@@ -1,24 +1,25 @@
-# Strata 0.2.19 (engine 0.1.65), CUDA 13. A stage per platform, ending in `FROM strata-${TARGETARCH}`:
-# BuildKit builds only the stages of the platform it targets. Update both platforms together, with
-# the wrapper check in AGENTS.md.
+# Strata 0.2.21 (engine 0.1.67), CUDA 13. Control is 0.1.67 on amd64 (the image's) and 0.1.68 on
+# arm64, whose signed feed lists no 0.1.67 package; the wrapper uses nothing 0.1.68 changed. A
+# stage per platform, ending in `FROM strata-${TARGETARCH}`: BuildKit builds only the stages of the
+# platform it targets. Update both platforms together, with the wrapper check in AGENTS.md.
 
-# linux/amd64: upstream's published image (tag 0.2.19-cuda13), pinned by digest.
-FROM ghcr.io/niko1221/strata@sha256:5cf423c2ad9d2f626da250ade74cb9b48087279bff636fca3c7c08eb4f786d26 AS strata-amd64
+# linux/amd64: upstream's published image (tag 0.2.21-cuda13), pinned by digest.
+FROM ghcr.io/niko1221/strata@sha256:992c38a2c6dd42d5cf23cabf2f4ba7702abef0cc1b82cfeb17239da822e081b4 AS strata-amd64
 
 # linux/arm64: upstream's release packages, at the hashes its signed linux-aarch64 feed lists, laid
 # out as upstream's image does. The engine needs glibc 2.38 or newer.
 FROM ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852 AS ubuntu
 
 FROM ubuntu AS fetch-arm64
-ADD --checksum=sha256:177269e2164221d43314bcb2df45aa33dc23b0902f544e2cc0af0775cf060de3 \
-    https://github.com/Niko1221/Strata/releases/download/v0.2.19/strata-control-0.1.65-linux-aarch64.tar.gz /fetch/control.tar.gz
-ADD --checksum=sha256:bdc67b8850c85bff240dab24faeddd2877275a43de5b47cd07e53fb41bd9bc27 \
-    https://github.com/Niko1221/Strata/releases/download/v0.2.19/strata-engine-0.1.65-linux-aarch64-cuda-cuda13.tar.gz /fetch/engine.tar.gz
-ADD --checksum=sha256:2a89c1ded0ceefccff7cf2130fd35597869d0113d72cb3fd27bc2a9006fa03cc \
-    https://github.com/Niko1221/Strata/releases/download/v0.2.19/strata-inkling-0.1.65-linux-aarch64-cuda-cuda13.tar.gz /fetch/inkling.tar.gz
+ADD --checksum=sha256:d9c0cb98798ed3bb14c1bb02e5e4d7235cbc444bf977e9410d32c9f442409958 \
+    https://github.com/Niko1221/Strata/releases/download/v0.2.21/strata-control-0.1.68-linux-aarch64.tar.gz /fetch/control.tar.gz
+ADD --checksum=sha256:1fc5967920102934190678f11817b91121f82c41c4d96312353c04ccc5e8531a \
+    https://github.com/Niko1221/Strata/releases/download/v0.2.21/strata-engine-0.1.67-linux-aarch64-cuda-cuda13.tar.gz /fetch/engine.tar.gz
+ADD --checksum=sha256:58ec7bf4af0db8a3026f54be0dca3aa6be4e22bae607f773568af7493741f368 \
+    https://github.com/Niko1221/Strata/releases/download/v0.2.21/strata-inkling-0.1.67-linux-aarch64-cuda-cuda13.tar.gz /fetch/inkling.tar.gz
 RUN set -e; \
-    engine=/out/components/engine/0.1.65-linux-aarch64-cuda-cuda13; \
-    inkling=/out/components/shapes/inkling2/engine/0.1.65-linux-aarch64-cuda-cuda13; \
+    engine=/out/components/engine/0.1.67-linux-aarch64-cuda-cuda13; \
+    inkling=/out/components/shapes/inkling2/engine/0.1.67-linux-aarch64-cuda-cuda13; \
     mkdir -p /out/terminal "$engine" "$inkling"; \
     tar -xzf /fetch/control.tar.gz -C /out/terminal --no-same-owner; \
     tar -xzf /fetch/engine.tar.gz -C "$engine" --no-same-owner; \

@@ -188,9 +188,10 @@ def inkling_engine_args(args: argparse.Namespace, pack: Path) -> list[str]:
     """Returns the engine arguments of the Inkling path, which reads the pack in place.
 
     The server adds the parallel requests and the pack's drafter itself. The cache stays FP16, which
-    the engine's automatic choice also picks below 16 parallel requests on a large GPU.
+    the engine's automatic choice also picks below 16 parallel requests on a large GPU, and stays in
+    GPU memory: Dotcore sizes GPU memory only and relies on the engine lowering its context at start.
     """
-    return ["--native", str(pack), "--max-context", str(args.context), "--kv", "fp16"]
+    return ["--native", str(pack), "--max-context", str(args.context), "--kv", "fp16", "--kv-offload", "off"]
 
 
 def ready_pack_files(args: argparse.Namespace) -> tuple[Path, list[str]]:
@@ -327,6 +328,9 @@ def write_config(args: argparse.Namespace, engine_args: list[str], tokenizer: Pa
     # The server may otherwise pick another drafter by the model's name.
     if inkling:
         config["drafting"] = "dspark"
+        # A failed start allocation would otherwise be retried with a smaller prefill chunk, hiding an
+        # undersized estimate behind slower prefill.
+        config["env"] = {"STRATA_INK_OOM_RETRY": "0"}
     elif args.draft_layer is not None:
         config["drafting"] = "mtp"
 
