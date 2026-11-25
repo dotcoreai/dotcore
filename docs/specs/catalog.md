@@ -117,6 +117,8 @@ option effects itself.
 - Declares a maximum context, a property of its weights. A model-local engine configuration may
   declare a lower one when its engine can't serve the model's. Resolution enforces the lower of the
   two at deploy time. Engine limits stay separate, as engine parameter bounds.
+- Declares its options, each with a description and the same basic, advanced or hidden visibility
+  as engine parameters.
 - May carry an intelligence score and the upstream licence with a link to its terms. Both are display
   metadata, outside the model's release identity and deployment snapshots. The licence is not a
   compliance assessment.

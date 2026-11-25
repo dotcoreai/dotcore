@@ -76,6 +76,8 @@ flowchart LR
   box shows the sized value. Memory sliders end at the largest fit the server answers, and the
   largest fits of total context and context per request follow the dialog's values the same way;
   clicking one sets that value.
+- Place every catalog-declared input by its catalog visibility, never showing a hidden one.
+  Advanced inputs stay off the basic path.
 - Ask for context per request and parallel requests before total context. Total context starts at
   the server's starting value and follows the other two, capped at its largest fit, until you edit
   it.
