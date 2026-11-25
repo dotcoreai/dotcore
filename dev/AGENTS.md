@@ -18,9 +18,10 @@ cover what agents get wrong.
   flake sees only files version control knows about.
 - Each checkout, jj workspace and Git worktree gets its own `.env.local`, ports, site and stack. Run
   `direnv allow` in every new one.
-- Run `just bootstrap` once per workspace before any gate: until then frontend recipes and
-  `just check` fail with `prettier: command not found` or `eslint: command not found`, and
-  `just dev::up` refuses to start.
+- Recipes that need the frontend dependencies or the development site bootstrap them on first use,
+  and again when `package-lock.json` changes. `just bootstrap` does it up front. A lock change
+  under a running stack stops with a request to run `just dev::down` first, since the reinstall
+  replaces the folder the stack reads.
 - `DOTCORE_BACKEND_RUN_MODE` picks how the stack builds the backend: `dev` (default),
   `dev-release` or `nix`. Before deploying a model whose weights aren't cached, set every backend
   that will download them, local or remote, to `dev-release` in its `.env.local`, then reload

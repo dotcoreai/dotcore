@@ -8,6 +8,12 @@ help:
 bootstrap:
   cd .. && just dev::site-init simulated simulated
 
+# Create the development site when `bootstrap-check` fails; recipes that need it run it first.
+[private]
+[no-exit-message]
+ensure-bootstrap:
+  @../dev/ensure-bootstrap.sh backend
+
 # Run rust formatting
 format:
   cargo fmt --all

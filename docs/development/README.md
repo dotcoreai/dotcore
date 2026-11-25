@@ -15,13 +15,11 @@ You need [Nix](https://nixos.org/download/), [direnv](https://direnv.net/) and D
 
 ```sh
 direnv allow
-just bootstrap
 just dev::up
 ```
 
 - direnv loads the development shell and this checkout's settings, and prints the console's address.
-- `just bootstrap` installs the frontend dependencies and sets up a development site with simulated models and apps. Run it once per checkout. `just dev::up` won't start before it.
-- `just dev::up` starts the backend, the frontend and the web server in front of them.
+- `just dev::up` starts the backend, the frontend and the web server in front of them. On first use it installs the frontend dependencies and sets up a development site with simulated models and apps; `just bootstrap` does that up front.
 
 ## Stack and logs
 

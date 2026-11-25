@@ -510,8 +510,8 @@ async function fixture(t) {
   }
   for (const module of ["frontend", "backend", "proto", "apps", "engines", "installer", "ci"]) {
     await mkdir(path.join(root, module));
-    // The manager stack refuses to start unbootstrapped, so the stubs report a bootstrapped workspace.
-    await writeFile(path.join(root, module, "Justfile"), "clean:\n  @true\n\nbootstrap-check:\n  @true\n");
+    // The manager stack bootstraps before it starts, so the stubs have nothing to bootstrap.
+    await writeFile(path.join(root, module, "Justfile"), "clean:\n  @true\n\nensure-bootstrap:\n  @true\n");
   }
   const site = path.join(root, ".dotcore", "site");
   const workerDir = path.join(root, ".dotcore", "two-node-worker");

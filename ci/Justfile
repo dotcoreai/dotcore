@@ -18,7 +18,7 @@ lock-verify:
 check-commit-prefixes range="origin/main..HEAD":
   cd .. && ci/check-commit-prefixes.sh "{{range}}"
 
-# Run every area's CI validations, without changing files; needs `just frontend::bootstrap` first.
+# Run every area's CI validations, without changing files.
 check:
   cd .. && just ci::lint
   cd .. && just ci::lock-verify

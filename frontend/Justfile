@@ -12,6 +12,12 @@ bootstrap:
 bootstrap-check:
   @[ "${DOTCORE_FRONTEND_RUN_MODE:-dev}" = nix ] || cmp -s package-lock.json node_modules/.dotcore-lock || { echo 'frontend is not bootstrapped (dependencies missing or outdated); run `just frontend::bootstrap`' >&2; exit 1; }
 
+# Install the frontend dependencies when `bootstrap-check` fails; recipes that need them run it first.
+[private]
+[no-exit-message]
+ensure-bootstrap:
+  @../dev/ensure-bootstrap.sh frontend
+
 # Start the Vite development server
 run-dev:
   #!/usr/bin/env bash
@@ -71,7 +77,7 @@ run:
   esac
 
 # Build the frontend application.
-build:
+build: ensure-bootstrap
   npm run build
 
 # Remove installed dependencies and generated frontend output.
@@ -79,15 +85,15 @@ clean:
   rm -rf -- node_modules dist coverage public/config.js
 
 # Preview the production frontend build.
-preview:
+preview: ensure-bootstrap
   npm run preview
 
 # Type-check the frontend without emitting files.
-typecheck:
+typecheck: ensure-bootstrap
   npm run typecheck
 
 # Run the frontend test suite once; extra arguments go to Vitest.
-test *args:
+test *args: ensure-bootstrap
   node tools/eslint-accessibility.test.mjs
   npm run test -- {{args}}
   node tools/runtime-config.test.mjs
@@ -107,27 +113,27 @@ test-nix:
   fi
 
 # Watch the frontend test suite.
-test-watch:
+test-watch: ensure-bootstrap
   npm run test:watch
 
 # Run the frontend test suite with coverage.
-test-coverage:
+test-coverage: ensure-bootstrap
   npm run test:coverage
 
 # Run frontend lint checks.
-lint:
+lint: ensure-bootstrap
   npm run lint
 
 # Apply frontend lint fixes.
-lint-fix:
+lint-fix: ensure-bootstrap
   npm run lint:fix
 
 # Format frontend files.
-format:
+format: ensure-bootstrap
   npm run format
 
 # Check frontend formatting without changing files.
-format-check:
+format-check: ensure-bootstrap
   npm run format:check
 
 # Run all frontend validation operations (format-check, lint, test, build, nix-eval-check).

@@ -56,8 +56,8 @@ frontend/src/
 
 ## Running and checks
 
-- Run `just frontend::bootstrap` once per workspace and after `package-lock.json` changes; the other
-  recipes fail until then.
+- Recipes install the locked dependencies on first use and after `package-lock.json` changes;
+  `just frontend::bootstrap` does it up front.
 - `just frontend::check` runs the gate (format, lint, tests, build). Run it before completing
   frontend work.
 - Run `just frontend::format` or `just frontend::lint-fix` only when their changes will be
