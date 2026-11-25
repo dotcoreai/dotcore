@@ -1,9 +1,9 @@
 # Strata's CUDA 13 build plus Dotcore's keyless start wrapper, built by
 # `engines/strata/docker-image.nix`, loaded from its stored image or built locally on the hosting
 # node.
-engineReleaseId: "strata-0-2-19"
+engineReleaseId: "strata-0-2-21"
 engineKind: "ENGINE_KIND_STRATA"
-version: "0.2.19"
+version: "0.2.21"
 parameterSchema:
   schemaId: "strata-v2"
   parameterGroups:
@@ -38,8 +38,8 @@ parameterSchema:
       displayName: "Parallel requests"
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
       description: "Requests generated at once; more wait for a free one. Each holds its own context per request, so raising it multiplies the memory used; raise it only when several callers use the model together."
-      # 1 to 8, as Strata's own launcher allows (`check_parallel`, `terminal/strata_cli/launch/settings.py`) and
-      # Dotcore's wrapper enforces (`MAX_PARALLEL`, `engines/strata/start.py`).
+      # 1 to 8, as Dotcore's wrapper enforces (`MAX_PARALLEL`, `engines/strata/start.py`); Strata's own
+      # launcher allows more (`check_parallel`, `terminal/strata_cli/launch/settings.py`).
       unsignedInteger:
         minimum: "1"
         maximum: "8"

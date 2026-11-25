@@ -224,7 +224,7 @@ configurations:
     # The Inkling engine places its experts itself and takes no expert budgets.
     excludedEngineParameterIds: ["expert-vram-mib", "expert-host-memory-mib"]
     engineArtifacts:
-      - engineReleaseId: "strata-0-2-19"
+      - engineReleaseId: "strata-0-2-21"
         engineArtifactId: "linux-amd64-cuda"
     artifactBindings:
       - bindingId: "sq-10"
@@ -302,7 +302,7 @@ configurations:
     # The Inkling engine places its experts itself and takes no expert budgets.
     excludedEngineParameterIds: ["expert-vram-mib", "expert-host-memory-mib"]
     engineArtifacts:
-      - engineReleaseId: "strata-0-2-19"
+      - engineReleaseId: "strata-0-2-21"
         engineArtifactId: "linux-arm64-cuda"
     artifactBindings:
       - bindingId: "sq-10"
