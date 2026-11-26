@@ -6,7 +6,7 @@ useCases:
   - useCase: "USE_CASE_CODING"
     entries:
       - modelId: "qwen3-8-27b"
-        profileId: "nvfp4-text"
+        profileId: "nvfp4"
         contextTokensPerRequest: 262144
       - modelId: "qwen3-6-35b-a3b"
         profileId: "nvfp4"
@@ -17,10 +17,10 @@ useCases:
   - useCase: "USE_CASE_CHAT_ASSISTANT"
     entries:
       - modelId: "qwen3-8-27b"
-        profileId: "nvfp4-multimodal"
+        profileId: "nvfp4"
         contextTokensPerRequest: 32768
       - modelId: "ornith-1-5-35b-a3b"
-        profileId: "nvfp4-multimodal"
+        profileId: "nvfp4"
         contextTokensPerRequest: 32768
       - modelId: "gemma-4-12b-it-qat"
         profileId: "gpu"

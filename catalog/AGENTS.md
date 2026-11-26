@@ -13,6 +13,9 @@ skill to bump an engine. [`engines/AGENTS.md`](../engines/AGENTS.md) says where 
 - A model or an app declares its upstream `license`: an SPDX id, and a `termsUrl` to the terms.
   Use `custom` or `LicenseRef-<name>` for non-standard terms; they require the URL. Take it from the
   upstream repository at the pinned version. It is display metadata only.
+- Model options (vision, speculative decoding) are what an operator turns on when deploying. Don't
+  add a profile that only turns an option on, such as a "with vision" profile: declare the option
+  as basic, and size the configuration for every value.
 
 ## Parameters
 

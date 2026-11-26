@@ -639,24 +639,6 @@ profiles:
         values:
           - parameterId: "enabled"
             boolean: false
-  - profileId: "nvfp4-multimodal"
-    displayName: "Unsloth NVFP4 with vision"
-    description: "Runs Qwen3.6 35B A3B through vLLM for text and image inference."
-    configurationId: "vllm-nvidia-cuda"
-    defaultModelArtifactBindingId: "nvfp4"
-    engineParameterDefaults:
-      values:
-        - parameterId: "maximum-batched-tokens"
-          unsignedInteger: "4096"
-        - parameterId: "maximum-cudagraph-capture-size"
-          unsignedInteger: "32"
-        - parameterId: "kv-offloading-size-gib"
-          unsignedInteger: "0"
-    optionDefaults:
-      - optionId: "vision"
-        values:
-          - parameterId: "enabled"
-            boolean: true
   - profileId: "strata-q4-xl"
     displayName: "Unsloth Q4_K_XL on Strata"
     description: "Runs the balanced Q4 weights through Strata on an RTX 5090 or RTX PRO 6000, keeping the experts that don't fit on the GPU in host memory."

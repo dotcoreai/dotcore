@@ -3,9 +3,8 @@
 # experts on layers 20-23, BF16 attention and routers. It is a 26.4B-total, ~3.5B-active mixture of experts
 # whose looped core runs layers 6-17 three times per token, each pass with its own KV cache.
 # Only the Inkling vLLM release loads its looped architecture; the stable vLLM release does not.
-# Text only for now: the vision tower ships inside the snapshot but is not declared until its image limits
-# are established. vLLM loads the DSpark drafter (mtp.safetensors) from the model snapshot while the `dspark`
-# option is on.
+# The vision tower ships inside the snapshot; vLLM serves images while the `vision` option is on. vLLM loads
+# the DSpark drafter (mtp.safetensors) from the model snapshot while the `dspark` option is on.
 # Sampling is not pinned: the vendor's temperature 1.0 is a recommendation, set per request.
 modelId: "inkling-2-mini"
 displayName: "Inkling 2 Mini"
@@ -439,26 +438,6 @@ profiles:
           unsignedInteger: "32"
         - parameterId: "kv-offloading-size-gib"
           unsignedInteger: "0"
-  - profileId: "nvfp4-multimodal"
-    displayName: "Inkling 2 Mini NVFP4 with vision"
-    description: "Runs Inkling 2 Mini through vLLM for text and image inference."
-    configurationId: "vllm-nvidia-cuda-nvfp4"
-    defaultModelArtifactBindingId: "nvfp4"
-    engineParameterDefaults:
-      values:
-        - parameterId: "maximum-batched-tokens"
-          unsignedInteger: "2048"
-        - parameterId: "parallel-requests"
-          unsignedInteger: "2"
-        - parameterId: "maximum-cudagraph-capture-size"
-          unsignedInteger: "32"
-        - parameterId: "kv-offloading-size-gib"
-          unsignedInteger: "0"
-    optionDefaults:
-      - optionId: "vision"
-        values:
-          - parameterId: "enabled"
-            boolean: true
   - profileId: "strata-sq-10"
     displayName: "SQ-10 on Strata"
     description: "Runs Inkling 2 Mini's SQ-10 pack through Strata on an RTX 5090 or RTX PRO 6000 for text inference."

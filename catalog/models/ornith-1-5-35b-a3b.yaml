@@ -667,24 +667,6 @@ profiles:
         values:
           - parameterId: "enabled"
             boolean: false
-  - profileId: "fp8-multimodal"
-    displayName: "Ornith FP8 with vision"
-    description: "Runs Ornith 1.5 35B A3B through vLLM for text and image inference on large NVIDIA GPUs."
-    configurationId: "vllm-nvidia-cuda-fp8"
-    defaultModelArtifactBindingId: "fp8"
-    engineParameterDefaults:
-      values:
-        - parameterId: "maximum-batched-tokens"
-          unsignedInteger: "4096"
-        - parameterId: "maximum-cudagraph-capture-size"
-          unsignedInteger: "32"
-        - parameterId: "kv-offloading-size-gib"
-          unsignedInteger: "0"
-    optionDefaults:
-      - optionId: "vision"
-        values:
-          - parameterId: "enabled"
-            boolean: true
   - profileId: "nvfp4"
     displayName: "Ornith NVFP4"
     description: "Runs Ornith 1.5 35B A3B through vLLM for Linux NVIDIA inference."
@@ -703,24 +685,6 @@ profiles:
         values:
           - parameterId: "enabled"
             boolean: false
-  - profileId: "nvfp4-multimodal"
-    displayName: "Ornith NVFP4 with vision"
-    description: "Runs Ornith 1.5 35B A3B through vLLM for text and image inference."
-    configurationId: "vllm-nvidia-cuda-nvfp4"
-    defaultModelArtifactBindingId: "nvfp4"
-    engineParameterDefaults:
-      values:
-        - parameterId: "maximum-batched-tokens"
-          unsignedInteger: "4096"
-        - parameterId: "maximum-cudagraph-capture-size"
-          unsignedInteger: "32"
-        - parameterId: "kv-offloading-size-gib"
-          unsignedInteger: "0"
-    optionDefaults:
-      - optionId: "vision"
-        values:
-          - parameterId: "enabled"
-            boolean: true
   - profileId: "q4-k-m"
     displayName: "Ornith Q4_K_M"
     description: "Uses the balanced Q4 weights through llama.cpp."
