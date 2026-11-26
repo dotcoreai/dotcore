@@ -1,5 +1,6 @@
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 
+import { CountStepper } from "@/components/ui/count-stepper";
 import {
   DropdownMenuGroup,
   DropdownMenuLabel,
@@ -7,7 +8,6 @@ import {
   DropdownMenuRadioItem,
 } from "@/components/ui/dropdown-menu";
 import { FieldError } from "@/components/ui/field-error";
-import { Input } from "@/components/ui/input";
 import type { ContextSliderEnds } from "@/features/models/runtime/context-slider-ends";
 import { SizeInput } from "@/features/models/runtime/size-input";
 import { useDirtyFields } from "@/hooks/use-dirty-fields";
@@ -86,10 +86,14 @@ export function CatalogSizedFor({
       onChange(typed);
     }
   };
-  const change = (input: ScenarioInput, value: string) => {
+  // A discrete change, from a stepper button or arrow key, applies at once so closing the menu
+  // right after can't drop it; typing waits for a pause or for the input to lose focus.
+  const change = (input: ScenarioInput, value: string, settled?: boolean) => {
     dirtyFields.markDirty(input);
     const next = { ...inputs, [input]: value };
     setInputs(next);
+    const nextTyped = scenarioFromInputs(next);
+    if (settled && nextTyped && !sameSizingScenario(nextTyped, scenario)) onChange(nextTyped);
     // A shown error follows the inputs, since the context per request is bounded by the total.
     if (errors.parallel || errors.perRequest || errors.total) setErrors(shownErrors(next, errors));
   };
@@ -143,16 +147,16 @@ export function CatalogSizedFor({
           />
           {error("perRequest")}
           {label("parallel", "Parallel requests")}
-          <Input
+          <CountStepper
             aria-describedby={errorId("parallel")}
-            aria-invalid={Boolean(errors.parallel) || undefined}
-            className="w-28"
+            aria-invalid={errors.parallel ? "true" : undefined}
             id={fieldId("parallel")}
-            inputMode="numeric"
+            label="Parallel requests"
+            minimum={1}
             onBlur={() => blur("parallel")}
-            onChange={(event) => change("parallel", event.target.value)}
+            onChange={(value, step) => change("parallel", value, step?.settled)}
             onKeyDown={keepKeys}
-            placeholder="Profile default"
+            placeholder="Auto"
             value={inputs.parallel}
           />
           {error("parallel")}

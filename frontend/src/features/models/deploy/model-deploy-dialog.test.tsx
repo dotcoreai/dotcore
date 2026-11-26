@@ -94,7 +94,7 @@ describe("ModelDeployDialog", () => {
       renderDialog();
 
       await screen.findByText("Step 1 of 3 — Model & machine");
-      expect(stepLabels()).toEqual(["1. Model & machine", "2. Context", "3. Review & deploy"]);
+      expect(stepLabels()).toEqual(["1. Model", "2. Context", "3. Review"]);
       expect(screen.getByRole("checkbox", { name: "Advanced" })).not.toBeChecked();
       expect(
         within(screen.getByTestId("deployment-dialog-footer-start")).getByRole("checkbox", {
@@ -113,9 +113,9 @@ describe("ModelDeployDialog", () => {
       renderDialog({ listConfiguredExecutionTargets: targetsLoader(poolTarget(), workerTarget()) });
 
       await screen.findByText("Step 1 of 3 — Model & machine");
-      expect(stepLabels()).toEqual(["1. Model & machine", "2. Context", "3. Review & deploy"]);
+      expect(stepLabels()).toEqual(["1. Model", "2. Context", "3. Review"]);
       await waitFor(() =>
-        expect(screen.getByRole("combobox", { name: "Execution target" })).toHaveValue(
+        expect(screen.getByRole("combobox", { name: "Machine" })).toHaveValue(
           "node / NVIDIA GeForce RTX 5090",
         ),
       );
@@ -124,7 +124,7 @@ describe("ModelDeployDialog", () => {
       expect(summaryRows()[0]).toEqual(["Runs on", "Worker / NVIDIA GB10"]);
     });
 
-    it("adds Performance & memory and Engine with Advanced, and never a Target step", async () => {
+    it("adds Performance & memory and Command with Advanced, and never a Target step", async () => {
       const user = setupUser();
       renderDialog({
         engineReleases: multiParameterReleases,
@@ -135,11 +135,11 @@ describe("ModelDeployDialog", () => {
       await enableAdvanced(user);
 
       expect(stepLabels()).toEqual([
-        "1. Model & machine",
+        "1. Model",
         "2. Context",
-        "3. Performance & memory",
-        "4. Engine",
-        "5. Review & deploy",
+        "3. Performance",
+        "4. Command",
+        "5. Review",
       ]);
       expect(screen.getByText("Step 1 of 5 — Model & machine")).toBeVisible();
       expect(screen.getByRole("status")).toHaveTextContent("Advanced on: 5 steps");
@@ -154,12 +154,7 @@ describe("ModelDeployDialog", () => {
 
       await screen.findByText("Step 1 of 3 — Model & machine");
       await enableAdvanced(user);
-      expect(stepLabels()).toEqual([
-        "1. Model & machine",
-        "2. Context",
-        "3. Engine",
-        "4. Review & deploy",
-      ]);
+      expect(stepLabels()).toEqual(["1. Model", "2. Context", "3. Command", "4. Review"]);
     });
 
     it("opens with Advanced off every time", async () => {
@@ -174,7 +169,7 @@ describe("ModelDeployDialog", () => {
       rerender(dialog({ open: true }));
 
       expect(screen.getByRole("checkbox", { name: "Advanced" })).not.toBeChecked();
-      expect(stepLabels()).toEqual(["1. Model & machine", "2. Context", "3. Review & deploy"]);
+      expect(stepLabels()).toEqual(["1. Model", "2. Context", "3. Review"]);
     });
   });
 
@@ -183,7 +178,7 @@ describe("ModelDeployDialog", () => {
       const user = setupUser();
       renderDialog();
 
-      await openAdvancedStep(user, "Engine");
+      await openAdvancedStep(user, "Command");
       await user.click(screen.getByRole("button", { name: "Back" }));
       const context = screen.getByRole("textbox", { name: /Total context/ });
       await user.clear(context);
@@ -210,7 +205,7 @@ describe("ModelDeployDialog", () => {
       expect(screen.getByText("Step 4 of 4 — Review & deploy")).toBeVisible();
       expect(stepButton("Model & machine")).toBeEnabled();
       expect(stepButton("Context")).toBeEnabled();
-      expect(stepButton("Engine")).toBeEnabled();
+      expect(stepButton("Command")).toBeEnabled();
 
       expect(screen.getByRole("textbox", { name: "Route name" })).toHaveValue("custom-route");
       await user.click(screen.getByRole("button", { name: "Back" }));
@@ -218,11 +213,11 @@ describe("ModelDeployDialog", () => {
       expect(screen.getByRole("textbox", { name: /Total context/ })).toHaveValue("16k");
     });
 
-    it("falls forward to Review & deploy when the Engine step vanishes", async () => {
+    it("falls forward to Review & deploy when the Command step vanishes", async () => {
       const user = setupUser();
       renderDialog();
 
-      await openAdvancedStep(user, "Engine");
+      await openAdvancedStep(user, "Command");
       await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
 
       expect(screen.getByText("Step 3 of 3 — Review & deploy")).toBeVisible();
@@ -282,12 +277,7 @@ describe("ModelDeployDialog", () => {
       await screen.findByText("Step 1 of 3 — Model & machine");
       await enableAdvanced(user);
       // Prefix caching was the only advanced input, so Performance & memory has nothing to ask.
-      expect(stepLabels()).toEqual([
-        "1. Model & machine",
-        "2. Context",
-        "3. Engine",
-        "4. Review & deploy",
-      ]);
+      expect(stepLabels()).toEqual(["1. Model", "2. Context", "3. Command", "4. Review"]);
       await user.click(screen.getByRole("button", { name: "Next" }));
       expect(screen.getByText("This profile sets its context itself.")).toBeVisible();
       expect(screen.queryByText("Total context")).not.toBeInTheDocument();
@@ -327,7 +317,7 @@ describe("ModelDeployDialog", () => {
 
       // Performance & memory keeps only the advanced parameters, so with none left it doesn't show.
       await enableAdvanced(user);
-      expect(stepLabels()).not.toContain("3. Performance & memory");
+      expect(stepLabels()).not.toContain("3. Performance");
 
       await user.click(screen.getByRole("button", { name: "Deploy" }));
       await waitFor(() =>
@@ -767,7 +757,7 @@ describe("ModelDeployDialog", () => {
 
       await screen.findByRole("button", { name: "Runs on filter: this site" });
       expect(screen.getByRole("radio", { name: "Large context" })).toBeChecked();
-      expect(stepLabels()).toEqual(["1. Model & machine", "2. Context", "3. Review & deploy"]);
+      expect(stepLabels()).toEqual(["1. Model", "2. Context", "3. Review"]);
 
       await user.click(screen.getByRole("button", { name: "Next" }));
       await user.click(screen.getByRole("button", { name: "Next" }));
@@ -791,9 +781,7 @@ describe("ModelDeployDialog", () => {
       });
 
       await screen.findByRole("button", { name: "Runs on filter: this site" });
-      expect(screen.getByRole("combobox", { name: "Execution target" })).toHaveValue(
-        "Worker / NVIDIA GB10",
-      );
+      expect(screen.getByRole("combobox", { name: "Machine" })).toHaveValue("Worker / NVIDIA GB10");
       await user.click(screen.getByRole("button", { name: "Next" }));
       await user.click(screen.getByRole("button", { name: "Next" }));
       expect(summaryRows()[0]).toEqual(["Runs on", "Worker / NVIDIA GB10"]);
@@ -814,7 +802,7 @@ describe("ModelDeployDialog", () => {
       });
 
       await screen.findByRole("button", { name: "Runs on filter: this site" });
-      const picker = screen.getByRole("combobox", { name: "Execution target" });
+      const picker = screen.getByRole("combobox", { name: "Machine" });
       expect(picker).toHaveValue("");
       await user.click(picker);
       expect(
@@ -855,14 +843,12 @@ describe("ModelDeployDialog", () => {
       await screen.findByRole("button", { name: "Runs on filter: this site" });
       await pickTarget(user, /^Worker/);
       await user.click(screen.getByRole("row", { name: "Large context" }));
-      expect(screen.getByRole("combobox", { name: "Execution target" })).toHaveValue(
-        "Worker / NVIDIA GB10",
-      );
+      expect(screen.getByRole("combobox", { name: "Machine" })).toHaveValue("Worker / NVIDIA GB10");
 
       await user.click(screen.getByRole("row", { name: "Fast start" }));
       await pickTarget(user, /^Lab/);
       await user.click(screen.getByRole("row", { name: "Large context" }));
-      expect(screen.getByRole("combobox", { name: "Execution target" })).toHaveValue("");
+      expect(screen.getByRole("combobox", { name: "Machine" })).toHaveValue("");
     });
 
     it("narrows Runs on to one machine and moves a selection that can't run there", async () => {
@@ -880,7 +866,7 @@ describe("ModelDeployDialog", () => {
       expect(screen.getByRole("button", { name: "Runs on filter: Worker" })).toBeVisible();
       expect(profileRows()).toEqual(["Fast start"]);
       expect(screen.getByRole("radio", { name: "Fast start" })).toBeChecked();
-      expect(stepLabels()).toEqual(["1. Model & machine", "2. Context", "3. Review & deploy"]);
+      expect(stepLabels()).toEqual(["1. Model", "2. Context", "3. Review"]);
 
       await user.click(screen.getByRole("button", { name: "Next" }));
       await user.click(screen.getByRole("button", { name: "Next" }));
@@ -909,7 +895,7 @@ describe("ModelDeployDialog", () => {
       });
 
       await narrowRunsOn(user, /^node/);
-      await user.click(screen.getByRole("combobox", { name: "Execution target" }));
+      await user.click(screen.getByRole("combobox", { name: "Machine" }));
       expect(
         screen.getAllByRole("option").map((option) => option.getAttribute("aria-label")),
       ).toEqual([
@@ -929,7 +915,7 @@ describe("ModelDeployDialog", () => {
 
       await screen.findByText("Step 1 of 3 — Model & machine");
       await enableAdvanced(user);
-      await user.click(screen.getByRole("combobox", { name: "Execution target" }));
+      await user.click(screen.getByRole("combobox", { name: "Machine" }));
       expect(
         screen.getAllByRole("option").map((option) => option.getAttribute("aria-label")),
       ).toEqual([
@@ -965,7 +951,7 @@ describe("ModelDeployDialog", () => {
         listProfileCompatibility: loader,
       });
       await settle();
-      expect(stepLabels()).toEqual(["1. Model & machine", "2. Context", "3. Review & deploy"]);
+      expect(stepLabels()).toEqual(["1. Model", "2. Context", "3. Review"]);
       fireEvent.click(screen.getByRole("button", { name: "Next" }));
       fireEvent.click(screen.getByRole("button", { name: "Next" }));
       expect(screen.getByText("Step 3 of 3 — Review & deploy")).toBeVisible();
@@ -974,12 +960,12 @@ describe("ModelDeployDialog", () => {
         await vi.advanceTimersByTimeAsync(productionTiming.profileCompatibilityRefreshMs);
       });
       expect(loader).toHaveBeenCalledTimes(2);
-      expect(stepLabels()).toEqual(["1. Model & machine", "2. Context", "3. Review & deploy"]);
+      expect(stepLabels()).toEqual(["1. Model", "2. Context", "3. Review"]);
       expect(screen.getByText("Step 3 of 3 — Review & deploy")).toBeVisible();
 
       fireEvent.click(screen.getByRole("button", { name: "Back" }));
       fireEvent.click(screen.getByRole("button", { name: "Back" }));
-      expect(stepLabels()).toEqual(["1. Model & machine", "2. Context", "3. Review & deploy"]);
+      expect(stepLabels()).toEqual(["1. Model", "2. Context", "3. Review"]);
     });
 
     it("blocks a profile that runs only on machines that can't deploy right now", async () => {
@@ -1081,7 +1067,7 @@ describe("ModelDeployDialog", () => {
         ),
       ).toBeVisible();
       expect(screen.getByText("Step 1 of 3 — Model & machine")).toBeVisible();
-      expect(screen.getByText("Execution target").nextElementSibling).toHaveTextContent("node");
+      expect(screen.queryByRole("heading", { name: "Machine" })).not.toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: "Next" }));
       await user.click(screen.getByRole("button", { name: "Next" }));
       expect(summaryRows()[0]).toEqual(["Runs on", "node / NVIDIA GeForce RTX 5090"]);
@@ -1294,7 +1280,7 @@ describe("ModelDeployDialog", () => {
         ),
       });
 
-      const picker = await screen.findByRole("combobox", { name: "Execution target" });
+      const picker = await screen.findByRole("combobox", { name: "Machine" });
       await waitFor(() => expect(picker).toHaveValue("node / NVIDIA GeForce RTX 5090 · GPU 1"));
 
       await user.click(picker);
@@ -1323,7 +1309,7 @@ describe("ModelDeployDialog", () => {
         ),
       });
 
-      const picker = await screen.findByRole("combobox", { name: "Execution target" });
+      const picker = await screen.findByRole("combobox", { name: "Machine" });
       await waitFor(() => expect(picker).toHaveValue("node / NVIDIA GeForce RTX 5090"));
 
       await user.click(picker);
@@ -1350,30 +1336,29 @@ describe("ModelDeployDialog", () => {
         );
       const first = renderDialog({ listConfiguredExecutionTargets: targetsLoader(...targets(7)) });
 
-      expect(await screen.findByRole("combobox", { name: "Execution target" })).toHaveAttribute(
-        "readonly",
-      );
+      expect(await screen.findByRole("combobox", { name: "Machine" })).toHaveAttribute("readonly");
       first.unmount();
 
       renderDialog({ listConfiguredExecutionTargets: targetsLoader(...targets(8)) });
-      const searchable = await screen.findByRole("combobox", { name: "Execution target" });
+      const searchable = await screen.findByRole("combobox", { name: "Machine" });
       expect(searchable).not.toHaveAttribute("readonly");
-      await user.click(screen.getByRole("button", { name: "Clear Execution target" }));
+      await user.click(screen.getByRole("button", { name: "Clear Machine" }));
       await user.type(searchable, "GPU 7");
       expect(
         screen.getAllByRole("option").map((option) => option.getAttribute("aria-label")),
       ).toEqual(["node / NVIDIA GeForce RTX 5090 · GPU 7 linux/amd64"]);
     });
 
-    it("shows the only target as a line without target facts in advanced mode", async () => {
+    it("shows no machine section for the only target, in advanced mode too", async () => {
       const user = setupUser();
       renderDialog();
 
       await screen.findByText("Step 1 of 3 — Model & machine");
       await enableAdvanced(user);
 
-      expect(screen.queryByRole("combobox", { name: "Execution target" })).not.toBeInTheDocument();
-      expect(screen.getByText("Execution target").nextElementSibling).toHaveTextContent("node");
+      expect(screen.queryByRole("combobox", { name: "Machine" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Machine" })).not.toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Profile" })).toBeVisible();
       for (const fact of [
         "Target ID",
         "Platform",
@@ -1403,37 +1388,33 @@ describe("ModelDeployDialog", () => {
 
       expect(screen.getByText("Step 1 of 3 — Model & machine")).toBeVisible();
       fireEvent.click(screen.getByRole("checkbox", { name: "Advanced" }));
-      expect(screen.getByRole("combobox", { name: "Execution target" })).toBeDisabled();
+      expect(screen.getByRole("combobox", { name: "Machine" })).toBeDisabled();
       expect(screen.queryByText("Loading configured execution targets…")).not.toBeInTheDocument();
-      expect(
-        screen.getByRole("combobox", { name: "Execution target" }),
-      ).not.toHaveAccessibleDescription();
+      expect(screen.getByRole("combobox", { name: "Machine" })).not.toHaveAccessibleDescription();
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(productionTiming.loadingRevealMs);
       });
       expect(screen.getByText("Loading configured execution targets…")).toBeVisible();
-      expect(
-        screen.getByRole("combobox", { name: "Execution target" }),
-      ).toHaveAccessibleDescription("Loading configured execution targets…");
+      expect(screen.getByRole("combobox", { name: "Machine" })).toHaveAccessibleDescription(
+        "Loading configured execution targets…",
+      );
 
       await act(async () => {
         resolvePools({ executionTargets: [poolTarget(), workerTarget()] });
         await Promise.resolve();
       });
-      expect(screen.getByRole("combobox", { name: "Execution target" })).toBeEnabled();
+      expect(screen.getByRole("combobox", { name: "Machine" })).toBeEnabled();
       expect(screen.getByText("Loading configured execution targets…")).toBeVisible();
-      expect(
-        screen.getByRole("combobox", { name: "Execution target" }),
-      ).toHaveAccessibleDescription("Loading configured execution targets…");
+      expect(screen.getByRole("combobox", { name: "Machine" })).toHaveAccessibleDescription(
+        "Loading configured execution targets…",
+      );
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(productionTiming.loadingMinimumVisibleMs);
       });
       expect(screen.queryByText("Loading configured execution targets…")).not.toBeInTheDocument();
-      expect(
-        screen.getByRole("combobox", { name: "Execution target" }),
-      ).not.toHaveAccessibleDescription();
+      expect(screen.getByRole("combobox", { name: "Machine" })).not.toHaveAccessibleDescription();
     });
 
     it("follows the watched target availability, pauses while hidden, and recovers the default target", async () => {
@@ -1452,7 +1433,7 @@ describe("ModelDeployDialog", () => {
       renderDialog({}, { watch });
       await settle();
       fireEvent.click(screen.getByRole("checkbox", { name: "Advanced" }));
-      expect(screen.getByRole("combobox", { name: "Execution target" })).toHaveValue(
+      expect(screen.getByRole("combobox", { name: "Machine" })).toHaveValue(
         "node / NVIDIA GeForce RTX 5090",
       );
 
@@ -1465,13 +1446,13 @@ describe("ModelDeployDialog", () => {
       fireEvent(document, new Event("visibilitychange"));
       await settle();
       expect(watch.watchedKinds()).toEqual(["executionTargets"]);
-      expect(screen.getByRole("combobox", { name: "Execution target" })).toHaveValue("");
+      expect(screen.getByRole("combobox", { name: "Machine" })).toHaveValue("");
       expect(
         screen.getByText("Configured targets are visible, but none are deployable."),
       ).toBeVisible();
-      expect(
-        screen.getByRole("combobox", { name: "Execution target" }),
-      ).toHaveAccessibleDescription("Configured targets are visible, but none are deployable.");
+      expect(screen.getByRole("combobox", { name: "Machine" })).toHaveAccessibleDescription(
+        "Configured targets are visible, but none are deployable.",
+      );
 
       await act(async () => {
         await watch.tick();
@@ -1479,11 +1460,9 @@ describe("ModelDeployDialog", () => {
       expect(
         screen.queryByText("Configured targets are visible, but none are deployable."),
       ).not.toBeInTheDocument();
-      expect(
-        screen.getByRole("combobox", { name: "Execution target" }),
-      ).not.toHaveAccessibleDescription();
+      expect(screen.getByRole("combobox", { name: "Machine" })).not.toHaveAccessibleDescription();
       // The operator never chose, so the default target comes back with its availability.
-      expect(screen.getByRole("combobox", { name: "Execution target" })).toHaveValue(
+      expect(screen.getByRole("combobox", { name: "Machine" })).toHaveValue(
         "node / NVIDIA GeForce RTX 5090",
       );
     });
@@ -1548,7 +1527,7 @@ describe("ModelDeployDialog", () => {
         onSubmit,
       });
 
-      const executionTarget = await screen.findByRole("combobox", { name: "Execution target" });
+      const executionTarget = await screen.findByRole("combobox", { name: "Machine" });
       await waitFor(() => expect(executionTarget).toHaveValue("node / NVIDIA GeForce RTX 5090"));
 
       await user.click(executionTarget);
@@ -1581,13 +1560,14 @@ describe("ModelDeployDialog", () => {
       const user = setupUser();
       renderDialog({ listConfiguredExecutionTargets: targetsLoader(poolTarget(), workerTarget()) });
 
-      const executionTarget = await screen.findByRole("combobox", { name: "Execution target" });
+      const executionTarget = await screen.findByRole("combobox", { name: "Machine" });
       await waitFor(() => expect(executionTarget).toHaveValue("node / NVIDIA GeForce RTX 5090"));
       expect(executionTarget).not.toHaveAccessibleDescription();
 
-      await user.click(screen.getByRole("button", { name: "Clear Execution target" }));
+      await user.click(screen.getByRole("button", { name: "Clear Machine" }));
       expect(executionTarget).toHaveValue("");
-      expect(executionTarget).toHaveAccessibleDescription("Select an execution target.");
+      expect(executionTarget).not.toHaveAccessibleDescription();
+      expect(executionTarget).toHaveAttribute("placeholder", "Choose a machine…");
       expect(screen.queryByText("Execution target is required.")).not.toBeInTheDocument();
       await user.tab();
       expect(await screen.findByText("Execution target is required.")).toBeVisible();
@@ -1629,9 +1609,10 @@ describe("ModelDeployDialog", () => {
 
       await user.click(screen.getByRole("button", { name: "Back" }));
       await user.click(screen.getByRole("button", { name: "Back" }));
-      expect(screen.getByText("Execution target").nextElementSibling).toHaveTextContent(
-        "node / NVIDIA GeForce RTX 5090 — Runtime is unavailable.",
-      );
+      expect(screen.queryByRole("heading", { name: "Machine" })).not.toBeInTheDocument();
+      expect(
+        screen.getByText("node / NVIDIA GeForce RTX 5090 — Runtime is unavailable."),
+      ).toBeVisible();
     });
 
     it("shows a taken derived route on the route field as the step opens and clears it on rename", async () => {
@@ -1971,7 +1952,7 @@ describe("ModelDeployDialog", () => {
       );
       expect(screen.getByRole("radio", { name: /Fast start/ })).toBeChecked();
       expect(screen.queryByRole("textbox", { name: /Total context/ })).not.toBeInTheDocument();
-      expect(screen.queryByRole("combobox", { name: "Execution target" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("combobox", { name: "Machine" })).not.toBeInTheDocument();
       expect(screen.queryByLabelText("Route name")).not.toBeInTheDocument();
       await user.click(screen.getByRole("radio", { name: /Large context/ }));
       expect(screen.getByRole("radio", { name: /Large context/ })).toBeChecked();
@@ -2064,7 +2045,7 @@ describe("ModelDeployDialog", () => {
         }),
       );
 
-      // The Engine step previews the command as it opens.
+      // The Command step previews the command as it opens.
       await user.click(screen.getByRole("button", { name: "Next" }));
       await waitFor(() => expect(onPreview).toHaveBeenCalledOnce());
       await goToDeploy(user);
@@ -2134,7 +2115,7 @@ describe("ModelDeployDialog", () => {
         }),
       );
 
-      // The Engine step previews the command as it opens.
+      // The Command step previews the command as it opens.
       await user.click(screen.getByRole("button", { name: "Next" }));
       await waitFor(() => expect(onPreview).toHaveBeenCalledOnce());
       await goToDeploy(user);
@@ -2162,6 +2143,10 @@ describe("ModelDeployDialog", () => {
             { value: { case: "engineExecutable", value: {} } },
             { value: { case: "literal", value: "--ctx-size" } },
             { value: { case: "literal", value: "8192" } },
+            { value: { case: "literal", value: "--seed" } },
+            { value: { case: "literal", value: "-1" } },
+            { value: { case: "literal", value: "--model" } },
+            { value: { case: "artifactBindingId", value: "weights" } },
             { value: { case: "literal", value: "--flag=value" } },
             { value: { case: "literal", value: "  spaced  " } },
             { value: { case: "literal", value: "" } },
@@ -2172,18 +2157,26 @@ describe("ModelDeployDialog", () => {
       const onSubmit = vi.fn();
       renderDialog({ onPreview, onSubmit });
 
-      await openAdvancedStep(user, "Engine");
+      await openAdvancedStep(user, "Command");
       const box = screen.getByRole("textbox", { name: "Custom arguments" });
-      expect(box).toHaveAccessibleDescription(
-        "One argument per line, or paste a command line. Added at the end of the command.",
-      );
+      expect(box).not.toHaveAccessibleDescription();
+      expect(box).toHaveAttribute("placeholder", "--temp 0.7\n--top-k 40");
       await user.type(box, "--flag=value{Enter}'  spaced  '{Enter}''");
+      // One flag per line with its values, each line but the last ending in a backslash.
       await waitFor(() =>
-        expect(screen.getByLabelText("Launch command")).toHaveTextContent(
-          "{engine.executable} --ctx-size 8192 --flag=value '  spaced  ' ''",
-          { normalizeWhitespace: false },
-        ),
+        expect(
+          Array.from(screen.getByLabelText("Launch command").children, (line) => line.textContent),
+        ).toEqual([
+          "{engine.executable} \\",
+          "--ctx-size 8192 \\",
+          "--seed -1 \\",
+          "--model {artifact:weights} \\",
+          "--flag=value '  spaced  ' ''",
+        ]),
       );
+      // The scrolling block is reachable by keyboard.
+      const command = screen.getByRole("region", { name: "Launch command" });
+      expect(command).toHaveAttribute("tabindex", "0");
       // The custom arguments end the command, highlighted.
       expect(
         Array.from(
@@ -2345,7 +2338,7 @@ describe("ModelDeployDialog", () => {
       render(<StrictMode>{dialog({ onEstimate, deployments: [] })}</StrictMode>);
 
       await waitFor(() => expect(onEstimate).toHaveBeenCalledOnce());
-      await openAdvancedStep(user, "Engine");
+      await openAdvancedStep(user, "Command");
       expect(
         await within(screen.getByRole("region", { name: "Predicted memory" })).findByRole(
           "button",
@@ -2365,7 +2358,7 @@ describe("ModelDeployDialog", () => {
       renderDialog({ onEstimate, deployments: [] });
 
       await waitFor(() => expect(onEstimate).toHaveBeenCalledOnce());
-      await openAdvancedStep(user, "Engine");
+      await openAdvancedStep(user, "Command");
       expect(
         await within(screen.getByRole("region", { name: "Predicted memory" })).findByRole(
           "button",
@@ -2401,7 +2394,7 @@ describe("ModelDeployDialog", () => {
         deployments: [],
       });
 
-      await openAdvancedStep(user, "Engine");
+      await openAdvancedStep(user, "Command");
       expect(
         await within(screen.getByRole("region", { name: "Predicted memory" })).findByText(
           "Estimate unavailable.",
@@ -2473,7 +2466,7 @@ describe("ModelDeployDialog", () => {
         onPreviewMemory,
       });
 
-      await openAdvancedStep(user, "Engine");
+      await openAdvancedStep(user, "Command");
       await waitFor(() => expect(onPreviewMemory).toHaveBeenCalled());
       expect(screen.queryByText(unifiedKvOffloadWarning)).not.toBeInTheDocument();
     });
@@ -2517,16 +2510,16 @@ describe("ModelDeployDialog", () => {
         onPreviewMemory,
       });
 
-      await openAdvancedStep(user, "Engine");
+      await openAdvancedStep(user, "Command");
       await waitFor(() => expect(onPreviewMemory).toHaveBeenCalled());
       expect(screen.queryByText(unifiedKvOffloadWarning)).not.toBeInTheDocument();
-      // Background failures stay quiet; the Engine step's command preview reports them.
+      // Background failures stay quiet; the Command step's command preview reports them.
       expect(screen.queryByText("Execution target is unavailable.")).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Next" })).toBeEnabled();
     });
   });
 
-  describe("Engine step", () => {
+  describe("Command step", () => {
     it("previews the command as the step opens and once each time typing pauses", async () => {
       setTiming(productionTiming);
       useFakeTimersWithWaits();
@@ -2538,7 +2531,7 @@ describe("ModelDeployDialog", () => {
       fireEvent.click(screen.getByRole("checkbox", { name: "Advanced" }));
       fireEvent.click(screen.getByRole("button", { name: "Next" }));
       fireEvent.click(screen.getByRole("button", { name: "Next" }));
-      expect(screen.getByText("Step 3 of 4 — Engine")).toBeVisible();
+      expect(screen.getByText("Step 3 of 4 — Command")).toBeVisible();
       await settle();
       expect(onPreview).toHaveBeenCalledOnce();
       expect(screen.getByLabelText("Launch command")).toHaveTextContent("--ctx-size 8192");
@@ -2570,7 +2563,7 @@ describe("ModelDeployDialog", () => {
       expect(screen.queryByText("Updating…")).not.toBeInTheDocument();
     });
 
-    it("names the earlier step to fix instead of previewing, and stays on the Engine step", async () => {
+    it("names the earlier step to fix instead of previewing, and stays on the Command step", async () => {
       const user = setupUser();
       const onPreview = vi.fn().mockResolvedValue(snapshot);
       // A launch read back with a value the catalog no longer accepts, which basic mode can't show.
@@ -2599,7 +2592,7 @@ describe("ModelDeployDialog", () => {
       await enableAdvanced(user);
       await user.click(screen.getByRole("button", { name: "Back" }));
 
-      expect(screen.getByText("Step 4 of 5 — Engine")).toBeVisible();
+      expect(screen.getByText("Step 4 of 5 — Command")).toBeVisible();
       expect(
         screen.getByText("Fix the errors on the Performance & memory step to see the command."),
       ).toBeVisible();
@@ -2616,7 +2609,7 @@ describe("ModelDeployDialog", () => {
       );
       renderDialog({ onPreview, onSubmit });
 
-      await openAdvancedStep(user, "Engine");
+      await openAdvancedStep(user, "Command");
       await user.type(screen.getByRole("textbox", { name: "Custom arguments" }), "--ctx-size 4096");
       expect(await screen.findByRole("alert")).toHaveTextContent(
         "The command was rejected: custom argument --ctx-size is set by Dotcore",
@@ -2628,7 +2621,7 @@ describe("ModelDeployDialog", () => {
 
       await goToDeploy(user);
       await user.click(screen.getByRole("button", { name: "Deploy" }));
-      expect(await screen.findByText("Step 3 of 4 — Engine")).toBeVisible();
+      expect(await screen.findByText("Step 3 of 4 — Command")).toBeVisible();
       expect(onSubmit).not.toHaveBeenCalled();
 
       await user.clear(screen.getByRole("textbox", { name: "Custom arguments" }));
@@ -2640,13 +2633,13 @@ describe("ModelDeployDialog", () => {
       await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
     });
 
-    it("turns Advanced on and shows the Engine step when Deploy meets a rejected command with Advanced off", async () => {
+    it("turns Advanced on and shows the Command step when Deploy meets a rejected command with Advanced off", async () => {
       const user = setupUser();
       const onSubmit = vi.fn();
       const onPreview = vi.fn().mockRejectedValue(new Error("the command is invalid"));
       renderDialog({ onPreview, onSubmit });
 
-      await openAdvancedStep(user, "Engine");
+      await openAdvancedStep(user, "Command");
       expect(await screen.findByRole("alert")).toHaveTextContent(
         "The command was rejected: the command is invalid",
       );
@@ -2656,7 +2649,7 @@ describe("ModelDeployDialog", () => {
       await goToDeploy(user);
       await user.click(screen.getByRole("button", { name: "Deploy" }));
 
-      expect(await screen.findByText("Step 3 of 4 — Engine")).toBeVisible();
+      expect(await screen.findByText("Step 3 of 4 — Command")).toBeVisible();
       expect(screen.getByRole("checkbox", { name: "Advanced" })).toBeChecked();
       expect(onSubmit).not.toHaveBeenCalled();
     });
@@ -2676,7 +2669,7 @@ describe("ModelDeployDialog", () => {
         onSubmit,
       });
 
-      await openAdvancedStep(user, "Engine");
+      await openAdvancedStep(user, "Command");
       expect(screen.getByRole("textbox", { name: "Custom arguments" })).toHaveValue(
         "--system-prompt\n'be brief'\n'it'\\''s'\n--jinja",
       );
@@ -2687,7 +2680,7 @@ describe("ModelDeployDialog", () => {
       expect(onSubmit.mock.calls[0][0].configuration.customArgumentTokens).toEqual(tokens);
     });
 
-    it("returns to the Engine step when the backend rejects a create with custom arguments", async () => {
+    it("returns to the Command step when the backend rejects a create with custom arguments", async () => {
       const user = setupUser();
       const props = {
         initialConfiguration: {
@@ -2704,7 +2697,7 @@ describe("ModelDeployDialog", () => {
       await goToDeploy(user);
       rerender(dialog({ ...props, error: "Deploy was rejected: unknown argument --bogus." }));
 
-      expect(await screen.findByText("Step 3 of 4 — Engine")).toBeVisible();
+      expect(await screen.findByText("Step 3 of 4 — Command")).toBeVisible();
       expect(screen.getByRole("checkbox", { name: "Advanced" })).toBeChecked();
       expect(screen.getByText("Deploy was rejected: unknown argument --bogus.")).toBeVisible();
     });
@@ -2770,7 +2763,7 @@ describe("ModelDeployDialog", () => {
           }),
       });
 
-      const picker = await screen.findByRole("combobox", { name: "Execution target" });
+      const picker = await screen.findByRole("combobox", { name: "Machine" });
       await waitFor(() => expect(picker).toHaveValue("node / NVIDIA GeForce RTX 5090"));
       const strip = screen.getByRole("region", { name: "Predicted memory" });
       expect(await within(strip).findByRole("button", { name: "VRAM 8 / 32 GiB" })).toBeVisible();
@@ -2810,7 +2803,7 @@ describe("ModelDeployDialog", () => {
           }),
       });
 
-      const picker = await screen.findByRole("combobox", { name: "Execution target" });
+      const picker = await screen.findByRole("combobox", { name: "Machine" });
       await user.click(picker);
       await user.click(screen.getByRole("option", { name: /GPU 0/ }));
       const strip = screen.getByRole("region", { name: "Predicted memory" });
@@ -3071,7 +3064,7 @@ describe("ModelDeployDialog", () => {
       const body = within(modal).getByTestId("deployment-dialog-body");
       await screen.findByText("Step 1 of 3 — Model & machine");
       expect(within(body).getByRole("table", { name: "Model profiles" })).toBeVisible();
-      await openAdvancedStep(user, "Engine");
+      await openAdvancedStep(user, "Command");
       const form = within(body).getByTestId("deployment-form");
       const footer = within(modal).getByTestId("deployment-dialog-footer");
 
@@ -3185,7 +3178,7 @@ async function narrowRunsOn(user: UserEvent, machine: RegExp) {
 }
 
 async function pickTarget(user: UserEvent, name: RegExp) {
-  await user.click(screen.getByRole("combobox", { name: "Execution target" }));
+  await user.click(screen.getByRole("combobox", { name: "Machine" }));
   await user.click(screen.getByRole("option", { name }));
 }
 

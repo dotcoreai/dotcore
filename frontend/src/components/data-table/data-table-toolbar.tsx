@@ -32,6 +32,8 @@ export interface DataTableToolbarProps<
 > {
   /** Table-specific settings some filter chips carry beside their values. */
   chipSettings?: Partial<Record<F, DataTableChipSetting>>;
+  /** Host controls shown after the filters and Reset, before the View menu. */
+  controls?: ReactNode;
   facets: T["facets"];
   /**
    * Restores the default view and every chip setting in one update, for a host that keeps them
@@ -72,6 +74,7 @@ export function DataTableToolbar<
   T extends DataTableResult<DataTableRow<Row, unknown>, F>,
 >({
   chipSettings,
+  controls,
   facets,
   onReset,
   onViewChange,
@@ -110,7 +113,7 @@ export function DataTableToolbar<
   return (
     // View controls are panel navigation targets, so changing the view keeps an open panel.
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2" data-panel-navigation="">
-      <div className="relative w-60 max-sm:w-full">
+      <div className="relative max-w-60 min-w-36 flex-[1_1_9rem] max-sm:max-w-none max-sm:basis-full">
         <SearchIcon
           aria-hidden="true"
           className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
@@ -178,6 +181,7 @@ export function DataTableToolbar<
           <XIcon aria-hidden="true" data-icon="inline-end" />
         </Button>
       )}
+      {controls}
       {ui.fixedColumns ? null : (
         <>
           <span className="flex-1" />

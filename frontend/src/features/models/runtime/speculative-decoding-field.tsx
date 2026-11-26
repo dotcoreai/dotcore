@@ -1,7 +1,7 @@
 import type { RefObject } from "react";
 
+import { CountStepper } from "@/components/ui/count-stepper";
 import { Field } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { integerBounds } from "@/domain/parameter-view";
 import type { SpeculativeOption } from "@/features/models/profiles/model-row";
@@ -45,7 +45,6 @@ export function SpeculativeDecodingField({
 
   return (
     <Field
-      className="min-w-0 gap-2 rounded-lg border border-border bg-card p-4"
       controlId={methodId}
       error={error}
       facts={
@@ -77,17 +76,18 @@ export function SpeculativeDecodingField({
           </NativeSelect>
           {option ? (
             <>
-              <Input
+              <CountStepper
                 aria-describedby={control["aria-describedby"]}
                 aria-invalid={error ? "true" : undefined}
                 aria-label="Speculative token count"
-                className="w-20 text-right"
                 disabled={disabled}
                 id={countId}
-                inputMode="numeric"
+                inputRef={countRef}
+                label="Speculative token count"
+                maximum={option.maximum}
+                minimum={speculativeEnabledMinimum(option)}
                 onBlur={onCountBlur}
-                onChange={(event) => onCountChange(event.target.value)}
-                ref={countRef}
+                onChange={onCountChange}
                 value={choice.count}
               />
               <span className="text-xs text-muted-foreground">tokens</span>

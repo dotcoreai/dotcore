@@ -75,7 +75,7 @@ export function useModelDeployForm(options: ModelDeployFormOptions) {
   const nameRef = useRef<HTMLInputElement>(null);
   const routeNameRef = useRef<HTMLInputElement>(null);
   const profileRef = useRef<HTMLInputElement>(null);
-  const executionTargetRef = useRef<HTMLInputElement>(null);
+  const executionTargetRef = useRef<HTMLElement>(null);
   const setFieldError = (field: string, nextError: string | undefined) =>
     setFieldErrors((errors) => withFieldError(errors, field, nextError));
 
@@ -207,7 +207,7 @@ export function useModelDeployForm(options: ModelDeployFormOptions) {
           ...modelOptions.errorsAt(ParameterVisibility.ADVANCED),
         ]);
       // A rejected command blocks the deploy, not the way through the steps.
-      case "Engine":
+      case "Command":
         return new Map();
       case "Review & deploy": {
         const nameError = validateDeploymentName(name);
@@ -249,7 +249,7 @@ export function useModelDeployForm(options: ModelDeployFormOptions) {
           return (
             parameters.advancedParameters.length > 0 || modelOptions.advancedControls.length > 0
           );
-        case "Engine":
+        case "Command":
           return Boolean(configuration);
         default:
           return true;
@@ -271,27 +271,27 @@ export function useModelDeployForm(options: ModelDeployFormOptions) {
     order: MODEL_DEPLOY_STEPS,
     setFieldErrors,
   });
-  // The first step before the Engine step with errors, which holds back the command.
-  const commandBlockedBy = MODEL_DEPLOY_STEPS.slice(0, MODEL_DEPLOY_STEPS.indexOf("Engine")).find(
+  // The first step before the Command step with errors, which holds back the command.
+  const commandBlockedBy = MODEL_DEPLOY_STEPS.slice(0, MODEL_DEPLOY_STEPS.indexOf("Command")).find(
     (step) => wizard.steps.includes(step) && stepErrors(step).size > 0,
   );
   const commandPreview = useLiveCommandPreview({
-    active: open && wizard.step === "Engine",
+    active: open && wizard.step === "Command",
     blocked: commandBlockedBy !== undefined,
     onPreview,
     request: launch(placement),
   });
 
-  // The Engine step only exists in advanced mode, so going there turns Advanced on.
+  // The Command step only exists in advanced mode, so going there turns Advanced on.
   const revealEngine = () => {
     if (!wizard.advanced) wizard.toggleAdvanced(true);
-    wizard.goTo("Engine");
+    wizard.goTo("Command");
   };
 
   const submit = async () => {
     machine.setIneligibleTarget(undefined);
     if (wizard.revealFirstError()) return;
-    // The latest command preview for these values was rejected, which the Engine step shows.
+    // The latest command preview for these values was rejected, which the Command step shows.
     if (commandPreview.rejection) {
       revealEngine();
       return;

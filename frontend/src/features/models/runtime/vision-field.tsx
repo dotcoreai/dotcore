@@ -15,7 +15,6 @@ interface VisionFieldProps {
 export function VisionField({ disabled, enabled, onChange, option }: VisionFieldProps) {
   return (
     <Field
-      className="min-w-0 rounded-lg border border-border bg-card p-4 text-sm font-semibold"
       controlId="vision-option"
       help={option.description || undefined}
       label={option.displayName}

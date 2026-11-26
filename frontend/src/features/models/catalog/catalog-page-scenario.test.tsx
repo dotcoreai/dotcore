@@ -369,7 +369,7 @@ describe("ModelCatalogPage Runs on sized for", () => {
     // Empty parallel requests leave each profile its own, and an empty total context follows.
     const parallel = within(menu).getByRole("textbox", { name: "Parallel requests" });
     expect(parallel).toHaveValue("");
-    expect(parallel).toHaveAttribute("placeholder", "Profile default");
+    expect(parallel).toHaveAttribute("placeholder", "Auto");
     const total = within(menu).getByRole("textbox", { name: "Total context" });
     expect(total).toHaveValue("");
     expect(total).not.toHaveAttribute("placeholder");
@@ -380,7 +380,30 @@ describe("ModelCatalogPage Runs on sized for", () => {
         "/models/catalog?f=runs&runs=node%3Amac&req=32768&par=2",
       ),
     );
-
+    // The stepper's buttons set the value too.
+    await user.click(within(menu).getByRole("button", { name: "Increase Parallel requests" }));
+    expect(parallel).toHaveValue("3");
+    await waitFor(() =>
+      expect(currentLocation(router)).toBe(
+        "/models/catalog?f=runs&runs=node%3Amac&req=32768&par=3",
+      ),
+    );
+    await waitFor(() =>
+      expect(compatibility).toHaveBeenLastCalledWith({
+        scenario: { contextTokensPerRequest: 32768n, parallelRequests: 3 },
+      }),
+    );
+    await user.click(within(menu).getByRole("button", { name: "Decrease Parallel requests" }));
+    await waitFor(() =>
+      expect(currentLocation(router)).toBe(
+        "/models/catalog?f=runs&runs=node%3Amac&req=32768&par=2",
+      ),
+    );
+    await waitFor(() =>
+      expect(compatibility).toHaveBeenLastCalledWith({
+        scenario: { contextTokensPerRequest: 32768n, parallelRequests: 2 },
+      }),
+    );
     await user.click(
       within(within(menu).getByRole("group", { name: "Total context presets" })).getByRole(
         "button",
@@ -412,6 +435,24 @@ describe("ModelCatalogPage Runs on sized for", () => {
     await user.click(within(menu).getByRole("menuitemradio", { name: "Defaults" }));
     expect(currentLocation(router)).toBe("/models/catalog?f=runs&runs=node%3Amac");
     await waitFor(() => expect(cells("Alpha 7B")[2]).toBe("6 GiB"));
+  });
+
+  it("applies a stepper click at once, even when the menu closes before typing would settle", async () => {
+    setTiming(productionTiming);
+    const { router, user } = renderCatalog(
+      "/models/catalog?f=runs&runs=node%3Amac&req=32768&par=2",
+    );
+    await waitFor(() => expect(cells("Alpha 7B")[2]).toBeDefined());
+    const menu = await openRunsOn(user);
+
+    await user.click(within(menu).getByRole("button", { name: "Increase Parallel requests" }));
+    await user.keyboard("{Escape}");
+
+    await waitFor(() =>
+      expect(currentLocation(router)).toBe(
+        "/models/catalog?f=runs&runs=node%3Amac&req=32768&par=3",
+      ),
+    );
   });
 
   it("sets a scenario with the inspector open in one navigation, keeping the panel and its history", async () => {

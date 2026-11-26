@@ -26,15 +26,12 @@ interface ModelDeployPerformanceStepProps {
   options: ReactNode;
   /** The engine's parameter groups the configuration keeps. */
   parameterGroups: readonly ParameterGroup[];
-  /** The errors of the latest blocked navigation; a new value opens the groups it flags. */
-  revealedErrors: FieldErrors;
 }
 
 /**
  * The Performance & memory step of the model deploy dialog, shown in advanced mode: the profile's
  * advanced engine parameters laid out by the engine's parameter groups, then the advanced model
- * options. A collapsed group opens when a blocked navigation flags one of its fields, so the field
- * can take focus.
+ * options.
  */
 export function ModelDeployPerformanceStep({
   engineParameterRefs,
@@ -47,7 +44,6 @@ export function ModelDeployPerformanceStep({
   onParameterChange,
   options,
   parameterGroups,
-  revealedErrors,
 }: ModelDeployPerformanceStepProps) {
   return (
     <DeploymentForm className="gap-4">
@@ -62,7 +58,6 @@ export function ModelDeployPerformanceStep({
           onBlur={onParameterBlur}
           onChange={onParameterChange}
           parameters={exposedParameters}
-          revealedErrors={revealedErrors}
         />
       ) : null}
       {hostKvOffloadSharesMemory ? (

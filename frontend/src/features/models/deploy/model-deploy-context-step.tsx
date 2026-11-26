@@ -47,8 +47,6 @@ interface ModelDeployContextStepProps {
     groups: readonly ParameterGroup[];
     onBlur: (parameter: ParameterDefinition) => void;
     onChange: (parameter: ParameterDefinition, input: string) => void;
-    /** The errors of the latest blocked navigation, which open the groups holding them. */
-    revealedErrors: FieldErrors;
     shown: readonly ParameterDefinition[];
   };
   profile?: ModelProfile;
@@ -63,8 +61,8 @@ export interface ContextValues<T> {
 }
 
 /**
- * The Context step of the model deploy dialog: the context one request may use, the requests
- * served at once, and the total context they share, which follows the other two until set, then
+ * The Context step of the model deploy dialog: the requests served at once, the context one
+ * request may use, and the total context they share, which follows the other two until set, then
  * the profile's other basic engine parameters. Each field shows only when the selected profile
  * exposes its engine parameter.
  */
@@ -136,6 +134,17 @@ export function ModelDeployContextStep({
           This profile sets its context itself.
         </p>
       )}
+      {parallelRequests ? (
+        <EngineParametersForm
+          errors={fieldErrors}
+          groups={[]}
+          inputRefs={engineParameterRefs}
+          inputs={inputs}
+          onBlur={onParameterBlur}
+          onChange={onParameterChange}
+          parameters={[parallelRequests]}
+        />
+      ) : null}
       {contextPerRequest
         ? contextField(contextPerRequest, ends?.perRequest, {
             emptyValue: filledContextPerRequest,
@@ -149,18 +158,6 @@ export function ModelDeployContextStep({
             largestFit: contextFits.perRequest,
           })
         : null}
-      {parallelRequests ? (
-        <EngineParametersForm
-          errors={fieldErrors}
-          groups={[]}
-          inputRefs={engineParameterRefs}
-          inputs={inputs}
-          onBlur={onParameterBlur}
-          onChange={(parameter, input) => onParameterChange(parameter, input)}
-          parameters={[parallelRequests]}
-          revealedErrors={parameters.revealedErrors}
-        />
-      ) : null}
       {totalContext
         ? contextField(totalContext, ends?.total, {
             actions: totalFollows ? undefined : (
@@ -189,7 +186,6 @@ export function ModelDeployContextStep({
           onBlur={parameters.onBlur}
           onChange={parameters.onChange}
           parameters={parameters.shown}
-          revealedErrors={parameters.revealedErrors}
         />
       ) : null}
     </DeploymentForm>

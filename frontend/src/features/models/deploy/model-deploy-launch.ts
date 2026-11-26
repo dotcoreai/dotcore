@@ -81,21 +81,31 @@ export type ModelDeployField = string;
 
 /**
  * Every step in flow order. Capabilities shows only when the profile has a basic option to ask, and
- * Performance & memory and Engine only in advanced mode.
+ * Performance & memory and Command only in advanced mode.
  */
 export const MODEL_DEPLOY_STEPS = [
   "Model & machine",
   "Capabilities",
   "Context",
   "Performance & memory",
-  "Engine",
+  "Command",
   "Review & deploy",
 ] as const;
+
+/** The step bar's short names, which keep its labels on one line. */
+export const MODEL_DEPLOY_STEP_LABELS: Readonly<Record<ModelDeployStep, string>> = {
+  Capabilities: "Capabilities",
+  Command: "Command",
+  Context: "Context",
+  "Model & machine": "Model",
+  "Performance & memory": "Performance",
+  "Review & deploy": "Review",
+};
 
 /** The steps that show only in advanced mode. */
 export const MODEL_DEPLOY_ADVANCED_STEPS: readonly ModelDeployStep[] = [
   "Performance & memory",
-  "Engine",
+  "Command",
 ];
 
 /** Keys a launch rejection among the Context step's errors. */
