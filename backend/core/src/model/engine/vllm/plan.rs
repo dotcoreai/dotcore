@@ -8,7 +8,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use dotcore_catalog::{
-    options::{SPECULATIVE_TOKEN_COUNT_PARAMETER_ID, boolean_value, unsigned_value},
+    options::{
+        SPECULATIVE_ENABLED_PARAMETER_ID, SPECULATIVE_TOKEN_COUNT_PARAMETER_ID, boolean_value,
+        unsigned_value,
+    },
     shared_parameters::{CONTEXT_PER_REQUEST_PARAMETER_ID, PARALLEL_REQUESTS_PARAMETER_ID},
 };
 use dotcore_proto::dotcore::{
@@ -161,10 +164,12 @@ pub(crate) fn translate(
                     .ok_or(VllmPlanError::InvalidResolvedState)?;
                 speculative = (count > 0).then_some(Speculative::Mtp(count, draft));
             }
-            Some(Realization::Dspark(_)) => {
-                let count = unsigned_value(values, SPECULATIVE_TOKEN_COUNT_PARAMETER_ID)
+            Some(Realization::Dspark(dspark)) => {
+                let enabled = boolean_value(values, SPECULATIVE_ENABLED_PARAMETER_ID)
                     .ok_or(VllmPlanError::InvalidResolvedState)?;
-                speculative = (count > 0).then_some(Speculative::Dspark(count));
+                speculative = enabled.then_some(Speculative::Dspark(u64::from(
+                    dspark.speculative_token_count,
+                )));
             }
             None => return Err(VllmPlanError::InvalidResolvedState),
         }
@@ -323,7 +328,8 @@ pub(crate) fn validate_snapshot(
 }
 
 /// The speculative decoding a launch turns on, each with its speculative-token count: an MTP head
-/// with its draft source, or the DSpark drafter, which vLLM loads from the model's weights.
+/// with its draft source, or the DSpark drafter with its fixed block length, which vLLM loads
+/// from the model's weights.
 enum Speculative<'a> {
     Mtp(u64, SpeculativeDraft<'a>),
     Dspark(u64),
@@ -414,7 +420,7 @@ fn validate_resolved_consistency(
                 }
             }
             Some(Realization::Dspark(_)) => {
-                unsigned_value(values, SPECULATIVE_TOKEN_COUNT_PARAMETER_ID)
+                boolean_value(values, SPECULATIVE_ENABLED_PARAMETER_ID)
                     .ok_or(VllmPlanError::InvalidResolvedState)?;
             }
             None => return Err(VllmPlanError::InvalidResolvedState),
@@ -1194,10 +1200,10 @@ mod tests {
     }
 
     #[test]
-    fn dspark_token_count_controls_the_speculative_config_argument() {
-        let dspark = |count: u64| {
+    fn dspark_switch_controls_the_speculative_config_argument() {
+        let dspark = |enabled: bool| {
             let mut snapshot = snapshot();
-            configure_mtp(&mut snapshot, count, None);
+            configure_mtp(&mut snapshot, 0, None);
             let Some(State::Vllm(state)) = snapshot
                 .resolved_engine_state
                 .as_mut()
@@ -1206,7 +1212,22 @@ mod tests {
                 panic!("vLLM state");
             };
             state.option_realizations[0].realization =
-                Some(Realization::Dspark(VllmDsparkOptionRealization {}));
+                Some(Realization::Dspark(VllmDsparkOptionRealization {
+                    speculative_token_count: 7,
+                    drafter_path: "mtp.safetensors".to_owned(),
+                }));
+            snapshot.resolved_options[0]
+                .values
+                .as_mut()
+                .expect("option values")
+                .values = vec![ModelOptionParameterValue {
+                parameter_id: SPECULATIVE_ENABLED_PARAMETER_ID.to_owned(),
+                value: Some(
+                    dotcore_proto::dotcore::catalog::v1::model_option_parameter_value::Value::Boolean(
+                        enabled,
+                    ),
+                ),
+            }];
             let plan = translate(&snapshot).expect("DSpark plan");
             let arguments = argument_values(&plan);
             snapshot.desired_launch_plan = Some(plan);
@@ -1222,9 +1243,9 @@ mod tests {
                 .map(|index| arguments[index + 1].clone())
         };
 
-        assert_eq!(speculative(&dspark(0)), None);
+        assert_eq!(speculative(&dspark(false)), None);
         assert_eq!(
-            speculative(&dspark(7)),
+            speculative(&dspark(true)),
             Some(ArgumentValue::Literal(
                 r#"{"method":"dspark","num_speculative_tokens":7,"draft_sample_method":"probabilistic"}"#
                     .to_owned()

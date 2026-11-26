@@ -10,7 +10,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use dotcore_catalog::options::{
-    SPECULATIVE_TOKEN_COUNT_PARAMETER_ID, boolean_value, unsigned_value,
+    SPECULATIVE_ENABLED_PARAMETER_ID, SPECULATIVE_TOKEN_COUNT_PARAMETER_ID, boolean_value,
+    unsigned_value,
 };
 use dotcore_proto::dotcore::{
     catalog::v1::{
@@ -96,9 +97,8 @@ pub(crate) fn realize_model(
                 }
             }
             Some(Realization::Dspark(_)) => {
-                unsigned_value(values, SPECULATIVE_TOKEN_COUNT_PARAMETER_ID).ok_or_else(|| {
-                    anyhow::anyhow!("DSpark option has no resolved speculative token count")
-                })?;
+                boolean_value(values, SPECULATIVE_ENABLED_PARAMETER_ID)
+                    .ok_or_else(|| anyhow::anyhow!("DSpark option has no resolved switch"))?;
             }
             None => anyhow::bail!("option {:?} has no vLLM realization", realization.option_id),
         }

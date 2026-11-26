@@ -26,9 +26,9 @@ use super::common::{lower_hex, validate_license};
 use super::same_parameter_schema;
 use crate::{
     options::{
-        KV_CACHE_PRECISION_PARAMETER_ID, SPECULATIVE_TOKEN_COUNT_PARAMETER_ID,
-        reject_multiple_active_speculative_options, resolve_model_option_values,
-        valid_option_values,
+        KV_CACHE_PRECISION_PARAMETER_ID, SPECULATIVE_ENABLED_PARAMETER_ID,
+        SPECULATIVE_TOKEN_COUNT_PARAMETER_ID, reject_multiple_active_speculative_options,
+        resolve_model_option_values, valid_option_values,
     },
     selector::{SelectorRelation, selector_relation},
     shared_parameters::{
@@ -607,8 +607,10 @@ fn validate_configuration_options(
             ));
         }
         match model_option.and_then(|option| option.kind.as_ref()) {
-            Some(ModelOptionKind::SpeculativeDecoding(_)) => {
-                if let Some(problem) = speculative_parameter_problem(&option.parameters) {
+            Some(ModelOptionKind::SpeculativeDecoding(kind)) => {
+                if let Some(problem) =
+                    speculative_parameter_problem(kind.method, &option.parameters)
+                {
                     errors.push(anyhow::anyhow!(
                         "model {:?} configuration {:?} speculative decoding option {:?} {problem}",
                         model.model_id,
@@ -675,34 +677,48 @@ fn valid_configuration_option(
             .all(|id| binding_ids.contains(*id))
 }
 
-/// Describes how a speculative-decoding option's parameters depart from the fixed shape: a
-/// single speculative-token count in tokens whose range, up to at least 1, bounds the counts that
-/// turn it on. A count of 0 is always accepted as off.
-fn speculative_parameter_problem(parameters: &[ModelOptionParameterDefinition]) -> Option<String> {
+/// Describes how a speculative-decoding option's parameters depart from its method's shape. A
+/// DSpark option declares a single boolean switch, since its drafter proposes a fixed-length
+/// block. Other methods declare a single speculative-token count in tokens whose range starts at
+/// 0, which is off, and reaches at least 1.
+fn speculative_parameter_problem(
+    method: i32,
+    parameters: &[ModelOptionParameterDefinition],
+) -> Option<String> {
+    let parameter_id = if method == SpeculativeDecodingMethod::Dspark as i32 {
+        SPECULATIVE_ENABLED_PARAMETER_ID
+    } else {
+        SPECULATIVE_TOKEN_COUNT_PARAMETER_ID
+    };
     let [parameter] = parameters else {
         return Some(format!(
-            "must declare exactly one parameter {SPECULATIVE_TOKEN_COUNT_PARAMETER_ID:?}"
+            "must declare exactly one parameter {parameter_id:?}"
         ));
     };
-    if parameter.parameter_id != SPECULATIVE_TOKEN_COUNT_PARAMETER_ID {
-        return Some(format!(
-            "must name its parameter {SPECULATIVE_TOKEN_COUNT_PARAMETER_ID:?}"
-        ));
+    if parameter.parameter_id != parameter_id {
+        return Some(format!("must name its parameter {parameter_id:?}"));
+    }
+    if parameter_id == SPECULATIVE_ENABLED_PARAMETER_ID {
+        return (!matches!(
+            parameter.parameter_type,
+            Some(ModelOptionParameterType::Boolean(_))
+        ))
+        .then(|| format!("parameter {parameter_id:?} must be a boolean"));
     }
     let Some(ModelOptionParameterType::UnsignedInteger(range)) = parameter.parameter_type.as_ref()
     else {
         return Some(format!(
-            "parameter {SPECULATIVE_TOKEN_COUNT_PARAMETER_ID:?} must be an unsigned integer"
+            "parameter {parameter_id:?} must be an unsigned integer"
         ));
     };
-    if range.maximum < 1 {
+    if range.minimum != 0 || range.maximum < 1 {
         return Some(format!(
-            "parameter {SPECULATIVE_TOKEN_COUNT_PARAMETER_ID:?} must have maximum at least 1"
+            "parameter {parameter_id:?} must range from 0 to at least 1"
         ));
     }
     if range.unit != SPECULATIVE_TOKEN_COUNT_UNIT {
         return Some(format!(
-            "parameter {SPECULATIVE_TOKEN_COUNT_PARAMETER_ID:?} must use unit {SPECULATIVE_TOKEN_COUNT_UNIT:?}"
+            "parameter {parameter_id:?} must use unit {SPECULATIVE_TOKEN_COUNT_UNIT:?}"
         ));
     }
     None
@@ -1426,7 +1442,7 @@ mod tests {
                 "model \"fixture-model\" configuration \"local\" speculative decoding option \"mtp\" {problem}"
             )
         };
-        let cases: [(&str, OptionMutation, Vec<String>); 6] = [
+        let cases: [(&str, OptionMutation, Vec<String>); 7] = [
             (
                 "missing parameter",
                 |option| {
@@ -1490,7 +1506,20 @@ mod tests {
                 "zero maximum",
                 |option| option.parameters = vec![unsigned_parameter("token-count", 0, 0)],
                 vec![speculative_error(
-                    "parameter \"token-count\" must have maximum at least 1",
+                    "parameter \"token-count\" must range from 0 to at least 1",
+                )],
+            ),
+            (
+                "nonzero minimum",
+                |option| {
+                    option.parameters = vec![unsigned_parameter("token-count", 7, 7)];
+                    option.default_values = Some(ModelOptionValues {
+                        option_id: "mtp".to_owned(),
+                        values: vec![unsigned_value("token-count", 7)],
+                    });
+                },
+                vec![speculative_error(
+                    "parameter \"token-count\" must range from 0 to at least 1",
                 )],
             ),
             (
@@ -1518,6 +1547,39 @@ mod tests {
     }
 
     #[test]
+    fn dspark_options_declare_a_switch_instead_of_a_count() {
+        let mut model = speculative_model();
+        model.options[0].kind = Some(model_option::Kind::SpeculativeDecoding(
+            SpeculativeDecodingModelOption {
+                method: SpeculativeDecodingMethod::Dspark as i32,
+            },
+        ));
+
+        assert_eq!(
+            option_errors(&model),
+            vec![
+                "model \"fixture-model\" configuration \"local\" speculative decoding option \"mtp\" must name its parameter \"enabled\""
+            ]
+        );
+
+        let option = &mut model.configurations[0].options[0];
+        option.parameters = vec![ModelOptionParameterDefinition {
+            parameter_id: "enabled".to_owned(),
+            display_name: "Enabled".to_owned(),
+            parameter_type: Some(ParameterType::Boolean(BooleanModelOptionParameterSchema {})),
+        }];
+        option.default_values = Some(ModelOptionValues {
+            option_id: "mtp".to_owned(),
+            values: vec![ModelOptionParameterValue {
+                parameter_id: "enabled".to_owned(),
+                value: Some(Value::Boolean(true)),
+            }],
+        });
+
+        assert_eq!(option_errors(&model), Vec::<String>::new());
+    }
+
+    #[test]
     fn configuration_defaults_activating_two_speculative_options_are_rejected() {
         let mut model = speculative_model();
         model.profiles.clear();
@@ -1527,7 +1589,7 @@ mod tests {
         assert_eq!(
             option_errors(&model),
             vec![
-                "model \"fixture-model\" configuration \"local\" has invalid option defaults: at most one speculative decoding option may have a token count above 0, but \"mtp\", \"dflash\" are active"
+                "model \"fixture-model\" configuration \"local\" has invalid option defaults: at most one speculative decoding option may be on, but \"mtp\", \"dflash\" are active"
             ]
         );
     }
@@ -1541,7 +1603,7 @@ mod tests {
         assert_eq!(
             profile_errors(&model),
             vec![
-                "profile \"balanced\" has invalid resolved model options: at most one speculative decoding option may have a token count above 0, but \"mtp\", \"dflash\" are active"
+                "profile \"balanced\" has invalid resolved model options: at most one speculative decoding option may be on, but \"mtp\", \"dflash\" are active"
             ]
         );
     }
