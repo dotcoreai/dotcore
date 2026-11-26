@@ -802,7 +802,7 @@ mod tests {
                 "--kv-cache-memory-bytes",
                 "2563768320",
                 "--gpu-memory-utilization",
-                "0.6600",
+                "0.6443",
             ]
         );
         // 51380224 × (1 + 4 × 7) + 32768 × 32768 bytes of KV cache: the 32768-token total context
@@ -888,11 +888,11 @@ mod tests {
             (total, utilization)
         };
 
-        // 22563768320 bytes over the 24 GiB GPU; over the 16 GiB one, it is capped at the whole
+        // 22563768320 bytes less the memory held at startup over the 24 GiB GPU; over the 16 GiB one, it is capped at the whole
         // GPU.
         assert_eq!(
             launch_on(&["nvidia.com/gpu=0"]),
-            (Some(RTX_4090_TOTAL), Some("0.8756".to_owned()))
+            (Some(RTX_4090_TOTAL), Some("0.8548".to_owned()))
         );
         assert_eq!(
             launch_on(&["nvidia.com/gpu=1"]),
@@ -946,7 +946,7 @@ mod tests {
                 "--kv-cache-memory-bytes",
                 "4870340608",
                 "--gpu-memory-utilization",
-                "0.7450",
+                "0.7293",
             ]
         );
         assert_eq!(
@@ -1007,7 +1007,7 @@ mod tests {
             [
                 ("--max-num-seqs", "4", "8"),
                 ("--kv-cache-memory-bytes", "2563768320", "5076156416"),
-                ("--gpu-memory-utilization", "0.6600", "0.7335"),
+                ("--gpu-memory-utilization", "0.6443", "0.7178"),
             ]
         );
         let footprint = |launch: &ResolvedLocalModelDeploymentSnapshot| {
