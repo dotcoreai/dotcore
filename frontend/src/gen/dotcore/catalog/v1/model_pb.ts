@@ -650,8 +650,9 @@ export const VisionModelOptionSchema: GenMessage<VisionModelOption> = /*@__PURE_
 
 /**
  * Identifies the semantic speculative-decoding option kind and the draft method it uses. Its
- * configuration options declare one unsigned `token-count` parameter in `tokens`, where 0 is off
- * and the declared range bounds the counts when on.
+ * configuration options declare one parameter whose shape follows the method: MTP declares an
+ * unsigned `token-count` in `tokens`, where 0 is off and the declared range bounds the counts when
+ * on; DSpark, whose drafter proposes a fixed-length block, declares a boolean `enabled` switch.
  *
  * @generated from message dotcore.catalog.v1.SpeculativeDecodingModelOption
  */
