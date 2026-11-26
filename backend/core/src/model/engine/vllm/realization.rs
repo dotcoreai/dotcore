@@ -3,8 +3,9 @@
 //! Given a vLLM engine configuration, its artifact binding, and the resolved option values, it produces the
 //! engine state to retain—fixed settings and option realizations—plus the selected auxiliary artifacts and
 //! the input capabilities. Image input is dropped from the modalities when vision is disabled, and an
-//! MTP option must carry a resolved speculative-token count, where 0 is off; a separate MTP draft
-//! checkpoint is selected only while the count is above 0.
+//! MTP or DSpark option must carry a resolved speculative-token count, where 0 is off; a separate
+//! MTP draft checkpoint is selected only while the count is above 0. A DSpark option selects no
+//! artifact: vLLM loads the drafter from the model's weights, so the bound snapshot must hold it.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -94,6 +95,11 @@ pub(crate) fn realize_model(
                     );
                 }
             }
+            Some(Realization::Dspark(_)) => {
+                unsigned_value(values, SPECULATIVE_TOKEN_COUNT_PARAMETER_ID).ok_or_else(|| {
+                    anyhow::anyhow!("DSpark option has no resolved speculative token count")
+                })?;
+            }
             None => anyhow::bail!("option {:?} has no vLLM realization", realization.option_id),
         }
     }
@@ -121,7 +127,7 @@ pub(crate) fn selectable_auxiliary_artifact_sets(
         payload.option_realizations.iter().find_map(|realization| {
             match realization.realization.as_ref()? {
                 Realization::Mtp(mtp) => speculative_draft::vllm(mtp.draft.as_ref())?.artifact_id(),
-                Realization::Vision(_) => None,
+                Realization::Vision(_) | Realization::Dspark(_) => None,
             }
         })
     });

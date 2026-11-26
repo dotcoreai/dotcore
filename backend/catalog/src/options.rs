@@ -15,7 +15,8 @@ use dotcore_proto::dotcore::catalog::v1::{
 };
 
 /// Fixed parameter id of the speculative-token count every speculative-decoding option
-/// declares. A count of 0 turns speculative decoding off.
+/// declares. A count of 0 turns speculative decoding off, even below the declared range, which
+/// bounds the counts that turn it on.
 pub const SPECULATIVE_TOKEN_COUNT_PARAMETER_ID: &str = "token-count";
 
 /// Fixed parameter id of the precision every KV cache precision option declares. Engine adapters
@@ -233,7 +234,8 @@ fn value_matches_definition(
     ) || matches!(
         (definition.parameter_type.as_ref(), value.value.as_ref()),
         (Some(ParameterType::UnsignedInteger(range)), Some(Value::UnsignedInteger(value)))
-            if *value >= range.minimum && *value <= range.maximum
+            if (*value >= range.minimum && *value <= range.maximum)
+                || (*value == 0 && definition.parameter_id == SPECULATIVE_TOKEN_COUNT_PARAMETER_ID)
     ) || matches!(
         (definition.parameter_type.as_ref(), value.value.as_ref()),
         (Some(ParameterType::StringEnum(schema)), Some(Value::String(value)))
@@ -339,6 +341,37 @@ mod tests {
             error.to_string(),
             "at most one speculative decoding option may have a token count above 0, but \"mtp\", \"dflash\" are active"
         );
+    }
+
+    #[test]
+    fn fixed_count_speculative_option_accepts_its_count_or_off() {
+        let mut configuration = speculative_configuration();
+        configuration.options[0].parameters[0].parameter_type = Some(
+            ParameterType::UnsignedInteger(UnsignedIntegerModelOptionParameterSchema {
+                minimum: 7,
+                maximum: 7,
+                unit: "tokens".to_owned(),
+            }),
+        );
+        configuration.options[0].default_values = Some(token_count("mtp", 7));
+        let resolve = |overrides: &[ModelOptionValues]| {
+            resolve_model_option_values(
+                &speculative_model_options(),
+                &configuration,
+                &ModelProfile::default(),
+                overrides,
+            )
+        };
+
+        assert_eq!(
+            resolve(&[]).expect("default count"),
+            vec![token_count("mtp", 7), token_count("dflash", 0)]
+        );
+        assert_eq!(
+            resolve(&[token_count("mtp", 0)]).expect("off below the declared range"),
+            vec![token_count("mtp", 0), token_count("dflash", 0)]
+        );
+        assert!(resolve(&[token_count("mtp", 3)]).is_err());
     }
 
     fn values(enabled: bool) -> ModelOptionValues {
