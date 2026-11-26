@@ -140,9 +140,9 @@ export const vllmRelease = create(EngineReleaseSchema, {
 });
 
 export const ninferRelease = create(EngineReleaseSchema, {
-  engineReleaseId: "ninfer-13ebb92",
+  engineReleaseId: "ninfer-40dec5f",
   engineKind: EngineKind.NINFER,
-  version: "13ebb92",
+  version: "40dec5f",
   parameterSchema: {
     schemaId: "ninfer-v3",
     parameters: [
