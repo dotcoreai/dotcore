@@ -5,7 +5,8 @@ use, and you pick one when you deploy it.
 
 | Engine                  | Runs on                                  | Good to know                                       |
 | ----------------------- | ---------------------------------------- | -------------------------------------------------- |
-| [llama.cpp](llama-cpp/) | NVIDIA GPUs on Linux, Apple Silicon Macs | The only engine on a Mac                           |
+| [llama.cpp](llama-cpp/) | NVIDIA GPUs on Linux, Apple Silicon Macs | Runs on every supported Mac                        |
+| [oMLX](omlx/)           | Apple Silicon Macs on macOS 26 or newer  | Manages its own memory; chat models only           |
 | [vLLM](vllm/)           | NVIDIA GPUs on Linux                     | Shares prompt prefixes between requests            |
 | [ninfer](ninfer/)       | RTX 5090, RTX PRO 6000 on x86_64 Linux   | Shares prompt prefixes; first deployment builds it |
 | [Strata](strata/)       | NVIDIA GPUs on x86_64 Linux              | Splits large models between GPU and host memory    |

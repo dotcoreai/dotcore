@@ -1,5 +1,6 @@
 mod llama-cpp 'llama-cpp/Justfile'
 mod ninfer 'ninfer/Justfile'
+mod omlx 'omlx/Justfile'
 mod strata 'strata/Justfile'
 mod vllm 'vllm/Justfile'
 mod vllm-inkling-2-mini 'vllm/inkling-2-mini/Justfile'

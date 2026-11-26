@@ -54,6 +54,7 @@
         # artifacts name as their package.
         engineNatives = {
           llama-cpp = ./engines/llama-cpp/package.nix;
+          omlx = ./engines/omlx/package.nix;
         };
         engineImages = {
           llama-cpp = ./engines/llama-cpp/docker-image.nix;

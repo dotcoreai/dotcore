@@ -1,0 +1,55 @@
+# List oMLX engine recipes.
+help:
+    @just --list
+
+# Build the repository flake's engine package, then check its version and the launcher's generated settings.
+smoke:
+    #!/usr/bin/env sh
+    set -eu
+    root=$(cd ../.. && pwd)
+    out=$(cd "$root" && nix build --no-link --print-out-paths .#engines.omlx.native)
+    echo "omlx package: $out"
+    "$out/bin/omlx" --version
+
+    work=$(mktemp -d)
+    trap 'rm -rf "$work"' EXIT
+    mkdir "$work/snapshot" "$work/run"
+    cd "$work/run"
+    env -i "$out/bin/omlx-launcher" --prepare-only --snapshot "$work/snapshot" --served-id model-a \
+        --port 18080 --context-per-request 32768 --parallel-requests 4 \
+        --memory-ceiling-gb 14.5 --prompt-cache-gb 4
+
+    expect() {
+        jq -e --argjson want "$2" '. == $want' "$1" >/dev/null \
+            || { echo "unexpected $1:"; cat "$1"; exit 1; }
+    }
+    expect omlx/settings.json "{
+      \"version\": \"1.0\",
+      \"auth\": {\"allow_unauthenticated_inference\": true, \"skip_api_key_verification\": false},
+      \"usage\": {\"usage_history\": false},
+      \"logging\": {\"retention_days\": 1},
+      \"huggingface\": {\"hf_cache_enabled\": false},
+      \"cache\": {\"enabled\": true, \"hot_cache_only\": true, \"hot_cache_max_size\": \"4.0GB\",
+        \"ssd_cache_dir\": \"$(pwd -P)/omlx/cache\", \"ssd_cache_max_size\": \"1GB\"}
+    }"
+    expect omlx/model_settings.json '{
+      "version": 3,
+      "models": {"model-a": {"max_context_window": 32768, "is_pinned": true, "is_default": true}}
+    }'
+    [ "$(readlink models/model-a)" = "$(cd "$work/snapshot" && pwd -P)" ] \
+        || { echo "unexpected model link: $(readlink models/model-a)"; exit 1; }
+
+    env -i "$out/bin/omlx-launcher" --prepare-only --snapshot "$work/snapshot" --served-id model-a \
+        --port 18080 --context-per-request 8192 --parallel-requests 1 --memory-ceiling-gb 6
+    jq -e '.cache.enabled == false' omlx/settings.json >/dev/null
+
+    if msg=$(env -i "$out/bin/omlx-launcher" --prepare-only --min-macos 99 --snapshot "$work/snapshot" \
+        --served-id model-a --port 18080 --context-per-request 1 --parallel-requests 1 \
+        --memory-ceiling-gb 1 2>&1); then
+        echo "launcher accepted an unsupported macOS"; exit 1
+    fi
+    case "$msg" in
+        "omlx: macOS 99 or newer is required, found "*) ;;
+        *) echo "unexpected refusal: $msg"; exit 1 ;;
+    esac
+    echo "omlx smoke passed"
