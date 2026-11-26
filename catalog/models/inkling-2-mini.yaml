@@ -4,8 +4,8 @@
 # whose looped core runs layers 6-17 three times per token, each pass with its own KV cache.
 # Only the Inkling vLLM release loads its looped architecture; the stable vLLM release does not.
 # Text only for now: the vision tower ships inside the snapshot but is not declared until its image limits
-# are established. The DSpark drafter (mtp.safetensors) is pinned because the model config references it,
-# but speculative decoding is off, so it is never loaded.
+# are established. The DSpark drafter (mtp.safetensors) is listed in the `nvfp4` snapshot, and vLLM loads
+# it from there while the `dspark` option is on; another vLLM binding needs the file in its snapshot too.
 # Sampling is not pinned: the vendor's temperature 1.0 is a recommendation, set per request.
 modelId: "inkling-2-mini"
 displayName: "Inkling 2 Mini"
@@ -18,6 +18,11 @@ options:
     vision: {}
     visibility: "PARAMETER_VISIBILITY_BASIC"
     description: "Lets requests include images. Loads the vision projector next to the model, which uses more memory."
+  - optionId: "dspark"
+    displayName: "DSpark"
+    speculativeDecoding: { method: "SPECULATIVE_DECODING_METHOD_DSPARK" }
+    visibility: "PARAMETER_VISIBILITY_ADVANCED"
+    description: "Drafts a block of tokens ahead and has the model check them together, which makes code generation much faster; prose gains little or slows a bit. Loads the drafter next to the model, which uses more memory and holds less context."
 artifacts:
   - artifactId: "nvfp4"
     weightQuantization: "NVFP4"
@@ -116,7 +121,7 @@ configurations:
     # The KV pool follows the pinned engine's block layout; the base, activation, vision and margin constants
     # are measured per hardware class.
     sizing:
-      bindingParameters: ["modelLoadingBaseBytes", "activationBytesPerBatchedToken", "visionBytes", "marginBytes"]
+      bindingParameters: ["modelLoadingBaseBytes", "activationBytesPerBatchedToken", "visionBytes", "dsparkBytes", "marginBytes"]
       parameters:
         # One shared pool of 1 MiB blocks: 96 caches in groups of 8, each with a 128 KiB page.
         kvBlockBytes: 1048576
@@ -132,11 +137,19 @@ configurations:
         # With the window it is the planner's linear upper bound for one request, which its start check uses.
         kvBatchedTokenBytes: 1736704
         kvPromptReservationBytes: 6291456
+        # The DSpark drafter's caches stay bf16 and share the pool: its one full-attention cache adds a
+        # quarter block per 64 tokens, and its two sliding-window caches add up to 44 blocks per request
+        # (34 at 512 batched tokens, 44 from 2,048 to 4,096). Fitted to the engine's logged capacity at six
+        # points on an RTX 5090; the GB10 logs the same capacities.
+        kvDsparkBytesPerToken: 4096
+        kvDsparkRequestBytes: 46137344
       derivedParameters:
         kv-cache-memory-bytes: >-
           ${parallel-requests} * ${kvRequestWindowBytes}
           + ${kvPromptReservationBytes} + ${kvBatchedTokenBytes} * ${maximum-batched-tokens}
           + ${kvBytesPerToken} * ${total-context}
+          + if(${options.dspark.token-count} > 0, 1, 0)
+            * (${parallel-requests} * ${kvDsparkRequestBytes} + ${kvDsparkBytesPerToken} * ${total-context})
       estimates:
         acceleratorMemory:
           unit: bytes
@@ -144,12 +157,14 @@ configurations:
             ${modelLoadingBaseBytes}
             + ${activationBytesPerBatchedToken} * ${maximum-batched-tokens}
             + if(${options.vision.enabled}, 1, 0) * ${visionBytes}
+            + if(${options.dspark.token-count} > 0, 1, 0) * ${dsparkBytes}
             + ${kv-cache-memory-bytes}
           allowance: >-
             ${marginBytes}
     hardwareSupport:
-      # The minimum covers the default profile estimate at the default 32K total context, plus the 1% the
-      # placement keeps free, so 24 GB GPUs such as the RTX 4090 qualify with a short context.
+      # The minimum covers the default profile estimate with DSpark off at the default 32K total context, plus
+      # the 1% the placement keeps free, so 24 GB GPUs such as the RTX 4090 qualify with a short context and
+      # the drafter off. With the drafter on, the same estimate needs about 26.7 GB.
       - hardwareClassId: "nvidia"
         hardwareRequirements:
           minimumMemoryBytesPerDevice: "25500000000"
@@ -160,13 +175,16 @@ configurations:
           # release with 11 records (residuals -52 MB to +115 MB). `visionBytes` covers the image encoder peak
           # with 4 images of 2,048 px in one request. It is flat across 512-4,096 batched tokens, so it is
           # sized for the largest need, at 512, and runs high at larger batched tokens. GB10 launches read
-          # below these values. The margin covers the largest under-prediction with room for load the
-          # launches did not show.
+          # below these values. `dsparkBytes` is the drafter's 636 MB of weights plus its graphs and buffers:
+          # 889 MB at 512 batched tokens and 929 MB at 2,048 on an RTX 5090 and a GB10 at the same KV pool,
+          # sized for 4,096 on that line. The margin covers the largest under-prediction with room for load
+          # the launches did not show.
           - bindingId: "nvfp4"
             parameters:
               modelLoadingBaseBytes: 20038563636
               activationBytesPerBatchedToken: 309106
               visionBytes: 1240000000
+              dsparkBytes: 985000000
               marginBytes: 268435456
     engineConfiguration:
       engineKind: "ENGINE_KIND_VLLM"
@@ -195,6 +213,8 @@ configurations:
           - optionId: "vision"
             vision:
               enabledParameterId: "enabled"
+          - optionId: "dspark"
+            dspark: {}
     executionCapabilities:
       supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
     requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
@@ -225,6 +245,20 @@ configurations:
           values:
             - parameterId: "enabled"
               boolean: false
+      # On by default: code decodes 30-80% faster on an RTX 5090 and up to 52% on a GB10, while prose is even
+      # on the 5090 and 20% slower on the GB10.
+      - optionId: "dspark"
+        parameters:
+          - parameterId: "token-count"
+            displayName: "Token count"
+            # The engine accepts only the checkpoint's block size minus one (`mtp_config.block_size` 8,
+            # checked in `vllm/models/inkling2/nvidia/dspark.py`).
+            unsignedInteger: { minimum: "7", maximum: "7", unit: "tokens" }
+        defaultValues:
+          optionId: "dspark"
+          values:
+            - parameterId: "token-count"
+              unsignedInteger: "7"
   - configurationId: "strata-nvidia-cuda"
     # The Inkling engine places its experts itself and takes no expert budgets.
     excludedEngineParameterIds: ["expert-vram-mib", "expert-host-memory-mib"]
