@@ -86,6 +86,12 @@ pub(crate) enum ReferenceKind {
     Node,
 
     Route,
+
+    CatalogModel,
+
+    Profile,
+
+    ExecutionTarget,
 }
 
 impl ReferenceKind {
@@ -95,6 +101,9 @@ impl ReferenceKind {
             Self::Deployment(group) => group.noun(),
             Self::Node => "node",
             Self::Route => "inference route",
+            Self::CatalogModel => "catalog model",
+            Self::Profile => "profile",
+            Self::ExecutionTarget => "execution target",
         }
     }
 

@@ -14,6 +14,7 @@ use clap::Args;
 use dotcore::composition::{DEFAULT_MANAGEMENT_ADDR, MANAGEMENT_ADDR_ENV};
 use dotcore_proto::dotcore::{
     application::v1::application_deployment_service_client::ApplicationDeploymentServiceClient,
+    catalog::v1::catalog_service_client::CatalogServiceClient,
     model::v1::model_deployment_service_client::ModelDeploymentServiceClient,
     site::v1::{
         ConfiguredExecutionTarget, ListConfiguredExecutionTargetsRequest,
@@ -150,6 +151,11 @@ impl Manager {
     /// Returns a client of the site service, which lists the site's machines.
     pub(crate) fn site(&self) -> SiteServiceClient<Channel> {
         SiteServiceClient::new(self.channel.clone())
+    }
+
+    /// Returns a client of the catalog service, which lists what the site can deploy.
+    pub(crate) fn catalog(&self) -> CatalogServiceClient<Channel> {
+        CatalogServiceClient::new(self.channel.clone())
     }
 
     /// Returns a client of the model deployment service.

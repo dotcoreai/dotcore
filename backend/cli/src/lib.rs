@@ -21,6 +21,7 @@ use tokio::runtime::{Builder, Runtime};
 mod application;
 mod code;
 mod config;
+mod deploy;
 mod failure;
 mod gc;
 pub mod guided;
@@ -704,6 +705,9 @@ mod tests {
         "dotc node list: List the site's nodes with their addresses and deployments",
         "dotc model list: List the model deployments with their state and node",
         "dotc model show: Show one model deployment by name or ID",
+        "dotc model catalog: List the catalog models you can deploy, with whether each profile fits each target",
+        "dotc model template: Print a deploy payload for a catalog model, pre-filled with its starting values",
+        "dotc model deploy: Deploy a catalog model from a payload, or from its starting values with `--yes`",
         "dotc model pause: Pause a model deployment, without waiting for it to pause",
         "dotc model resume: Resume a paused model deployment, without waiting for it to resume",
         "dotc model teardown: Remove a model deployment and its workload after confirmation",

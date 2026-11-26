@@ -7,10 +7,16 @@
 //! every command prints the
 //! manager's own message instead.
 
+mod catalog;
+mod deploy;
 mod list;
 mod parameters;
+mod payload;
 mod projection;
+mod selection;
 mod show;
+mod template;
+mod view;
 
 use clap::{Args, Subcommand};
 use dotcore_proto::dotcore::{
@@ -33,9 +39,12 @@ use crate::{
     },
     output::OutputFormat,
 };
+use catalog::{ModelCatalogArgs, model_catalog};
+use deploy::{ModelDeployArgs, model_deploy};
 use list::{ModelListArgs, model_list};
 use projection::desired_state_label;
 use show::{ModelShowArgs, model_show};
+use template::{ModelTemplateArgs, model_template};
 
 /// Commands that manage the model deployments of a running site.
 #[derive(Debug, Args)]
@@ -56,6 +65,20 @@ enum ModelSubcommand {
 
     /// Show one model deployment by name or ID
     Show(ModelShowArgs),
+
+    /// List the catalog models you can deploy, with whether each profile fits each target
+    Catalog(ModelCatalogArgs),
+
+    /// Print a deploy payload for a catalog model, pre-filled with its starting values
+    ///
+    /// Edit it and pass it to `deploy -f`. Comments say what each parameter accepts and the largest
+    /// value that fits the target.
+    Template(ModelTemplateArgs),
+
+    /// Deploy a catalog model from a payload, or from its starting values with `--yes`
+    ///
+    /// `--dry-run` estimates the deployment and reports whether it fits, without creating it.
+    Deploy(ModelDeployArgs),
 
     /// Pause a model deployment, without waiting for it to pause
     Pause(LifecycleArgs),
@@ -80,6 +103,9 @@ impl ModelCommand {
         match self.command {
             Some(ModelSubcommand::List(arguments)) => model_list(arguments, format).await,
             Some(ModelSubcommand::Show(arguments)) => model_show(arguments, format).await,
+            Some(ModelSubcommand::Catalog(arguments)) => model_catalog(arguments, format).await,
+            Some(ModelSubcommand::Template(arguments)) => model_template(arguments).await,
+            Some(ModelSubcommand::Deploy(arguments)) => model_deploy(arguments, format).await,
             Some(ModelSubcommand::Pause(arguments)) => {
                 change_lifecycle::<ModelDeployment>(
                     &arguments.manager,
