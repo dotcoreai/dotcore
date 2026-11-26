@@ -438,6 +438,10 @@ profiles:
           unsignedInteger: "32"
         - parameterId: "kv-offloading-size-gib"
           unsignedInteger: "0"
+    # The sizing counts batched tokens in its activation, KV and vision terms, fitted at 512-4,096 on an
+    # RTX 5090, so operators may trade prompt speed for context.
+    engineParameterVisibilityOverrides:
+      - { parameterId: "maximum-batched-tokens", visibility: "PARAMETER_VISIBILITY_ADVANCED" }
   - profileId: "strata-sq-10"
     displayName: "SQ-10 on Strata"
     description: "Runs Inkling 2 Mini's SQ-10 pack through Strata on an RTX 5090 or RTX PRO 6000 for text inference."
