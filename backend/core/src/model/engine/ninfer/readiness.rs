@@ -82,7 +82,7 @@ async fn probe_response(port: u16, path: &str) -> Result<Option<HttpResponse>, E
     match get_loopback_until(port, path, Instant::now() + READINESS_IO_TIMEOUT).await {
         Ok(response) => Ok(Some(response)),
         Err(EngineProbeError::Transient) => Ok(None),
-        Err(error @ EngineProbeError::Terminal(_)) => Err(error),
+        Err(error) => Err(error),
     }
 }
 
@@ -161,7 +161,7 @@ impl HttpResponse {
 
     fn json(&self, context: &'static str) -> Result<Value, EngineProbeError> {
         serde_json::from_slice(&self.body)
-            .map_err(|error| probe::terminal(anyhow::Error::new(error).context(context)))
+            .map_err(|error| probe::unexpected(anyhow::Error::new(error).context(context)))
     }
 }
 
@@ -198,7 +198,7 @@ async fn get_loopback_until(
                 ));
             }
             Err(error) => {
-                return Err(probe::terminal(anyhow::Error::new(error).context(
+                return Err(probe::unexpected(anyhow::Error::new(error).context(
                     "ninfer readiness response read failed after response bytes",
                 )));
             }
@@ -208,21 +208,21 @@ async fn get_loopback_until(
                 return Err(EngineProbeError::Transient);
             }
             return HttpResponse::parse_if_complete(&response, true)
-                .map_err(probe::terminal)?
+                .map_err(probe::unexpected)?
                 .ok_or_else(|| {
-                    probe::terminal(anyhow::anyhow!(
+                    probe::unexpected(anyhow::anyhow!(
                         "ninfer readiness response has no complete declared HTTP body"
                     ))
                 });
         }
         if response.len() + read > MAX_HTTP_RESPONSE_BYTES {
-            return Err(probe::terminal(anyhow::anyhow!(
+            return Err(probe::unexpected(anyhow::anyhow!(
                 "ninfer readiness response exceeds size limit"
             )));
         }
         response.extend_from_slice(&buffer[..read]);
         if let Some(response) =
-            HttpResponse::parse_if_complete(&response, false).map_err(probe::terminal)?
+            HttpResponse::parse_if_complete(&response, false).map_err(probe::unexpected)?
         {
             return Ok(response);
         }
@@ -347,7 +347,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn invalid_health_json_is_terminal() {
+    async fn invalid_health_json_is_retried() {
         let port = serve([(200, "{")]).await;
 
         let error = is_ready(&endpoint(port), "qwen3-8-27b")

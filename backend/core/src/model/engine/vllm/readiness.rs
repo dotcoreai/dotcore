@@ -3,7 +3,7 @@
 //! It issues raw HTTP requests against the local service, checking the `/health/ready` endpoint when the
 //! release declares ready-and-models mode and always requiring `/v1/models` to list the exact served model
 //! id. Connection failures and timeouts are reported as transient, while malformed or invalid-JSON
-//! responses are reported as terminal.
+//! responses are reported as unexpected and retried.
 
 use std::time::Duration;
 
@@ -75,7 +75,7 @@ async fn is_ready(
             }
         }
         Ok(VllmReadinessMode::Unspecified) | Err(_) => {
-            return Err(probe::terminal(anyhow::anyhow!(
+            return Err(probe::unexpected(anyhow::anyhow!(
                 "vLLM readiness policy is unsupported"
             )));
         }
@@ -93,7 +93,7 @@ async fn probe_response(
     match get_loopback(endpoint.host_port, path).await {
         Ok(response) => Ok(Some(response)),
         Err(EngineProbeError::Transient) => Ok(None),
-        Err(error @ EngineProbeError::Terminal(_)) => Err(error),
+        Err(error) => Err(error),
     }
 }
 
@@ -157,7 +157,7 @@ impl HttpResponse {
             return Ok(false);
         }
         let value: Value = serde_json::from_slice(&self.body).map_err(|error| {
-            probe::terminal(
+            probe::unexpected(
                 anyhow::Error::new(error).context("vLLM /v1/models returned invalid JSON"),
             )
         })?;
@@ -216,7 +216,7 @@ async fn collect_response(
                 return Err(if response.is_empty() {
                     probe::io_error("vLLM readiness response read failed", error)
                 } else {
-                    probe::terminal(
+                    probe::unexpected(
                         anyhow::Error::new(error)
                             .context("vLLM readiness response read failed after response bytes"),
                     )
@@ -227,18 +227,18 @@ async fn collect_response(
             return if response.is_empty() {
                 Err(EngineProbeError::Transient)
             } else {
-                HttpResponse::parse(&response).map_err(probe::terminal)
+                HttpResponse::parse(&response).map_err(probe::unexpected)
             };
         }
         if response.len() + read > MAX_HTTP_RESPONSE_BYTES {
-            return Err(probe::terminal(anyhow::anyhow!(
+            return Err(probe::unexpected(anyhow::anyhow!(
                 "vLLM readiness response exceeds size limit"
             )));
         }
         response.extend_from_slice(&buffer[..read]);
 
         if let Some(response) =
-            HttpResponse::parse_if_complete(&response, false).map_err(probe::terminal)?
+            HttpResponse::parse_if_complete(&response, false).map_err(probe::unexpected)?
         {
             return Ok(response);
         }
@@ -369,14 +369,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unsupported_readiness_mode_is_terminal() {
+    async fn unsupported_readiness_mode_is_retried() {
         let endpoint = LoopbackEndpoint {
             port_name: "http".to_owned(),
             host_port: 1,
         };
         assert!(matches!(
             is_ready(&endpoint, "fixture", VllmReadinessMode::Unspecified as i32).await,
-            Err(EngineProbeError::Terminal(_))
+            Err(EngineProbeError::Unexpected(_))
         ));
     }
 }

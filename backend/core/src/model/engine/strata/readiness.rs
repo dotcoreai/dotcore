@@ -5,7 +5,7 @@
 //! health reports the model unloaded if the engine dies. Both count as still loading, and a
 //! failed start exits the process and surfaces as a workload exit instead. An engine that fits less
 //! context in memory than asked starts anyway, so a loaded engine reporting less than the
-//! deployment's context per request fails readiness for good.
+//! deployment's context per request fails the deployment instead of being retried.
 
 use std::time::Duration;
 
@@ -85,7 +85,7 @@ async fn is_ready(
         .retry(reqwest::retry::never())
         .build()
         .map_err(|error| {
-            probe::terminal(anyhow::Error::new(error).context("Strata readiness client failed"))
+            probe::unexpected(anyhow::Error::new(error).context("Strata readiness client failed"))
         })?;
     let request = async {
         let response = client
@@ -105,7 +105,7 @@ async fn is_ready(
         return Ok(false);
     }
     let health = serde_json::from_slice::<Health>(&body).map_err(|error| {
-        probe::terminal(
+        probe::unexpected(
             anyhow::Error::new(error).context("Strata /health returned an unexpected body"),
         )
     })?;
@@ -115,10 +115,13 @@ async fn is_ready(
     if let Some(context_per_request) = context_per_request
         && health.max_context < context_per_request
     {
-        return Err(probe::terminal(StartedContextBelowDeployment {
-            started: health.max_context,
-            context_per_request,
-        }));
+        return Err(EngineProbeError::ContextBelowDeployment(
+            StartedContextBelowDeployment {
+                started: health.max_context,
+                context_per_request,
+            }
+            .into(),
+        ));
     }
     Ok(true)
 }
@@ -182,7 +185,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_started_context_below_the_context_per_request_is_terminal() {
+    async fn a_started_context_below_the_context_per_request_cannot_serve_the_deployment() {
         let port = serve(200, LOADED).await;
         assert!(
             is_ready(&endpoint(port), "qwen3-6-35b-a3b", Some(32_768))
@@ -197,7 +200,7 @@ mod tests {
 
         assert_eq!(
             error.to_string(),
-            "engine readiness probe failed: Strata started with a context per request of 32768 \
+            "engine cannot serve the deployment: Strata started with a context per request of 32768 \
              tokens, below the deployment's 32769 tokens; lower the context per request or free \
              accelerator memory"
         );
@@ -230,7 +233,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unexpected_health_body_is_terminal() {
+    async fn unexpected_health_body_is_retried() {
         let port = serve(200, r#"{"status": "ok"}"#).await;
 
         let error = is_ready(&endpoint(port), "qwen3-6-35b-a3b", None)

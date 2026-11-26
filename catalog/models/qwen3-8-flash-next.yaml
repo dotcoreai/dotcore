@@ -79,9 +79,12 @@ auxiliaryArtifacts:
           - path: "mtp/experts.bin"
             provenanceDigest: "09398406be61f1f54c93861f449e48b8df0bfccbc9ec9b2b7636775a6ea9244f"
 # IQ2_XS is measured on an RTX 5090 with one request at total contexts of 32K to 256K and caps of
-# 12 and 18 GiB; every other sizing is estimated from it:
+# 12 and 18 GiB. IQ3_S is measured on the RTX 5090 too, and its base is fitted to those records;
+# every other sizing is estimated from them:
 # - baseAccelBytes: the fit's base for IQ2_XS. IQ3_S adds 208,591,360 bytes of larger dense weights
-#   and NVFP4 a further 2,012,011,520, both read from the GGUF headers.
+#   and NVFP4 a further 2,012,011,520, both read from the GGUF headers. The IQ3_S base on the
+#   RTX 5090 adds 796,000,000 bytes to that estimate, fitted to records measured on Strata 0.2.17
+#   and not re-measured on 0.2.21; the GB10 IQ3_S and NVFP4 bases keep the unmeasured estimate.
 # - kvBytesPerToken: 13 attention layers (12 and the draft layer) x 1056 bytes of int8 KV.
 #   workBytesPerToken: the measured slope above the KV cache.
 # - expertBytes: a full expert cache, 48 layers x 512 slots of the pack's largest per-layer expert
@@ -100,7 +103,7 @@ configurations:
   # build carries kernels for its own GPUs, so each configuration pairs one build with one class.
   - configurationId: "strata-nvidia-cuda"
     engineArtifacts:
-      - engineReleaseId: "strata-0-2-19"
+      - engineReleaseId: "strata-0-2-21"
         engineArtifactId: "linux-amd64-cuda"
     artifactBindings:
       - bindingId: "iq3-s"
@@ -145,10 +148,11 @@ configurations:
         parameters:
           workBytesPerToken: 1952
         bindingSizing:
-          # Estimated from IQ2_XS. The cap leaves an RTX 5090 room for the maximum context.
+          # Measured on an RTX 5090 on Strata 0.2.17, with the base fitted to those records and not
+          # re-measured on 0.2.21. The cap leaves an RTX 5090 room for the maximum context.
           - bindingId: "iq3-s"
             parameters:
-              baseAccelBytes: 5917039104
+              baseAccelBytes: 6713039104
               expertBytes: 65431142400
               expertHostMib: 33796
               expertVramMib: 18432
@@ -182,7 +186,7 @@ configurations:
     # The GPU's expert cache already holds the experts in host memory.
     excludedEngineParameterIds: ["expert-host-memory-mib"]
     engineArtifacts:
-      - engineReleaseId: "strata-0-2-19"
+      - engineReleaseId: "strata-0-2-21"
         engineArtifactId: "linux-arm64-cuda"
     artifactBindings:
       - bindingId: "iq3-s"
@@ -240,7 +244,7 @@ configurations:
   # minimums keep it off the RTX 5090, which shares the RTX PRO 6000's class.
   - configurationId: "strata-nvfp4-nvidia-cuda"
     engineArtifacts:
-      - engineReleaseId: "strata-0-2-19"
+      - engineReleaseId: "strata-0-2-21"
         engineArtifactId: "linux-amd64-cuda"
     artifactBindings:
       - bindingId: "nvfp4"
@@ -313,7 +317,7 @@ configurations:
     # The GPU's expert cache already holds the experts in host memory.
     excludedEngineParameterIds: ["expert-host-memory-mib"]
     engineArtifacts:
-      - engineReleaseId: "strata-0-2-19"
+      - engineReleaseId: "strata-0-2-21"
         engineArtifactId: "linux-arm64-cuda"
     artifactBindings:
       - bindingId: "nvfp4"

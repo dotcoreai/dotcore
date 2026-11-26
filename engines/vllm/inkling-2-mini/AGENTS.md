@@ -2,16 +2,16 @@
 
 ## How it is built
 
-* [`docker-image.lock.json`](docker-image.lock.json) pins upstream's `inkling-2-mini` image by index
-  digest; nothing is built here. The node pulls it on first use or loads its stored image, and never
-  pushes it. The release declares the driver floor.
-* The image is a day-zero build for one model family, not a stable release, and its labels carry no
-  source revision: `ai.vllm.build.commit` reads `unknown` and `ai.vllm.image.tag` reads
-  `local/vllm-openai:dev`. The installed vLLM package is the only source pointer, and it carries a
-  short commit prefix in its version.
-* Its prebuilt kernels target datacenter Blackwell (`TORCH_CUDA_ARCH_LIST=10.0+PTX 10.3+PTX`), so a
-  model whose kernels are missing for a consumer card fails there with `no kernel image is available
-  for execution on the device`; the models this release approves are the ones known to run on it.
+* [`docker-image.lock.json`](docker-image.lock.json) pins upstream's official `vllm/vllm-openai`
+  nightly (the plain `nightly-<commit>` tag, never `cu135-nightly`, whose Triton breaks Inkling) by
+  index digest; nothing is built here. The node pulls it on first use or loads its stored image, and
+  never pushes it. The release declares the driver floor.
+* The image is a nightly, not a stable release. Its labels carry the source commit
+  (`ai.vllm.build.commit`), and the installed vLLM package version carries a short commit prefix.
+* Its prebuilt kernels cover datacenter and consumer Blackwell (`TORCH_CUDA_ARCH_LIST` in the image
+  config), and a model whose kernels are missing for a card fails with `no kernel image is
+  available for execution on the device`; the models this release approves are the ones known to
+  run on it.
 * Model configurations name the `linux-amd64-cuda` and `linux-arm64-cuda` artifact ids; keep both.
 * Nothing here is part of root `just build`, `test` or `check`.
 * Shared parameters: [`engines/AGENTS.md`](../../AGENTS.md) says where their flags and rules live.
@@ -25,9 +25,11 @@
 
 1. Read the `CHECK` comments first: if a stable vLLM release now runs the models, retire this
    engine instead (How it is built).
-2. Read the index digest of the current `inkling-2-mini` tag:
-   `docker buildx imagetools inspect docker.io/vllm/vllm-openai:inkling-2-mini`. Pin that digest, not
-   the tag, which upstream can move.
+2. Pick the newest plain `nightly-<commit>` tag on Docker Hub (both architectures published) and
+   confirm its commit contains vLLM PR #69028, for example with the GitHub compare API from merge
+   commit `ab18334`. Read its index digest:
+   `docker buildx imagetools inspect docker.io/vllm/vllm-openai:nightly-<commit>`. Pin that digest,
+   not the tag.
 3. Confirm from each platform's image config, not the name: `CUDA_VERSION` and `NVIDIA_REQUIRE_CUDA`
    (`docker buildx imagetools inspect ... --format '{{json .Image}}'`).
 4. Confirm the vLLM build inside:
