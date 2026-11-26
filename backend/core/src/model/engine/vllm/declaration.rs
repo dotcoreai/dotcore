@@ -3,12 +3,15 @@
 //! Each check returns the declarations that fail, covering the release engine kind and its parameter
 //! schema, and for configurations the wrapper and release kinds, the fixed settings, the engine parameter
 //! references, the snapshot artifact bindings, the one-target execution shape, and one unambiguous
-//! realization per model option, including where an MTP head comes from. The shared context
+//! realization per model option, including where an MTP head comes from and that a DSpark drafter
+//! drafts a fixed token count. The shared context
 //! parameters need no reference: the plan reads them directly, and the catalog checks their shape.
 
 use std::collections::BTreeSet;
 
-use dotcore_catalog::shared_parameters::is_shared_parameter;
+use dotcore_catalog::{
+    options::SPECULATIVE_TOKEN_COUNT_PARAMETER_ID, shared_parameters::is_shared_parameter,
+};
 use dotcore_domain::Accelerator;
 use dotcore_proto::dotcore::{
     catalog::v1::{
@@ -262,7 +265,7 @@ fn validate_realizations(
 
     let mut option_ids = BTreeSet::new();
     let mut vision_count = 0;
-    let mut mtp_count = 0;
+    let mut speculative_count = 0;
     for realization in &payload.option_realizations {
         let option = configuration
             .options
@@ -282,7 +285,7 @@ fn validate_realizations(
                     option,
                     model_kind,
                     &mut vision_count,
-                    &mut mtp_count,
+                    &mut speculative_count,
                 )
             });
         if !valid {
@@ -299,7 +302,7 @@ fn validate_realizations(
             .iter()
             .any(|option| !option_ids.contains(&option.option_id))
         || vision_count > 1
-        || mtp_count > 1
+        || speculative_count > 1
     {
         errors.push(anyhow::anyhow!(
             "configuration {:?} requires one unambiguous vLLM realization per model option",
@@ -331,7 +334,7 @@ fn valid_realization(
     option: &ModelConfigurationOption,
     model_kind: Option<&ModelOptionKind>,
     vision_count: &mut usize,
-    mtp_count: &mut usize,
+    speculative_count: &mut usize,
 ) -> bool {
     match (model_kind, realization) {
         (Some(ModelOptionKind::Vision(_)), Some(Realization::Vision(vision))) => {
@@ -340,8 +343,12 @@ fn valid_realization(
                 matches!(kind, ModelOptionParameterType::Boolean(_))
             })
         }
+        (Some(ModelOptionKind::SpeculativeDecoding(kind)), Some(Realization::Dspark(_))) => {
+            *speculative_count += 1;
+            kind.method == SpeculativeDecodingMethod::Dspark as i32 && fixed_token_count(option)
+        }
         (Some(ModelOptionKind::SpeculativeDecoding(kind)), Some(Realization::Mtp(mtp))) => {
-            *mtp_count += 1;
+            *speculative_count += 1;
             kind.method == SpeculativeDecodingMethod::Mtp as i32
                 && valid_mtp_draft(
                     model,
@@ -383,6 +390,15 @@ fn valid_mtp_draft(
     }
 }
 
+/// Accepts a speculative-token count whose range holds one count: the DSpark drafter proposes a
+/// block of fixed length, and the engine refuses any other count.
+fn fixed_token_count(option: &ModelConfigurationOption) -> bool {
+    parameter_has_type(option, SPECULATIVE_TOKEN_COUNT_PARAMETER_ID, |kind| {
+        matches!(kind, ModelOptionParameterType::UnsignedInteger(range)
+            if range.minimum == range.maximum)
+    })
+}
+
 fn parameter_has_type(
     option: &ModelConfigurationOption,
     parameter_id: &str,
@@ -412,15 +428,17 @@ mod tests {
         catalog::v1::{
             BooleanParameterSchema, EngineParameterSchema, EngineRelease,
             HuggingFaceArtifactSource, Model, ModelArtifactBinding, ModelAuxiliaryArtifact,
-            ModelExecutionCapabilities, ParameterDefinition, SpeculativeDecodingModelOption,
+            ModelExecutionCapabilities, ModelOptionParameterDefinition, ParameterDefinition,
+            SpeculativeDecodingModelOption, UnsignedIntegerModelOptionParameterSchema,
             UnsignedIntegerParameterSchema,
         },
         engine::v1::{
             EngineKind, EngineModelConfiguration, engine_model_configuration::Configuration,
         },
         engine::vllm::v1::{
-            VllmEmbeddedMtpHead, VllmFixedModelSettings, VllmModelConfiguration,
-            VllmMtpDraftSource, VllmMtpOptionRealization, vllm_mtp_draft_source::Source,
+            VllmDsparkOptionRealization, VllmEmbeddedMtpHead, VllmFixedModelSettings,
+            VllmModelConfiguration, VllmMtpDraftSource, VllmMtpOptionRealization,
+            vllm_mtp_draft_source::Source,
         },
         model::v1::{
             LocalModelDeploymentConfiguration, ResolvedLocalModelDeploymentSnapshot,
@@ -578,6 +596,43 @@ mod tests {
 
         assert!(valid(SpeculativeDecodingMethod::Mtp));
         assert!(!valid(SpeculativeDecodingMethod::Unspecified));
+    }
+
+    #[test]
+    fn dspark_realization_requires_a_dspark_option_with_one_token_count() {
+        let valid = |method: SpeculativeDecodingMethod, minimum: u64, maximum: u64| {
+            let option = ModelConfigurationOption {
+                parameters: vec![ModelOptionParameterDefinition {
+                    parameter_id: "token-count".to_owned(),
+                    display_name: "Token count".to_owned(),
+                    parameter_type: Some(ModelOptionParameterType::UnsignedInteger(
+                        UnsignedIntegerModelOptionParameterSchema {
+                            minimum,
+                            maximum,
+                            unit: "tokens".to_owned(),
+                        },
+                    )),
+                }],
+                ..Default::default()
+            };
+            valid_realization(
+                &Model::default(),
+                &ModelEngineConfiguration::default(),
+                Some(&Realization::Dspark(VllmDsparkOptionRealization {})),
+                &option,
+                Some(&ModelOptionKind::SpeculativeDecoding(
+                    SpeculativeDecodingModelOption {
+                        method: method as i32,
+                    },
+                )),
+                &mut 0,
+                &mut 0,
+            )
+        };
+
+        assert!(valid(SpeculativeDecodingMethod::Dspark, 7, 7));
+        assert!(!valid(SpeculativeDecodingMethod::Dspark, 0, 7));
+        assert!(!valid(SpeculativeDecodingMethod::Mtp, 7, 7));
     }
 
     #[test]

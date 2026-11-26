@@ -154,7 +154,12 @@ pub(crate) fn translate(
                     .ok_or(VllmPlanError::InvalidResolvedState)?;
                 let draft = speculative_draft::vllm(mtp.draft.as_ref())
                     .ok_or(VllmPlanError::InvalidResolvedState)?;
-                speculative = (count > 0).then_some((count, draft));
+                speculative = (count > 0).then_some(Speculative::Mtp(count, draft));
+            }
+            Some(Realization::Dspark(_)) => {
+                let count = unsigned_value(values, SPECULATIVE_TOKEN_COUNT_PARAMETER_ID)
+                    .ok_or(VllmPlanError::InvalidResolvedState)?;
+                speculative = (count > 0).then_some(Speculative::Dspark(count));
             }
             None => return Err(VllmPlanError::InvalidResolvedState),
         }
@@ -164,13 +169,13 @@ pub(crate) fn translate(
     }
     arguments.extend(literals(["--served-model-name", &snapshot.model_id]));
     match speculative {
-        Some((tokens, SpeculativeDraft::Embedded)) => {
+        Some(Speculative::Mtp(tokens, SpeculativeDraft::Embedded)) => {
             arguments.extend(literals(["--speculative-config"]));
             arguments.push(literal(&format!(
                 r#"{{"method":"mtp","num_speculative_tokens":{tokens}}}"#
             )));
         }
-        Some((tokens, SpeculativeDraft::Artifact(artifact_id))) => {
+        Some(Speculative::Mtp(tokens, SpeculativeDraft::Artifact(artifact_id))) => {
             // The draft path is only known once the workload mounts it, and a binding token is a
             // whole argument, so the draft case uses dotted keys instead of one JSON literal.
             ensure_auxiliary(snapshot, artifact_id)?;
@@ -185,6 +190,14 @@ pub(crate) fn translate(
                 "--speculative-config.num_speculative_tokens",
                 &tokens.to_string(),
             ]));
+        }
+        Some(Speculative::Dspark(tokens)) => {
+            // vLLM's Inkling recipe samples drafts from the drafter's distribution, which keeps
+            // acceptance up at the model's default temperature.
+            arguments.extend(literals(["--speculative-config"]));
+            arguments.push(literal(&format!(
+                r#"{{"method":"dspark","num_speculative_tokens":{tokens},"draft_sample_method":"probabilistic"}}"#
+            )));
         }
         None => {}
     }
@@ -295,6 +308,13 @@ pub(crate) fn validate_snapshot(
     Ok(())
 }
 
+/// The speculative decoding a launch turns on, each with its speculative-token count: an MTP head
+/// with its draft source, or the DSpark drafter, which vLLM loads from the model's weights.
+enum Speculative<'a> {
+    Mtp(u64, SpeculativeDraft<'a>),
+    Dspark(u64),
+}
+
 /// Renders the retained footprint over the retained memory-pool total, rounded up to four
 /// decimals and capped at 1. vLLM's startup check then asks for room for this footprint on both
 /// dedicated and unified memory, where free memory never approaches the default fraction.
@@ -375,6 +395,10 @@ fn validate_resolved_consistency(
                 if let Some(artifact_id) = draft.artifact_id().filter(|_| count > 0) {
                     expected_auxiliary.insert(artifact_id);
                 }
+            }
+            Some(Realization::Dspark(_)) => {
+                unsigned_value(values, SPECULATIVE_TOKEN_COUNT_PARAMETER_ID)
+                    .ok_or(VllmPlanError::InvalidResolvedState)?;
             }
             None => return Err(VllmPlanError::InvalidResolvedState),
         }
@@ -605,9 +629,10 @@ mod tests {
         },
         engine::v1::{ResolvedEngineModelState, resolved_engine_model_state::State},
         engine::vllm::v1::{
-            VllmEmbeddedMtpHead, VllmFixedModelSettings, VllmKvCacheDataType,
-            VllmKvOffloadingBackend, VllmMtpDraftSource, VllmMtpOptionRealization,
-            VllmOptionRealization, VllmReadinessMode, VllmReadinessPolicy, VllmResolvedModelState,
+            VllmDsparkOptionRealization, VllmEmbeddedMtpHead, VllmFixedModelSettings,
+            VllmKvCacheDataType, VllmKvOffloadingBackend, VllmMtpDraftSource,
+            VllmMtpOptionRealization, VllmOptionRealization, VllmReadinessMode,
+            VllmReadinessPolicy, VllmResolvedModelState,
             vllm_mtp_draft_source::Source as DraftSource,
         },
         model::v1::{
@@ -1099,6 +1124,45 @@ mod tests {
         validate_snapshot(&off).expect("MTP off snapshot");
         on.desired_launch_plan = Some(on_plan);
         validate_snapshot(&on).expect("MTP on snapshot");
+    }
+
+    #[test]
+    fn dspark_token_count_controls_the_speculative_config_argument() {
+        let dspark = |count: u64| {
+            let mut snapshot = snapshot();
+            configure_mtp(&mut snapshot, count, None);
+            let Some(State::Vllm(state)) = snapshot
+                .resolved_engine_state
+                .as_mut()
+                .and_then(|state| state.state.as_mut())
+            else {
+                panic!("vLLM state");
+            };
+            state.option_realizations[0].realization =
+                Some(Realization::Dspark(VllmDsparkOptionRealization {}));
+            let plan = translate(&snapshot).expect("DSpark plan");
+            let arguments = argument_values(&plan);
+            snapshot.desired_launch_plan = Some(plan);
+            validate_snapshot(&snapshot).expect("DSpark snapshot");
+            arguments
+        };
+        let speculative = |arguments: &[ArgumentValue]| {
+            arguments
+                .iter()
+                .position(|argument| {
+                    *argument == ArgumentValue::Literal("--speculative-config".to_owned())
+                })
+                .map(|index| arguments[index + 1].clone())
+        };
+
+        assert_eq!(speculative(&dspark(0)), None);
+        assert_eq!(
+            speculative(&dspark(7)),
+            Some(ArgumentValue::Literal(
+                r#"{"method":"dspark","num_speculative_tokens":7,"draft_sample_method":"probabilistic"}"#
+                    .to_owned()
+            ))
+        );
     }
 
     #[test]

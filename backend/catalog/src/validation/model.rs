@@ -676,7 +676,8 @@ fn valid_configuration_option(
 }
 
 /// Describes how a speculative-decoding option's parameters depart from the fixed shape: a
-/// single speculative-token count from 0 (off) to at least 1, counted in tokens.
+/// single speculative-token count in tokens whose range, up to at least 1, bounds the counts that
+/// turn it on. A count of 0 is always accepted as off.
 fn speculative_parameter_problem(parameters: &[ModelOptionParameterDefinition]) -> Option<String> {
     let [parameter] = parameters else {
         return Some(format!(
@@ -694,11 +695,6 @@ fn speculative_parameter_problem(parameters: &[ModelOptionParameterDefinition]) 
             "parameter {SPECULATIVE_TOKEN_COUNT_PARAMETER_ID:?} must be an unsigned integer"
         ));
     };
-    if range.minimum != 0 {
-        return Some(format!(
-            "parameter {SPECULATIVE_TOKEN_COUNT_PARAMETER_ID:?} must have minimum 0"
-        ));
-    }
     if range.maximum < 1 {
         return Some(format!(
             "parameter {SPECULATIVE_TOKEN_COUNT_PARAMETER_ID:?} must have maximum at least 1"
@@ -1430,7 +1426,7 @@ mod tests {
                 "model \"fixture-model\" configuration \"local\" speculative decoding option \"mtp\" {problem}"
             )
         };
-        let cases: [(&str, OptionMutation, Vec<String>); 7] = [
+        let cases: [(&str, OptionMutation, Vec<String>); 6] = [
             (
                 "missing parameter",
                 |option| {
@@ -1488,16 +1484,6 @@ mod tests {
                 },
                 vec![speculative_error(
                     "parameter \"token-count\" must be an unsigned integer",
-                )],
-            ),
-            (
-                "nonzero minimum",
-                |option| {
-                    option.parameters = vec![unsigned_parameter("token-count", 1, 8)];
-                    option.default_values = Some(token_count("mtp", 1));
-                },
-                vec![speculative_error(
-                    "parameter \"token-count\" must have minimum 0",
                 )],
             ),
             (

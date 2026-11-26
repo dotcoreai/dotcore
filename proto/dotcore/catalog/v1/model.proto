@@ -239,7 +239,8 @@ message ModelOption {
 message VisionModelOption {}
 
 // Identifies the semantic speculative-decoding option kind and the draft method it uses. Its
-// configuration options declare one unsigned `token-count` parameter in `tokens`, where 0 is off.
+// configuration options declare one unsigned `token-count` parameter in `tokens`, where 0 is off
+// and the declared range bounds the counts when on.
 message SpeculativeDecodingModelOption {
   // Required draft method proposing the speculative tokens.
   SpeculativeDecodingMethod method = 1;
@@ -252,6 +253,10 @@ enum SpeculativeDecodingMethod {
 
   // Multi-token prediction heads trained with the model.
   SPECULATIVE_DECODING_METHOD_MTP = 1;
+
+  // DSpark block drafter, proposing a fixed-length block of tokens from the model's hidden
+  // states.
+  SPECULATIVE_DECODING_METHOD_DSPARK = 2;
 }
 
 // Identifies the semantic KV cache precision option kind. Its configuration options declare one
