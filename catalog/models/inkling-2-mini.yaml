@@ -233,61 +233,60 @@ configurations:
         modelArtifactId: "sq-15"
       - bindingId: "sq-20"
         modelArtifactId: "sq-20"
-    # Measured on an RTX 5090 (strata-0-2-19, starts per binding at total contexts 16,384-385,000 and
-    # 1-8 parallel requests) and fitted per the model-sizing skill. Accelerator memory = weights and CUDA state
-    # + state per parallel request + KV and start-up scratch per token of the total context, plus an allowance for
-    # the prompt buffers the engine grows as longer prompts arrive. The catalog's equations are linear in the total
-    # context, so the two per-token terms that follow a request's context (scratch and prompt buffers) are charged
-    # on the total: exact at 1 parallel request, and high by their per-token cost times the context that the
-    # other parallel requests' share of the total adds, at more.
+    # Measured on an RTX 5090 (strata-0-2-21, 25 runs over the three bindings at 1-8 parallel requests and
+    # 64K-256K total contexts, each filled with real prompts, plus the runs that failed) and fitted per the
+    # model-sizing skill. Accelerator memory = weights and CUDA state + a chunk buffer at under 4 parallel
+    # requests + state per parallel request + per-token KV and scratch of the total context. The fit is on the peak
+    # a start needs: KV grows one layer visit at a time, and each step holds the old visit besides the new one
+    # (4,096 bytes per allocated token) and a 256 MiB floor, which samples taken during a run mostly miss. The
+    # catalog's equations are linear in the total context, so the scratch that follows a request's context is
+    # charged on the total: exact at 1 parallel request, high at more.
     sizing:
       bindingParameters: ["weightBytes", "marginBytes"]
       parameters:
-        # FP16 KV (the wrapper passes --kv fp16): 8 of the 48 layer visits keep full KV, 32 KiB per token (upstream's
-        # memory notes). The fit gave 31,761-32,378, so the notes' value is kept.
+        # FP16 KV (the wrapper passes --kv fp16): 8 of the 48 layer visits keep full KV, 32 KiB per token.
         kvBytesPerToken: 32768
-        # Fitted 220-230 MB per request: the sliding-window and convolution state.
-        requestStateBytes: 230000000
-        # Fitted 21.9-22.4 KB per token of the context per request: scratch sized when the engine starts.
-        requestContextBytesPerToken: 22500
-        # Memory grows about 85 KB per token of the longest prompt served, to the context per request, and
-        # stays: 30,000-token prompts added 2.65 GB at 2 parallel requests and a 125,883-token prompt added
-        # 10.7 GB at 1; concurrent prompts did not add up. Held back as an allowance, since a start doesn't
-        # show it. A prompt that grows past the card's free memory ends in a CUDA out-of-memory error and a stuck engine.
-        promptBytesPerToken: 86000
+        # Sliding-window and convolution state of one request.
+        requestStateBytes: 324960316
+        # Prefill chunk buffers: the engine uses 2,048-token chunks at 1-3 parallel requests and 1,024 from 4 on.
+        largeChunkBytes: 1451940443
+        # Start-up scratch per token of the context per request, with the per-token slope of the fit held at
+        # 40,000 bytes (a free fit read low at 1 parallel request with large contexts).
+        requestContextBytesPerToken: 7232
       estimates:
         acceleratorMemory:
           unit: bytes
           equation: >-
             ${weightBytes}
+            + if(${parallel-requests} < 4, 1, 0) * ${largeChunkBytes}
             + ${requestStateBytes} * ${parallel-requests}
             + ${kvBytesPerToken} * ${total-context}
             + ${requestContextBytesPerToken} * ${total-context}
           allowance: >-
             ${marginBytes}
-            + ${promptBytesPerToken} * ${total-context}
     hardwareSupport:
       - hardwareClassId: "nvidia-gb202"
         # The largest binding, sq-20, at 2 parallel requests and 32,768 tokens each (65,536 total) estimates
-        # 31.71 GB with its allowance, above this minimum. A deployment picks those values; profiles keep the
-        # engine defaults.
+        # about 26.3 GB with its allowance, which this minimum matches. A deployment picks those values; profiles
+        # keep the engine defaults.
         hardwareRequirements:
-          minimumMemoryBytesPerDevice: "28500000000"
+          minimumMemoryBytesPerDevice: "26300000000"
         bindingSizing:
-          # weightBytes: the pack file plus 2.5 GB of CUDA context and engine buffers, fitted. marginBytes: covers
-          # the fit's largest under-prediction (90 MB) and prompt loads between the ones measured.
+          # weightBytes: the pack file plus CUDA context and engine buffers, fitted. marginBytes: covers the fit's
+          # largest under-prediction (299 MB), the 256 MiB growth floor, one growth step (67 MB) and the driver
+          # reserve beyond the 1% the capacity check keeps free (179 MB).
           - bindingId: "sq-10"
             parameters:
-              weightBytes: 12862931696
-              marginBytes: 268435456
+              weightBytes: 13200469858
+              marginBytes: 872415232
           - bindingId: "sq-15"
             parameters:
-              weightBytes: 16754006806
-              marginBytes: 268435456
+              weightBytes: 17022986634
+              marginBytes: 872415232
           - bindingId: "sq-20"
             parameters:
-              weightBytes: 21724257046
-              marginBytes: 268435456
+              weightBytes: 22028026435
+              marginBytes: 872415232
     engineConfiguration:
       engineKind: "ENGINE_KIND_STRATA"
       strata:
