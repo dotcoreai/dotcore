@@ -68,6 +68,7 @@ let
     pname = "dotcore-backend";
     version = "0.1.0";
     src = backendSrc;
+    cargoToml = root + "/backend/Cargo.toml";
     cargoLock = root + "/backend/Cargo.lock";
     sourceRoot = "source/backend";
     cargoExtraArgs = "--locked --package dotc --bin dotc --package dotcore-launcher --bin dotcore-launcher";
