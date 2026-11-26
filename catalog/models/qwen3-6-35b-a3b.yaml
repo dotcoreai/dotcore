@@ -117,9 +117,9 @@ configurations:
   # One configuration for every platform: CUDA on Linux NVIDIA, Metal on macOS.
   - configurationId: "llama-cpp"
     engineArtifacts:
-      - engineReleaseId: "llama-cpp-linux-2026-11-13"
+      - engineReleaseId: "llama-cpp-linux-2026-11-26"
         engineArtifactId: "cuda13"
-      - engineReleaseId: "llama-cpp-2026-11-13"
+      - engineReleaseId: "llama-cpp-2026-11-26"
         engineArtifactId: "metal"
     artifactBindings:
       - bindingId: "q3-xl"

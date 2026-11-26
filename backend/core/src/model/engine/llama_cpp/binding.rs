@@ -56,7 +56,7 @@ fn classify(rejections: &[(u16, &str)], status: u16, body: &[u8]) -> Option<Inva
 /// message format, where `%d` stands for a token count.
 ///
 /// A prompt larger than the micro-batch is a server error, and one larger than a slot's context
-/// is a context-size error (b12359 `tools/server/server-context.cpp`).
+/// is a context-size error (`tools/server/server-context.cpp`).
 const OVERSIZED_PROMPT_REJECTIONS: [(u16, &str); 2] = [
     (
         500,
@@ -69,7 +69,7 @@ const OVERSIZED_PROMPT_REJECTIONS: [(u16, &str); 2] = [
 ];
 
 /// llama.cpp's refusal of a chat prompt larger than a slot's context: the HTTP status it answers
-/// with and its message format (b12359 `tools/server/server-context.cpp`).
+/// with and its message format (`tools/server/server-context.cpp`).
 const OVERSIZED_CHAT_REJECTIONS: [(u16, &str); 1] = [(
     400,
     "request (%d tokens) exceeds the available context size (%d tokens), try increasing it",
@@ -92,7 +92,7 @@ mod tests {
 
     const BATCH_REJECTION: &str = r#"{"error":{"code":500,"message":"input (5000 tokens) is too large to process. increase the physical batch size (current batch size: 4096)","type":"server_error"}}"#;
 
-    /// llama.cpp b11723's refusal of a chat prompt over a 131072-token context, as it answered.
+    /// llama.cpp's refusal of a chat prompt over a 131072-token context, as it answered.
     const CHAT_CONTEXT_REJECTION: &str = r#"{"error":{"code":400,"message":"request (140016 tokens) exceeds the available context size (131072 tokens), try increasing it","type":"exceed_context_size_error","n_prompt_tokens":140016,"n_ctx":131072}}"#;
 
     const CONTEXT_REJECTION: &str = r#"{"error":{"code":400,"message":"input (5000 tokens) is larger than the max context size (4096 tokens). skipping","type":"exceed_context_size_error","n_prompt_tokens":5000,"n_ctx":4096}}"#;
