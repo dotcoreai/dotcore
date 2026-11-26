@@ -259,10 +259,9 @@ async fn hw_apple_llama_cpp_loads_at_the_largest_fit() {
     let placement = support::exact_placement(&site.node_id, &site.execution_target_id);
 
     let idle_available = host_available_bytes();
-    let (largest, starting) =
-        nvidia_qualification::wait_for_largest_fit(&mut models, &case, &placement)
-            .await
-            .expect("the largest fit on the idle Mac");
+    let largest = nvidia_qualification::wait_for_largest_fit(&mut models, &case, &placement)
+        .await
+        .expect("the largest fit on the idle Mac");
     // The Mac shares its memory with the OS, so the load leaves it room like any unified GPU.
     let idle_memory = nvidia_qualification::GpuMemory::Unified {
         host_total_bytes: host_total_bytes(),
@@ -274,13 +273,13 @@ async fn hw_apple_llama_cpp_loads_at_the_largest_fit() {
         &case,
         &placement,
         &idle_memory,
-        starting,
+        largest,
     )
     .await
     .expect("a load that leaves the host room");
     eprintln!(
-        "[{suite}] largest_fit={largest} starting_total_context={starting} \
-         total_context={total_context} estimate_host_bytes={demand} idle_available={idle_available}"
+        "[{suite}] largest_fit={largest} total_context={total_context} \
+         estimate_host_bytes={demand} idle_available={idle_available}"
     );
 
     let started = Instant::now();

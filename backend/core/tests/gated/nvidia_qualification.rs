@@ -58,8 +58,7 @@ use dotcore_proto::dotcore::{
         EstimateLocalModelResourcesRequest, EstimateLocalModelResourcesResponse,
         ListModelDeploymentsRequest, ListModelProfileCompatibilityRequest,
         LocalModelDeploymentConfiguration, ModelDeployment, ModelDeploymentStatus,
-        RemoveModelDeploymentRequest, ResolvedEngineArtifact, StartingTotalContextSource,
-        create_model_deployment_request,
+        RemoveModelDeploymentRequest, ResolvedEngineArtifact, create_model_deployment_request,
         model_deployment_service_client::ModelDeploymentServiceClient,
     },
     observation::v1::{
@@ -693,12 +692,12 @@ pub struct LargestFitCase<'a> {
     pub target_id: &'a str,
 }
 
-/// Deploys the case's profile at the starting total context the compatibility read gives on the
-/// idle GPU (its largest fit), or a smaller one on a unified GPU so the host keeps memory, waits
-/// for Ready, and compares the memory held after load with the capacity component's estimate for
-/// that context: GPU memory on a dedicated GPU, host memory on a unified one. Removes the
-/// deployment and waits for the GPU to be released before returning. Skips, saying why, when the
-/// profile's engine has no artifact for this host's platform.
+/// Deploys the case's profile at the largest total context the compatibility read gives on the
+/// idle GPU, or a smaller one on a unified GPU so the host keeps memory, waits for Ready, and
+/// compares the memory held after load with the capacity component's estimate for that context:
+/// GPU memory on a dedicated GPU, host memory on a unified one. Removes the deployment and waits
+/// for the GPU to be released before returning. Skips, saying why, when the profile's engine has no
+/// artifact for this host's platform.
 pub async fn qualify_largest_fit(
     site: &QualificationSite,
     case: &LargestFitCase<'_>,
@@ -733,20 +732,19 @@ async fn load_at_largest_fit(
     let suite = case.suite;
     let mut service = backend.model_client();
     let placement = crate::support::exact_placement(case.node_id, case.target_id);
-    let (largest, starting) = wait_for_largest_fit(&mut service, case, &placement).await?;
+    let largest = wait_for_largest_fit(&mut service, case, &placement).await?;
     let (total_context, configuration, estimate, demand) = host_safe_load(
         &mut service,
         &site.catalog,
         case,
         &placement,
         &idle.memory,
-        starting,
+        largest,
     )
     .await?;
     eprintln!(
-        "[{suite}] model={} profile={} largest_fit={largest} starting_total_context={starting} \
-         total_context={total_context} estimate_gpu_bytes={demand} idle={} estimates={:?} \
-         derived={:?}",
+        "[{suite}] model={} profile={} largest_fit={largest} total_context={total_context} \
+         estimate_gpu_bytes={demand} idle={} estimates={:?} derived={:?}",
         case.model_id,
         case.profile_id,
         idle.memory,
@@ -885,13 +883,12 @@ pub async fn host_safe_load(
     }
 }
 
-/// Waits for the compatibility read to give the profile's largest fit on the target, returning it
-/// with the starting total context a deployment begins from.
+/// Waits for the compatibility read to give the profile's largest total context on the target.
 pub async fn wait_for_largest_fit(
     service: &mut ModelClient,
     case: &LargestFitCase<'_>,
     placement: &ExactPlacement,
-) -> anyhow::Result<(u64, u64)> {
+) -> anyhow::Result<u64> {
     let mut last = None;
     let found = tokio::time::timeout(Duration::from_secs(120), async {
         loop {
@@ -909,18 +906,11 @@ pub async fn wait_for_largest_fit(
                 .entries
                 .into_iter()
                 .find(|entry| entry.profile_id == case.profile_id);
-            if let Some(entry) = &entry
-                && let (Some(largest), Some(starting)) = (
-                    entry.largest_total_context_tokens,
-                    entry.starting_total_context_tokens,
-                )
+            if let Some(largest) = entry
+                .as_ref()
+                .and_then(|entry| entry.largest_total_context_tokens)
             {
-                anyhow::ensure!(
-                    entry.starting_total_context_source
-                        == StartingTotalContextSource::LargestFit as i32,
-                    "the starting total context is not the largest fit: {entry:?}"
-                );
-                return Ok::<_, anyhow::Error>((largest, starting));
+                return Ok::<_, anyhow::Error>(largest);
             }
             last = entry;
             tokio::time::sleep(POLL_INTERVAL).await;
