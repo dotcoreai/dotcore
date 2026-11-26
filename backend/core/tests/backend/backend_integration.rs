@@ -4833,7 +4833,7 @@ async fn profile_compatibility_sizes_a_scenario_against_the_simulated_target_mem
     let model = fs::read_to_string(&model_path).expect("model fixture");
     let support = "    hardwareSupport:\n      - hardwareClassId: \"fixture-nvidia\"\n        hardwareRequirements:\n          minimumSystemMemoryBytes: \"1\"\n";
     let sized = format!(
-        "    sizing:\n      parameters: {{ baseBytes: 20000000000, bytesPerContextToken: 100000, slotStateBytes: 500000000 }}\n      estimates:\n        acceleratorMemory:\n          unit: bytes\n          equation: \"${{baseBytes}} + ${{bytesPerContextToken}} * ${{total-context}} + ${{parallel-requests}} * ${{slotStateBytes}}\"\n{support}        bindingSizing: [{{ bindingId: \"fixture-artifact\" }}]\n"
+        "    sizing:\n      parameters: {{ baseBytes: 20000000000, bytesPerContextToken: 100000, slotStateBytes: 500000000 }}\n      estimates:\n        acceleratorMemory:\n          unit: bytes\n          equation: \"${{baseBytes}} + ${{bytesPerContextToken}} * ${{total-context}} + ${{parallel-requests}} * ${{slotStateBytes}}\"\n        hostMemory:\n          unit: bytes\n          equation: \"${{prompt-cache-memory-mib}} * MiB\"\n{support}        bindingSizing: [{{ bindingId: \"fixture-artifact\" }}]\n"
     );
     assert!(model.contains(support), "fixture hardware support");
     fs::write(&model_path, model.replace(support, &sized)).expect("sized model fixture");
@@ -4943,7 +4943,10 @@ async fn profile_compatibility_sizes_a_scenario_against_the_simulated_target_mem
                 }),
                 vec![(
                     "fixture-nvidia",
-                    vec![("acceleratorMemory", accelerator_memory_bytes)]
+                    vec![
+                        ("acceleratorMemory", accelerator_memory_bytes),
+                        ("hostMemory", 0)
+                    ]
                 )],
                 SizingScenarioUnsupportedReason::Unspecified as i32
             )]

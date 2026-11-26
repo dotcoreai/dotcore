@@ -70,6 +70,9 @@ configurations:
         acceleratorMemory:
           unit: bytes
           equation: "${fixtureBaseBytes} + ${kv-cache-memory-bytes}"
+        hostMemory:
+          unit: bytes
+          equation: "${kv-offloading-size-gib} * GiB"
     hardwareSupport:
       - hardwareClassId: "nvidia"
         hardwareRequirements:

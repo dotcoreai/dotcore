@@ -27,7 +27,7 @@ configurations:
           equation: "${modelBytes}"
         hostMemory:
           unit: bytes
-          equation: "${cacheBytes}"
+          equation: "${cacheBytes} + ${prompt-cache-memory-mib} * MiB"
     hardwareSupport:
       - hardwareClassId: "fixture-nvidia"
         hardwareRequirements:
