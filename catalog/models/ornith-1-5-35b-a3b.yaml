@@ -222,6 +222,12 @@ configurations:
             + ${kv-cache-memory-bytes}
           allowance: >-
             ${marginBytes}
+        # vLLM pins the KV offloading size in host memory as whole offload chunks, so the setting
+        # bounds it.
+        hostMemory:
+          unit: bytes
+          equation: >-
+            ${kv-offloading-size-gib} * GiB
     hardwareSupport:
       # The minimum covers the largest default profile estimate, which keeps 32 GB GPUs below it.
       - hardwareClassId: "nvidia"
@@ -349,6 +355,12 @@ configurations:
             + ${kv-cache-memory-bytes}
           allowance: >-
             ${marginBytes}
+        # vLLM pins the KV offloading size in host memory as whole offload chunks, so the setting
+        # bounds it.
+        hostMemory:
+          unit: bytes
+          equation: >-
+            ${kv-offloading-size-gib} * GiB
     hardwareSupport:
       # The minimum covers the largest default profile estimate.
       - hardwareClassId: "nvidia"

@@ -161,6 +161,12 @@ configurations:
             + ${kv-cache-memory-bytes}
           allowance: >-
             ${marginBytes}
+        # vLLM pins the KV offloading size in host memory as whole offload chunks, so the setting
+        # bounds it.
+        hostMemory:
+          unit: bytes
+          equation: >-
+            ${kv-offloading-size-gib} * GiB
     hardwareSupport:
       # The minimum covers the default profile estimate with DSpark off at the default 32K total context, plus
       # the 1% the placement keeps free, so 24 GB GPUs such as the RTX 4090 qualify with a short context and
