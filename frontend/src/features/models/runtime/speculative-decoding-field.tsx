@@ -24,7 +24,8 @@ interface SpeculativeDecodingFieldProps {
 
 /**
  * Chooses speculative decoding for a deployment: off, or one speculative option with a token count
- * bounded by that option's range. The count input shows only while an option is chosen.
+ * bounded by that option's range. The count input shows only while a counted option is chosen; a
+ * switch option has none.
  */
 export function SpeculativeDecodingField({
   choice,
@@ -37,7 +38,8 @@ export function SpeculativeDecodingField({
   onMethodChange,
   options,
 }: SpeculativeDecodingFieldProps) {
-  const option = options.find((candidate) => candidate.optionId === choice.optionId);
+  const chosen = options.find((candidate) => candidate.optionId === choice.optionId);
+  const option = chosen?.switch ? undefined : chosen;
   const methodId = "speculative-decoding-method";
   const countId = "speculative-decoding-count";
 

@@ -4,6 +4,7 @@ import type { SpeculativeOption } from "@/features/models/profiles/model-row";
 
 import {
   defaultSpeculativeChoice,
+  overriddenSpeculativeChoice,
   speculativeChoiceError,
   speculativeCustomizations,
   speculativeMethodChoice,
@@ -77,6 +78,30 @@ describe("speculative choice", () => {
     ).toEqual({ count: "12", optionId: "mtp" });
   });
 
+  it("turns a switch on or off whatever count is kept", () => {
+    const dspark: SpeculativeOption = {
+      ...option("dspark", "DSpark", 1, 1),
+      minimum: 1,
+      switch: true,
+    };
+    const on = { count: "", optionId: "dspark" };
+    const off = { count: "12", optionId: "" };
+
+    expect(defaultSpeculativeChoice([dspark])).toEqual({ count: "1", optionId: "dspark" });
+    expect(overrides([dspark], on)).toEqual([]);
+    expect(overrides([dspark], off)).toEqual([["dspark", "enabled", false]]);
+    expect(overrides([mtp, dspark], { count: "12", optionId: "dspark" })).toEqual([
+      ["mtp", "token-count", 0n],
+      ["dspark", "enabled", true],
+    ]);
+    expect(speculativeChoiceError([dspark], { count: "12", optionId: "dspark" })).toBeUndefined();
+    expect(speculativeCustomizations([mtp, dspark], on)).toEqual(["Speculative decoding DSpark"]);
+    expect(speculativeCustomizations([dspark], off)).toEqual(["Speculative decoding off"]);
+    expect(
+      overriddenSpeculativeChoice([dspark], speculativeOptionOverrides([dspark], off) ?? []),
+    ).toEqual({ count: "", optionId: "" });
+  });
+
   it("summarizes a changed choice from its parsed count, and nothing while it is invalid", () => {
     expect(speculativeCustomizations([mtp], { count: "05", optionId: "mtp" })).toEqual([
       "Speculative decoding MTP, 5 tokens",
@@ -98,7 +123,7 @@ function option(
   defaultCount: number,
   maximum: number,
 ): SpeculativeOption {
-  return { defaultCount, displayName, maximum, minimum: 0, optionId };
+  return { defaultCount, displayName, maximum, minimum: 0, optionId, switch: false };
 }
 
 function overrides(options: SpeculativeOption[], choice: { count: string; optionId: string }) {

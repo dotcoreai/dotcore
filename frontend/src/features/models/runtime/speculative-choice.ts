@@ -1,6 +1,7 @@
 import { create } from "@bufbuild/protobuf";
 
 import {
+  speculativeEnabledId,
   type SpeculativeOption,
   speculativeTokenCountId,
 } from "@/features/models/profiles/model-row";
@@ -9,7 +10,7 @@ import { type ModelOptionValues, ModelOptionValuesSchema } from "@/gen/dotcore/c
 /**
  * The operator's speculative decoding choice in the deploy dialog: the option that drafts tokens,
  * or an empty option id for off, and the token count as typed. The count is kept while off so
- * switching a method back on restores it.
+ * switching a method back on restores it; a switch option ignores it.
  */
 export interface SpeculativeChoice {
   count: string;
@@ -29,21 +30,28 @@ export function defaultSpeculativeChoice(options: readonly SpeculativeOption[]):
 
 /**
  * The choice a launch's option overrides make, read back as the dialog sends it: the option with a
- * count above 0, or off when every speculative option is at 0. Without speculative overrides, the
- * profile's default.
+ * count above 0 or its switch on, or off when every speculative option is off. Without speculative
+ * overrides, the profile's default.
  */
 export function overriddenSpeculativeChoice(
   options: readonly SpeculativeOption[],
   overrides: readonly ModelOptionValues[],
 ): SpeculativeChoice {
   const counts = overrides.flatMap((override) => {
-    const count = override.values.find(
-      (value) => value.parameterId === speculativeTokenCountId,
+    if (!options.some((option) => option.optionId === override.optionId)) return [];
+
+    const value = override.values.find(
+      (candidate) =>
+        candidate.parameterId === speculativeTokenCountId ||
+        candidate.parameterId === speculativeEnabledId,
     )?.value;
-    return options.some((option) => option.optionId === override.optionId) &&
-      count?.case === "unsignedInteger"
-      ? [{ count: count.value, optionId: override.optionId }]
-      : [];
+    if (value?.case === "unsignedInteger") {
+      return [{ count: value.value, optionId: override.optionId }];
+    }
+    if (value?.case === "boolean") {
+      return [{ count: value.value ? 1n : 0n, optionId: override.optionId }];
+    }
+    return [];
   });
   if (!counts.length) return defaultSpeculativeChoice(options);
 
@@ -104,7 +112,7 @@ export function speculativeChoiceError(
 
 /**
  * The option overrides a choice sends: none while it matches the profile's default, otherwise
- * every speculative option, the chosen one at its count and the others at 0. Undefined while the
+ * every speculative option, the chosen one on at its count and the others off. Undefined while the
  * count is invalid.
  */
 export function speculativeOptionOverrides(
@@ -114,26 +122,26 @@ export function speculativeOptionOverrides(
   if (speculativeChoiceError(options, choice)) return undefined;
   if (sameChoice(options, choice, defaultSpeculativeChoice(options))) return [];
 
-  return options.map((option) =>
-    create(ModelOptionValuesSchema, {
+  return options.map((option) => {
+    const chosen = option.optionId === choice.optionId;
+    return create(ModelOptionValuesSchema, {
       optionId: option.optionId,
       values: [
-        {
-          parameterId: speculativeTokenCountId,
-          value: {
-            case: "unsignedInteger",
-            value: BigInt(option.optionId === choice.optionId ? choice.count : 0),
-          },
-        },
+        option.switch
+          ? { parameterId: speculativeEnabledId, value: { case: "boolean", value: chosen } }
+          : {
+              parameterId: speculativeTokenCountId,
+              value: { case: "unsignedInteger", value: BigInt(chosen ? choice.count : 0) },
+            },
       ],
-    }),
-  );
+    });
+  });
 }
 
 /**
  * Describes a choice that differs from the profile's default for the deploy summary, such as
- * "Speculative decoding MTP, 5 tokens" or "Speculative decoding off"; empty when unchanged or
- * while the count is invalid.
+ * "Speculative decoding MTP, 5 tokens", "Speculative decoding DSpark" for a switch or
+ * "Speculative decoding off"; empty when unchanged or while the count is invalid.
  */
 export function speculativeCustomizations(
   options: readonly SpeculativeOption[],
@@ -143,6 +151,8 @@ export function speculativeCustomizations(
 
   const option = options.find((candidate) => candidate.optionId === choice.optionId);
   if (!option) return ["Speculative decoding off"];
+
+  if (option.switch) return [`Speculative decoding ${option.displayName}`];
 
   const count = choiceCount(option, choice);
   if (count === undefined) return [];
@@ -168,7 +178,9 @@ function sameChoice(
   return !option || choiceCount(option, left) === choiceCount(option, right);
 }
 
+// A switch has no count to type, so it always reads as its single on count.
 function choiceCount(option: SpeculativeOption, choice: SpeculativeChoice): number | undefined {
+  if (option.switch) return option.minimum;
   if (!/^\d+$/.test(choice.count)) return undefined;
 
   const count = Number(choice.count);
