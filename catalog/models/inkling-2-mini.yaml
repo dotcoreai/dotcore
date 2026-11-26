@@ -153,15 +153,18 @@ configurations:
           minimumMemoryBytesPerDevice: "25500000000"
           minimumSystemMemoryBytes: "64000000000"
         bindingSizing:
-          # Fitted on an RTX 5090 from 12 launches at 512-4,096 batched tokens, 1-2 requests and 32K-526K total
-          # context: two after two concurrent long prompts, two with vision after 4 images of 2,048 px in one
-          # request. Residuals -83 MB to +80 MB; GB10 launches read below these values. The margin covers the
-          # largest under-prediction with room for load the launches did not show.
+          # Text constants fitted on an RTX 5090 from 12 launches on the pre-release engine image at 512-4,096
+          # batched tokens, 1-2 requests and 32K-526K total context, and re-checked on the nightly engine
+          # release with 11 records (residuals -52 MB to +115 MB). `visionBytes` covers the image encoder peak
+          # with 4 images of 2,048 px in one request. It is flat across 512-4,096 batched tokens, so it is
+          # sized for the largest need, at 512, and runs high at larger batched tokens. GB10 launches read
+          # below these values. The margin covers the largest under-prediction with room for load the
+          # launches did not show.
           - bindingId: "nvfp4"
             parameters:
               modelLoadingBaseBytes: 20038563636
               activationBytesPerBatchedToken: 309106
-              visionBytes: 682637516
+              visionBytes: 1240000000
               marginBytes: 268435456
     engineConfiguration:
       engineKind: "ENGINE_KIND_VLLM"
