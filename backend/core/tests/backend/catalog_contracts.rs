@@ -468,7 +468,8 @@ fn repository_ninfer_leads_coding_on_gb202_cards_only() {
         );
     }
 
-    // An RTX 4090 given the RTX PRO 6000's memory reads the same list without ninfer.
+    // An RTX 4090 given the RTX PRO 6000's memory gets no ninfer entry, so Inkling, which needs a
+    // 32 GB card, leads its list.
     let machines = simulated_class_machines(&catalog);
     let rtx_4090 = machines
         .iter()
@@ -481,6 +482,7 @@ fn repository_ninfer_leads_coding_on_gb202_cards_only() {
     assert_eq!(
         coding(&large_4090),
         [
+            ("inkling-2-mini".to_owned(), "nvfp4".to_owned()),
             ("qwen3-8-27b".to_owned(), "q3-xl-q8-kv".to_owned()),
             ("gemma-4-12b-it-qat".to_owned(), "gpu".to_owned()),
             ("qwen3-5-4b".to_owned(), "q3-xl".to_owned()),
