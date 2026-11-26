@@ -99,6 +99,9 @@ message VllmOptionRealization {
 
     // vLLM realization of an MTP speculative-decoding option.
     VllmMtpOptionRealization mtp = 3;
+
+    // vLLM realization of a DSpark speculative-decoding option.
+    VllmDsparkOptionRealization dspark = 4;
   }
 }
 
@@ -129,6 +132,11 @@ message VllmMtpDraftSource {
 
 // Marks an MTP head embedded in the model weights.
 message VllmEmbeddedMtpHead {}
+
+// Realizes one DSpark speculative-decoding option for vLLM from its speculative-token count. vLLM
+// loads the drafter from the model's weights, so every snapshot bound next to this option must
+// hold it; the declaration does not check that it does.
+message VllmDsparkOptionRealization {}
 
 // KV-cache element types accepted by a vLLM configuration.
 enum VllmKvCacheDataType {
