@@ -13,12 +13,18 @@ options:
   - optionId: "vision"
     displayName: "Vision"
     vision: {}
+    visibility: "PARAMETER_VISIBILITY_BASIC"
+    description: "Lets requests include images. Loads the vision projector next to the model, which uses more memory."
   - optionId: "mtp"
     displayName: "MTP"
     speculativeDecoding: { method: "SPECULATIVE_DECODING_METHOD_MTP" }
+    visibility: "PARAMETER_VISIBILITY_ADVANCED"
+    description: "Drafts several tokens ahead and has the model check them together, which makes generation faster. Loads the extra prediction layers, which use more memory."
   - optionId: "kv-cache"
     displayName: "KV cache precision"
     kvCachePrecision: {}
+    visibility: "PARAMETER_VISIBILITY_ADVANCED"
+    description: "Precision of the stored request tokens. A lower precision shrinks the memory each token takes, so more context fits, at a small cost in answer quality."
 artifacts:
   - artifactId: "q2"
     weightQuantization: "Q2_0"
@@ -220,20 +226,6 @@ profiles:
       values:
         - parameterId: "prompt-cache-memory-mib"
           unsignedInteger: "2048"
-  - profileId: "q2-q8-kv"
-    displayName: "Q2_0 with 8-bit KV cache"
-    description: "Stores the context cache at 8 bits, which fits more context in the same memory."
-    configurationId: "llama-cpp"
-    defaultModelArtifactBindingId: "q2"
-    engineParameterDefaults:
-      values:
-        - parameterId: "prompt-cache-memory-mib"
-          unsignedInteger: "2048"
-    optionDefaults:
-      - optionId: "kv-cache"
-        values:
-          - parameterId: "precision"
-            string: "q8_0"
 intelligence:
   overall: 31
 license:
