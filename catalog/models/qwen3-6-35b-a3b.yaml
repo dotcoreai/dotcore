@@ -131,11 +131,16 @@ configurations:
     sizing:
       classParameters: ["promptCacheOnAccelerator", "baseOffsetBytes"]
       bindingParameters: ["baseAccelBytes", "accelBytesPerContextToken", "mtpBaseBytes", "marginBytes"]
+      # Each mtpBaseBytes includes 112 MiB of draft compute that b12774 adds, measured on the RTX 5090
+      # at the q3-q5 defaults.
       parameters:
         mtpBytesPerContextToken: 2048
-        # Recurrent state per request slot, from config.json; one more copy per MTP draft token.
-        # baseAccelBytes excludes it.
+        # Recurrent state per request slot, from config.json. baseAccelBytes excludes it.
         slotStateBytes: 65863680
+        # With MTP, llama.cpp keeps one state per slot and replays the pending tokens, the draft tokens
+        # plus one (`src/llama-memory-recurrent.cpp`, b12774): per pending token, 30 linear-attention
+        # layers x (conv 8192 + key 2048 + value 4096 + gate and beta 2 x 32) f32 values.
+        replayBytesPerPendingToken: 1728000
         visionBytes: 930807808
       estimates:
         # The prompt cache counts in accelerator memory when the accelerator shares the host pool.
@@ -148,7 +153,8 @@ configurations:
             + ${parallel-requests} * ${slotStateBytes}
             + if(${options.mtp.token-count} > 0, 1, 0)
             * (${mtpBaseBytes} + ${mtpBytesPerContextToken} * ${total-context})
-            + ${options.mtp.token-count} * ${parallel-requests} * ${slotStateBytes}
+            + if(${options.mtp.token-count} > 0, 1, 0) * ${parallel-requests} * ${replayBytesPerPendingToken}
+            + ${options.mtp.token-count} * ${parallel-requests} * ${replayBytesPerPendingToken}
             + if(${options.vision.enabled}, 1, 0) * ${visionBytes}
           allowance: >-
             ${promptCacheOnAccelerator} * ${prompt-cache-memory-mib} * MiB
@@ -171,19 +177,19 @@ configurations:
             parameters:
               baseAccelBytes: 16571548976
               accelBytesPerContextToken: 21504
-              mtpBaseBytes: 612743168
+              mtpBaseBytes: 730183680
               marginBytes: 134217728
           - bindingId: "q4-xl"
             parameters:
               baseAccelBytes: 22092760362
               accelBytesPerContextToken: 21504
-              mtpBaseBytes: 717600768
+              mtpBaseBytes: 835041280
               marginBytes: 134217728
           - bindingId: "q5-xl"
             parameters:
               baseAccelBytes: 26295452966
               accelBytesPerContextToken: 21504
-              mtpBaseBytes: 820361216
+              mtpBaseBytes: 937801728
               marginBytes: 134217728
       - hardwareClassId: "nvidia-dedicated"
         # The prompt cache stays in host memory, outside the GPU's own memory.
@@ -197,19 +203,19 @@ configurations:
             parameters:
               baseAccelBytes: 16571548976
               accelBytesPerContextToken: 21504
-              mtpBaseBytes: 612743168
+              mtpBaseBytes: 730183680
               marginBytes: 134217728
           - bindingId: "q4-xl"
             parameters:
               baseAccelBytes: 22092760362
               accelBytesPerContextToken: 21504
-              mtpBaseBytes: 717600768
+              mtpBaseBytes: 835041280
               marginBytes: 134217728
           - bindingId: "q5-xl"
             parameters:
               baseAccelBytes: 26295452966
               accelBytesPerContextToken: 21504
-              mtpBaseBytes: 820361216
+              mtpBaseBytes: 937801728
               marginBytes: 134217728
       - hardwareClassId: "apple"
         # Apple Silicon is always unified memory.
@@ -222,19 +228,19 @@ configurations:
             parameters:
               baseAccelBytes: 18570396246
               accelBytesPerContextToken: 24300
-              mtpBaseBytes: 612743168
+              mtpBaseBytes: 730183680
               marginBytes: 134217728
           - bindingId: "q4-xl"
             parameters:
               baseAccelBytes: 24367353628
               accelBytesPerContextToken: 24300
-              mtpBaseBytes: 717600768
+              mtpBaseBytes: 835041280
               marginBytes: 134217728
           - bindingId: "q5-xl"
             parameters:
               baseAccelBytes: 28781648869
               accelBytesPerContextToken: 24300
-              mtpBaseBytes: 820361216
+              mtpBaseBytes: 937801728
               marginBytes: 134217728
     engineConfiguration:
       engineKind: "ENGINE_KIND_LLAMA_CPP"

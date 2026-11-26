@@ -112,22 +112,26 @@ configurations:
     # MTP terms estimated from the RTX 5090 q3 32k smoke (b11429, count 3, 4 slots), embedded head:
     # mtpBase = main file MTP block 334.75 MiB + draft compute 130.02 MiB + main compute growth 18.47 MiB
     # + 20 MiB margin; per-token = one draft KV layer (4096 B);
-    # recurrent = off-mode recurrent state per slot (598.5 MiB measured at 4 slots / 4) per draft token,
-    # times the slot count.
+    # recurrent = the replay inputs each slot keeps for the draft tokens plus one (see
+    # replayBytesPerPendingToken), times the slot count.
     # The main file's MTP block (blk.64, 351,008,768 B) is identical in every tier (GGUF metadata at the
     # pinned revision), so all tiers share the q3 breakdown.
     sizing:
       classParameters: ["promptCacheOnAccelerator", "baseOffsetBytes"]
       bindingParameters: ["baseAccelBytes", "accelBytesPerContextToken", "accelBytesPerContextTokenQ8", "marginBytes"]
       parameters:
-        mtpBaseBytes: 527685386
+        # Plus 88 MiB of draft compute that b12774 adds, measured on the RTX 5090 at the q3-q5 defaults.
+        mtpBaseBytes: 619960074
         mtpBytesPerContextToken: 4096
         # Per-slot llama.cpp state: Gated DeltaNet recurrent state, sized from the Qwen/Qwen3.8-27B
         # config.json (revision 1d4bf0f): 48 linear-attention layers x (conv 3 x 10240 + state 48 heads
-        # x 128 x 128) f32 values, matching the 598.5 MiB measured at 4 slots / 4. Each MTP draft token
-        # keeps one more copy per slot.
+        # x 128 x 128) f32 values, matching the 598.5 MiB measured at 4 slots / 4.
         # baseAccelBytes values exclude it: each is the 4-slot measurement minus 4 x slotStateBytes.
         slotStateBytes: 156893184
+        # With MTP, llama.cpp keeps one state per slot and replays the pending tokens, the draft tokens
+        # plus one (`src/llama-memory-recurrent.cpp`, b12774): per pending token, 48 linear-attention
+        # layers x (conv 10240 + key 2048 + value 6144 + gate and beta 2 x 48) f32 values.
+        replayBytesPerPendingToken: 3557376
       estimates:
         # The prompt cache lives in host memory. Where the accelerator allocates from the host pool
         # (promptCacheOnAccelerator 1), it counts in accelerator memory instead and the host memory
@@ -142,7 +146,8 @@ configurations:
             + ${parallel-requests} * ${slotStateBytes}
             + if(${options.mtp.token-count} > 0, 1, 0)
             * (${mtpBaseBytes} + ${mtpBytesPerContextToken} * ${total-context})
-            + ${options.mtp.token-count} * ${parallel-requests} * ${slotStateBytes}
+            + if(${options.mtp.token-count} > 0, 1, 0) * ${parallel-requests} * ${replayBytesPerPendingToken}
+            + ${options.mtp.token-count} * ${parallel-requests} * ${replayBytesPerPendingToken}
           allowance: >-
             ${promptCacheOnAccelerator} * ${prompt-cache-memory-mib} * MiB
             + ${marginBytes}
