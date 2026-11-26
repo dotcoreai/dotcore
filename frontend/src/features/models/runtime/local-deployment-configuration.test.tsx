@@ -45,11 +45,11 @@ describe("local deployment configuration", () => {
           { parameterId: "prefix-caching", value: { case: "boolean", value: true } },
         ],
       },
-      modelArtifactBindingId: "q4-binding",
+      modelArtifactBindingId: "",
     });
   });
 
-  it("starts from the engine defaults the profile leaves out, without a context per request", () => {
+  it("starts from the engine defaults the profile leaves out, without a total context", () => {
     const profile = runtimeSchemaModel.profiles.find(
       ({ profileId }) => profileId === "nvfp4-text",
     )!;
@@ -63,7 +63,7 @@ describe("local deployment configuration", () => {
       ["maximum-batched-tokens", 4096n],
       ["maximum-cudagraph-capture-size", 32n],
       ["kv-offloading-size-gib", 0n],
-      ["total-context", 32768n],
+      ["context-per-request", 32768n],
       ["parallel-requests", 4n],
     ]);
   });
@@ -107,7 +107,7 @@ describe("local deployment configuration", () => {
     ).toEqual([
       ["maximum-batched-tokens", 4096n],
       ["maximum-cudagraph-capture-size", 32n],
-      ["total-context", 32768n],
+      ["context-per-request", 32768n],
       ["parallel-requests", 4n],
     ]);
   });
@@ -139,7 +139,6 @@ describe("local deployment configuration", () => {
     } as LocalDeploymentConfigurationEdits["declaredValues"];
     const configured = (perRequest: string) =>
       localDeploymentConfiguration(profile, vllmRelease, {
-        bindingId: "nvfp4",
         declaredValues,
         inputs: new Map([
           ["total-context", "131072"],
@@ -189,24 +188,17 @@ describe("local deployment configuration", () => {
     });
   });
 
-  it("returns nothing when an exposed parameter has no valid value or no binding is selected", () => {
-    const release = engineReleases[0];
-
+  it("returns nothing when an exposed parameter has no valid value", () => {
     expect(
-      localDeploymentConfiguration(fast, release, { bindingId: "q4-binding", inputs: new Map() }),
-    ).toBeUndefined();
-    expect(
-      localDeploymentConfiguration(fast, release, {
-        bindingId: "",
-        inputs: new Map([["total-context", "8192"]]),
+      localDeploymentConfiguration(fast, engineReleases[0], {
+        inputs: new Map([["total-context", "8k"]]),
       }),
     ).toBeUndefined();
   });
 
-  it("carries edited inputs and custom arguments", () => {
+  it("carries edited inputs and custom arguments, and leaves the weights to the profile", () => {
     expect(
       localDeploymentConfiguration(fast, engineReleases[0], {
-        bindingId: "q8-binding",
         customArgumentTokens: ["--flag"],
         inputs: new Map([["total-context", "4096"]]),
       }),
@@ -218,7 +210,7 @@ describe("local deployment configuration", () => {
           { parameterId: "prefix-caching", value: { case: "boolean", value: true } },
         ],
       },
-      modelArtifactBindingId: "q8-binding",
+      modelArtifactBindingId: "",
     });
   });
 
@@ -229,16 +221,14 @@ describe("local deployment configuration", () => {
       ["total-context", "32768"],
       ["parallel-requests", "4"],
     ]);
-    const customizations = (inputs: [string, string][], bindingId = "q4-xl") =>
-      runtimeCustomizations(runtimeSchemaModel, profile, llamaCppRelease, {
-        bindingId,
+    const customizations = (inputs: [string, string][]) =>
+      runtimeCustomizations(profile, llamaCppRelease, {
         inputs: new Map([...defaults, ...inputs]),
       });
 
     expect(customizations([])).toEqual([]);
-    expect(customizations([["prompt-cache-memory-mib", "4096"]], "other")).toEqual([
+    expect(customizations([["prompt-cache-memory-mib", "4096"]])).toEqual([
       "Prompt cache memory 4 GiB",
-      "Artifact not selected",
     ]);
     // An out-of-range value stays as typed rather than being rounded into a plausible one.
     expect(customizations([["prompt-cache-memory-mib", "3000000000"]])).toEqual([
@@ -253,11 +243,10 @@ describe("local deployment configuration", () => {
     ).toEqual([]);
   });
 
-  it("lists the changed engine parameters with parallel requests, leaving out context sizes", () => {
+  it("lists the changed engine parameters, leaving out the context parameters", () => {
     const profile = runtimeSchemaModel.profiles.find(({ profileId }) => profileId === "q4-xl")!;
     const changed = (inputs: [string, string][]) =>
       changedEngineParameters(profile, llamaCppRelease, {
-        bindingId: "q4-xl",
         inputs: new Map([
           ["prompt-cache-memory-mib", "8192"],
           ["total-context", "32768"],
@@ -266,14 +255,13 @@ describe("local deployment configuration", () => {
         ]),
       }).map(({ parameter, value }) => [parameter.parameterId, value]);
 
-    expect(changed([["total-context", "16384"]])).toEqual([]);
     expect(
       changed([
+        ["total-context", "16384"],
         ["parallel-requests", "2"],
-        ["prompt-cache-memory-mib", "4096"],
       ]),
-    ).toEqual([
-      ["parallel-requests", "2 requests"],
+    ).toEqual([]);
+    expect(changed([["prompt-cache-memory-mib", "4096"]])).toEqual([
       ["prompt-cache-memory-mib", "4 GiB"],
     ]);
   });
@@ -309,7 +297,7 @@ describe("secret engine parameters", () => {
       ["api-key", key],
     ]);
   const configured = (key: string) =>
-    localDeploymentConfiguration(profile, release, { bindingId: "q4", inputs: inputs(key) });
+    localDeploymentConfiguration(profile, release, { inputs: inputs(key) });
 
   it("leaves an empty secret out so it is generated at deploy, without blocking Deploy", () => {
     expect(engineParameterError(apiKey, inputs(""))).toBeUndefined();

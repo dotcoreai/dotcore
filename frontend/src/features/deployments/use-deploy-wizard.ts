@@ -9,22 +9,20 @@ import {
 import { useAdvancedMode } from "./use-advanced-mode";
 import { useWizardSteps } from "./use-wizard-steps";
 
-/**
- * The deploy steps, named by Dotcore in R3 order: what to run (Inference route for an app that takes
- * a route, or Profile for a model), Target, Settings, Advanced, then Deploy. Each dialog uses a
- * subset.
- */
-export type DeployStep =
-  "Inference route" | "Profile" | "Target" | "Settings" | "Advanced" | "Deploy";
-
 /** What a deploy dialog tells its wizard about its steps and fields. */
-export interface DeployWizardOptions<Step extends DeployStep> {
-  /** Every step in flow order: what to run, Target, Settings, Advanced, then Deploy. */
+export interface DeployWizardOptions<Step extends string> {
+  /** Every step in flow order. */
   order: readonly Step[];
+  /** The steps that show only in advanced mode. */
+  advancedSteps: readonly Step[];
+  /**
+   * Whether a step outside `advancedSteps` shows in basic mode, such as a target step only when
+   * several targets apply. It is read when leaving the first step and kept until the operator
+   * returns there. Every step shows by default.
+   */
+  basicShows?: (step: Step) => boolean;
   /** Whether a step has fields; a step without them never shows. */
   hasFields: (step: Step) => boolean;
-  /** Whether several execution targets can take the deployment, which shows Target in basic mode. */
-  severalTargets: boolean;
   /** The current validation errors of a step's fields. */
   errorsFor: (step: Step) => FieldErrors;
   /** The rendered control of each field, which takes focus when the field is the first invalid. */
@@ -33,13 +31,15 @@ export interface DeployWizardOptions<Step extends DeployStep> {
   setFieldErrors: (errors: FieldErrors) => void;
   /** Called when the operator moves past the first step, such as to keep an automatic choice. */
   onLeaveFirstStep?: () => void;
+  /** Called when the operator turns Advanced off, such as to reset the advanced inputs. */
+  onAdvancedOff?: () => void;
   /** Called by the primary action on the last step. */
   onSubmit: () => void;
   open: boolean;
 }
 
 /** The shown steps of a deploy dialog, its navigation and its error reveal. */
-export interface DeployWizard<Step extends DeployStep> {
+export interface DeployWizard<Step extends string> {
   advanced: boolean;
   /** Message for the shell's live region, such as the step count after a toggle. */
   announcement: string;
@@ -63,36 +63,38 @@ export interface DeployWizard<Step extends DeployStep> {
 }
 
 /**
- * Drives a deploy dialog's steps. A step shows only when it has fields; Advanced shows only in
- * advanced mode, and Target in basic mode only when several targets apply, decided when leaving
- * the first step so the steps ahead stay put. A blocked navigation shows the step's errors and
- * focuses the first invalid field; an error on a hidden step turns Advanced on and opens it.
+ * Drives a deploy dialog's steps. A step shows only when it has fields; advanced steps show only in
+ * advanced mode, and the other steps in basic mode by the caller's rule, decided when leaving the
+ * first step so the steps ahead stay put. A blocked navigation shows the step's errors and focuses
+ * the first invalid field; an error on a hidden step turns Advanced on and opens it.
  */
-export function useDeployWizard<Step extends DeployStep>({
+export function useDeployWizard<Step extends string>({
+  advancedSteps,
+  basicShows = showsAlways,
   errorsFor,
   fieldControls,
   hasFields,
+  onAdvancedOff,
   onLeaveFirstStep,
   onSubmit,
   open,
   order,
   setFieldErrors,
-  severalTargets,
 }: DeployWizardOptions<Step>): DeployWizard<Step> {
   const advancedMode = useAdvancedMode(open);
   const { advanced } = advancedMode;
-  // Whether Target shows in basic mode, fixed when leaving the first step.
-  const [lockedTarget, setLockedTarget] = useState<boolean>();
+  // The steps basic mode shows, fixed when leaving the first step.
+  const [lockedBasic, setLockedBasic] = useState<readonly Step[]>();
   const [revealedErrors, setRevealedErrors] = useState<FieldErrors>(new Map());
   const pendingFocusRef = useRef<FieldErrors | undefined>(undefined);
 
-  const shown = (candidate: Step, advancedSteps: boolean) =>
+  const basicSteps = () => order.filter(basicShows);
+  const shown = (candidate: Step, advancedOn: boolean) =>
     hasFields(candidate) &&
-    (candidate === "Target"
-      ? advancedSteps || (lockedTarget ?? severalTargets)
-      : candidate !== "Advanced" || advancedSteps);
-  const stepsFor = (advancedSteps: boolean) =>
-    order.filter((candidate) => shown(candidate, advancedSteps));
+    (advancedOn ||
+      (!advancedSteps.includes(candidate) && (lockedBasic ?? basicSteps()).includes(candidate)));
+  const stepsFor = (advancedOn: boolean) =>
+    order.filter((candidate) => shown(candidate, advancedOn));
   const steps = stepsFor(advanced);
   const wizard = useWizardSteps(steps, order);
   const step = wizard.current;
@@ -100,9 +102,7 @@ export function useDeployWizard<Step extends DeployStep>({
   const goTo = (next: Step) => {
     const firstStep = steps[0];
     const leavingFirstStep = step === firstStep && next !== firstStep;
-    setLockedTarget(
-      next === firstStep ? undefined : leavingFirstStep ? severalTargets : lockedTarget,
-    );
+    setLockedBasic(next === firstStep ? undefined : leavingFirstStep ? basicSteps() : lockedBasic);
     if (leavingFirstStep) onLeaveFirstStep?.();
     wizard.goTo(next);
   };
@@ -157,7 +157,14 @@ export function useDeployWizard<Step extends DeployStep>({
     revealedErrors,
     step,
     steps,
-    toggleAdvanced: (next) => advancedMode.toggle(next, stepsFor(next).length),
+    toggleAdvanced: (next) => {
+      advancedMode.toggle(next, stepsFor(next).length);
+      if (!next) onAdvancedOff?.();
+    },
     visited: wizard.visited,
   };
+}
+
+function showsAlways(): boolean {
+  return true;
 }

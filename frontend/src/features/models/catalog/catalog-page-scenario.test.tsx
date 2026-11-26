@@ -37,7 +37,7 @@ type CompatibilityRequest = Parameters<
 // A site with an NVIDIA workstation ("gpu-box") and a Mac ("mac"). Fast runs on both; Quality runs
 // only on the workstation. At defaults Fast and Quality fit the workstation and the Mac's fit for
 // Fast is unknown; Fast starts from 400k total context on the workstation and 179k on the Mac, and
-// Quality from 256k. At 128k with 32k per request, Fast exceeds the workstation but fits the Mac,
+// Quality from 256k; under a scenario, Fast starts from 128k. At 32k per request with 128k total, Fast exceeds the workstation but fits the Mac,
 // and Quality's llama.cpp can't serve the scenario.
 const pool = { executionTargetId: "pool", siteNodeId: "gpu-box" };
 const metal = { executionTargetId: "metal", siteNodeId: "mac" };
@@ -50,7 +50,10 @@ function siteRead(request: CompatibilityRequest = {}): ListModelProfileCompatibi
     "alpha-7b",
     targetCompatibility(pool, {
       cpu: notRunning,
-      fast: { startingTotalContextTokens: 409600, memoryFit: scenario ? EXCEEDS : FITS },
+      fast: {
+        startingTotalContextTokens: scenario ? 131072 : 409600,
+        memoryFit: scenario ? EXCEEDS : FITS,
+      },
       orphan: notRunning,
       quality: scenario
         ? {
@@ -64,7 +67,7 @@ function siteRead(request: CompatibilityRequest = {}): ListModelProfileCompatibi
       cpu: notRunning,
       fast: {
         hardwareClassId: "apple",
-        startingTotalContextTokens: 183296,
+        startingTotalContextTokens: scenario ? 131072 : 183296,
         memoryFit: scenario ? FITS : UNKNOWN,
       },
       orphan: notRunning,
@@ -169,10 +172,10 @@ function heldScenarioRead() {
   return { held, read };
 }
 
-// The catalog's 128k with 32k per request, as its URL and the read carry it.
-const scenarioSearch = "ctx=131072&req=32768";
-const scenario = { totalContextTokens: 131072n, contextTokensPerRequest: 32768n };
-const sizedFor = "128k · 32k per request";
+// The catalog's 32k per request with 128k total, as its URL and the read carry it.
+const scenarioSearch = "req=32768&ctx=131072";
+const scenario = { contextTokensPerRequest: 32768n, totalContextTokens: 131072n };
+const sizedFor = "32k per request · 128k total";
 
 describe("ModelCatalogPage Runs on sized for", () => {
   it("restores machines and Sized for from the URL, reads the scenario, and judges any machine", async () => {
@@ -225,13 +228,16 @@ describe("ModelCatalogPage Runs on sized for", () => {
     expect(cells("Alpha 7B · Quality").slice(3)).toEqual(["256k", "256k"]);
     expect(cells("Alpha 7B").slice(3)).toEqual(["256k", "256k–400k"]);
 
-    // A custom total context replaces it on every profile, and the read carries it alone.
+    // A custom context per request sizes every profile, and the read carries it alone; the table
+    // shows the total each profile starts from under it.
     const menu = await openRunsOn(user);
     await user.click(within(menu).getByRole("menuitemradio", { name: "Custom" }));
     await user.keyboard("{Escape}");
-    await waitFor(() => expect(currentLocation(router)).toBe("/models/catalog?ctx=131072"));
+    await waitFor(() => expect(currentLocation(router)).toBe("/models/catalog?req=32768"));
     await waitFor(() =>
-      expect(compatibility).toHaveBeenLastCalledWith({ scenario: { totalContextTokens: 131072n } }),
+      expect(compatibility).toHaveBeenLastCalledWith({
+        scenario: { contextTokensPerRequest: 32768n },
+      }),
     );
     // Quality can't serve it, so Alpha shows Fast alone.
     await waitFor(() => expect(footer()).toBe("1 of 2 models · 1 hidden"));
@@ -307,7 +313,7 @@ describe("ModelCatalogPage Runs on sized for", () => {
     const menu = await openRunsOn(user);
     await user.click(within(menu).getByRole("menuitemradio", { name: "Custom" }));
     await user.keyboard("{Escape}");
-    expect(currentLocation(router)).toBe("/models/catalog?f=runs&runs=node%3Agpu-box&ctx=131072");
+    expect(currentLocation(router)).toBe("/models/catalog?f=runs&runs=node%3Agpu-box&req=32768");
 
     // Neither widened nor narrowed until the scenario is sized.
     await waitFor(() => expect(cells("Alpha 7B · Fast")[2]).toBe("Loading estimate"));
@@ -331,7 +337,7 @@ describe("ModelCatalogPage Runs on sized for", () => {
     // request at a time; the scale starts at the declared 1024 minimum.
     const total = within(menu).getByRole("slider", { name: "Total context" });
     const perRequest = within(menu).getByRole("slider", { name: "Context per request" });
-    expect(total).toHaveValue("875");
+    expect(perRequest).toHaveValue("625");
     expect(
       within(within(menu).getByRole("group", { name: "Total context presets" }))
         .getAllByRole("button")
@@ -340,8 +346,8 @@ describe("ModelCatalogPage Runs on sized for", () => {
 
     fireEvent.change(perRequest, { target: { value: "1000" } });
     expect(within(menu).getByRole("textbox", { name: "Context per request" })).toHaveValue("256k");
-    fireEvent.change(total, { target: { value: "0" } });
-    expect(within(menu).getByRole("textbox", { name: "Total context" })).toHaveValue("1k");
+    fireEvent.change(total, { target: { value: "1000" } });
+    expect(within(menu).getByRole("textbox", { name: "Total context" })).toHaveValue("256k");
   });
 
   it("applies typed values once typing pauses, presets at once, and defaults again", async () => {
@@ -355,17 +361,23 @@ describe("ModelCatalogPage Runs on sized for", () => {
     );
     expect(within(menu).queryByRole("textbox")).not.toBeInTheDocument();
     await user.click(within(menu).getByRole("menuitemradio", { name: "Custom" }));
-    expect(within(menu).getByRole("slider", { name: "Total context" })).toBeVisible();
+    await waitFor(() =>
+      expect(currentLocation(router)).toBe("/models/catalog?f=runs&runs=node%3Amac&req=32768"),
+    );
     expect(within(menu).getByRole("slider", { name: "Context per request" })).toBeVisible();
-    expect(within(menu).queryByRole("textbox", { name: "Parallel requests" })).toBeNull();
-    // An empty context per request stands for up to the total context.
-    const perRequest = within(menu).getByRole("textbox", { name: "Context per request" });
-    expect(perRequest).toHaveValue("");
-    expect(perRequest).toHaveAttribute("placeholder", "128k");
-    await user.type(perRequest, "32k");
+    expect(within(menu).getByRole("slider", { name: "Total context" })).toBeVisible();
+    // Empty parallel requests leave each profile its own, and an empty total context follows.
+    const parallel = within(menu).getByRole("textbox", { name: "Parallel requests" });
+    expect(parallel).toHaveValue("");
+    expect(parallel).toHaveAttribute("placeholder", "Profile default");
+    const total = within(menu).getByRole("textbox", { name: "Total context" });
+    expect(total).toHaveValue("");
+    expect(total).not.toHaveAttribute("placeholder");
+    await user.type(parallel, "2");
+    expect(total).toHaveAttribute("placeholder", "64k");
     await waitFor(() =>
       expect(currentLocation(router)).toBe(
-        "/models/catalog?f=runs&runs=node%3Amac&ctx=131072&req=32768",
+        "/models/catalog?f=runs&runs=node%3Amac&req=32768&par=2",
       ),
     );
 
@@ -377,17 +389,23 @@ describe("ModelCatalogPage Runs on sized for", () => {
     );
     await waitFor(() =>
       expect(currentLocation(router)).toBe(
-        "/models/catalog?f=runs&runs=node%3Amac&ctx=262144&req=32768",
+        "/models/catalog?f=runs&runs=node%3Amac&req=32768&par=2&ctx=262144",
       ),
     );
     await waitFor(() =>
       expect(compatibility).toHaveBeenLastCalledWith({
-        scenario: { contextTokensPerRequest: 32768n, totalContextTokens: 262144n },
+        scenario: {
+          contextTokensPerRequest: 32768n,
+          parallelRequests: 2,
+          totalContextTokens: 262144n,
+        },
       }),
     );
     await user.keyboard("{Escape}");
     expect(
-      screen.getByRole("button", { name: "Runs on filter: mac, 256k · 32k per request" }),
+      screen.getByRole("button", {
+        name: "Runs on filter: mac, 32k per request · 2 parallel · 256k total",
+      }),
     ).toBeVisible();
 
     menu = await openRunsOn(user);
@@ -411,14 +429,14 @@ describe("ModelCatalogPage Runs on sized for", () => {
     await user.click(within(menu).getByRole("menuitemradio", { name: "Custom" }));
     await waitFor(() =>
       expect(currentLocation(router)).toBe(
-        "/models/catalog?ctx=131072&panel=model-catalog%2Fcatalog%3Aalpha-7b",
+        "/models/catalog?req=32768&panel=model-catalog%2Fcatalog%3Aalpha-7b",
       ),
     );
     await new Promise((resolve) => setTimeout(resolve, 50));
     unsubscribe();
 
     expect([...new Set(navigations)]).toEqual([
-      "/models/catalog?ctx=131072&panel=model-catalog%2Fcatalog%3Aalpha-7b",
+      "/models/catalog?req=32768&panel=model-catalog%2Fcatalog%3Aalpha-7b",
     ]);
     expect(router.state.location.state).toEqual(panelState);
     expect(screen.getByRole("complementary", { name: "Alpha 7B" })).toBeVisible();
@@ -496,35 +514,51 @@ describe("ModelCatalogPage Runs on sized for", () => {
     await waitFor(() => expect(footer()).toBe("0 of 2 models · 1 hidden"));
   });
 
-  it("raises the total to a typed context per request once left, and lowers it with a smaller total preset", async () => {
-    const { router, user } = renderCatalog("/models/catalog?f=runs&runs=node%3Amac");
+  it("flags a context per request above a chosen total once left, and doesn't apply it", async () => {
+    const { compatibility, router, user } = renderCatalog("/models/catalog?f=runs&runs=node%3Amac");
     await waitFor(() => expect(modelRows()).toEqual(["Alpha 7B"]));
 
     const menu = await openRunsOn(user);
     await user.click(within(menu).getByRole("menuitemradio", { name: "Custom" }));
     const total = within(menu).getByRole("textbox", { name: "Total context" });
     const perRequest = within(menu).getByRole("textbox", { name: "Context per request" });
-    await user.type(perRequest, "256k");
-    await user.click(total);
-    expect(total).toHaveValue("256k");
-    expect(screen.queryByText(/must be at most/)).not.toBeInTheDocument();
-    await waitFor(() =>
-      expect(currentLocation(router)).toBe(
-        "/models/catalog?f=runs&runs=node%3Amac&ctx=262144&req=262144",
-      ),
-    );
-
     await user.click(
       within(within(menu).getByRole("group", { name: "Total context presets" })).getByRole(
         "button",
         { name: "64k" },
       ),
     );
-    expect(perRequest).toHaveValue("64k");
     await waitFor(() =>
       expect(currentLocation(router)).toBe(
-        "/models/catalog?f=runs&runs=node%3Amac&ctx=65536&req=65536",
+        "/models/catalog?f=runs&runs=node%3Amac&req=32768&ctx=65536",
       ),
+    );
+
+    // The scenario's read lands before the next edit.
+    await waitFor(() =>
+      expect(compatibility).toHaveBeenLastCalledWith({
+        scenario: { contextTokensPerRequest: 32768n, totalContextTokens: 65536n },
+      }),
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // A chip sets the value at once, so no smaller value typed on the way applies.
+    await user.click(
+      within(within(menu).getByRole("group", { name: "Context per request presets" })).getByRole(
+        "button",
+        { name: "256k" },
+      ),
+    );
+    await user.click(perRequest);
+    await user.click(total);
+    expect(
+      await screen.findByText("Context per request must be at most the total context."),
+    ).toBeVisible();
+    expect(perRequest).toHaveAttribute("aria-invalid", "true");
+    expect(currentLocation(router)).toBe(
+      "/models/catalog?f=runs&runs=node%3Amac&req=32768&ctx=65536",
     );
   });
 
@@ -535,13 +569,14 @@ describe("ModelCatalogPage Runs on sized for", () => {
     const menu = await openRunsOn(user);
     await user.click(within(menu).getByRole("menuitemradio", { name: "Custom" }));
     await waitFor(() =>
-      expect(currentLocation(router)).toBe("/models/catalog?f=runs&runs=node%3Amac&ctx=131072"),
+      expect(currentLocation(router)).toBe("/models/catalog?f=runs&runs=node%3Amac&req=32768"),
     );
     const total = within(menu).getByRole("textbox", { name: "Total context" });
     const perRequest = within(menu).getByRole("textbox", { name: "Context per request" });
-    await user.type(perRequest, "64k");
-    await user.clear(total);
-    // The cleared field keeps focus, so typing doesn't click it again.
+    await user.clear(perRequest);
+    await user.type(perRequest, "64k", { skipClick: true });
+    // The total field takes focus from the click, so typing doesn't click it again.
+    await user.click(total);
     await user.type(total, "1.3k", { skipClick: true });
     await user.click(perRequest);
     expect(screen.getByText("Total context must be a whole number of tokens.")).toBeVisible();
@@ -549,9 +584,7 @@ describe("ModelCatalogPage Runs on sized for", () => {
     expect(perRequest).toHaveValue("64k");
     // Leaving the context per request applied it; the invalid total never applies.
     await waitFor(() =>
-      expect(currentLocation(router)).toBe(
-        "/models/catalog?f=runs&runs=node%3Amac&ctx=131072&req=65536",
-      ),
+      expect(currentLocation(router)).toBe("/models/catalog?f=runs&runs=node%3Amac&req=65536"),
     );
     await waitFor(() =>
       expect(
@@ -559,12 +592,12 @@ describe("ModelCatalogPage Runs on sized for", () => {
           compatibility.mock.calls.flatMap(([request]) =>
             request.scenario
               ? [
-                  `${request.scenario.totalContextTokens}/${request.scenario.contextTokensPerRequest ?? ""}`,
+                  `${request.scenario.contextTokensPerRequest}/${request.scenario.parallelRequests ?? ""}/${request.scenario.totalContextTokens ?? ""}`,
                 ]
               : [],
           ),
         ),
-      ).toEqual(new Set(["131072/", "131072/65536"])),
+      ).toEqual(new Set(["32768//", "65536//"])),
     );
   });
 
@@ -579,7 +612,7 @@ describe("ModelCatalogPage Runs on sized for", () => {
     const menu = await openRunsOn(user);
     await user.click(within(menu).getByRole("menuitemradio", { name: "Custom" }));
     await user.keyboard("{Escape}");
-    await waitFor(() => expect(currentLocation(router)).toBe("/models/catalog?ctx=131072"));
+    await waitFor(() => expect(currentLocation(router)).toBe("/models/catalog?req=32768"));
     await user.click(within(toolbar).getByRole("button", { name: "Reset" }));
     await waitFor(() => expect(currentLocation(router)).toBe("/models/catalog"));
     expect(within(toolbar).queryByRole("button", { name: "Reset" })).not.toBeInTheDocument();
@@ -708,10 +741,13 @@ describe("ModelCatalogPage Runs on memory basis", () => {
     await user.click(within(profiles).getByRole("button", { name: "Reset" }));
     expect(await within(profiles).findByRole("button", { name: totalChip })).toBeVisible();
 
-    // The wizard starts on the panel's Total.
+    // The wizard starts on the panel's machine and Total.
     await user.click(screen.getByRole("button", { name: "Deploy" }));
     const dialog = await screen.findByRole("dialog", { name: /Deploy model/ });
-    expect(await within(dialog).findByRole("button", { name: totalChip })).toBeVisible();
+    expect(
+      await within(dialog).findByRole("button", { name: "Runs on filter: gpu-box" }),
+    ).toBeVisible();
+    expect(within(dialog).getByRole("radio", { name: "Total" })).toBeChecked();
     expect(currentLocation(router)).toBe(search);
   });
 });
@@ -744,7 +780,7 @@ describe("ModelCatalogPage model panel Runs on", () => {
     await user.click(within(menu).getByRole("menuitemradio", { name: "Custom" }));
     await user.keyboard("{Escape}");
     expect(
-      within(profiles).getByRole("button", { name: "Runs on filter: gpu-box, 128k" }),
+      within(profiles).getByRole("button", { name: "Runs on filter: gpu-box, 32k per request" }),
     ).toBeVisible();
     expect(panelRows()).toEqual(["Quality", "Fast"]);
     expect(panelFooter()).toBe("2 of 5 profiles");
@@ -756,7 +792,7 @@ describe("ModelCatalogPage model panel Runs on", () => {
     expect(panelRows()).toEqual(["Quality", "Fast"]);
 
     act(() => held.finish());
-    // On the workstation, Fast exceeds 128k and Quality can't serve it.
+    // On the workstation, Fast exceeds the scenario and Quality can't serve it.
     await waitFor(() =>
       expect(panelRows()).toEqual([
         "No profile runs hereNeeds NVIDIA driver 575 or later (has 560)Show all profiles",
@@ -764,12 +800,12 @@ describe("ModelCatalogPage model panel Runs on", () => {
     );
     expect(panelFooter()).toBe("0 of 5 profiles · 2 hidden");
 
-    // Deploy starts from the panel's Sized for, not the catalog's.
+    // Deploy starts from the panel's machine.
     await user.click(screen.getByRole("button", { name: "Deploy" }));
     const dialog = await screen.findByRole("dialog", { name: /Deploy model/ });
     act(() => held.finish());
     expect(
-      await within(dialog).findByRole("button", { name: "Runs on filter: gpu-box, 128k" }),
+      await within(dialog).findByRole("button", { name: "Runs on filter: gpu-box" }),
     ).toBeVisible();
   });
 

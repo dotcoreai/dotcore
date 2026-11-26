@@ -14,7 +14,7 @@ use dotcore_proto::dotcore::catalog::v1::{
     EngineArtifact, EngineRelease, HardwareClass, HuggingFaceArtifactSource, InferenceRequestKind,
     IntelligenceScore, Model, ModelArtifact, ModelConfigurationOption, ModelEngineConfiguration,
     ModelInputCapabilities, ModelInputModality, ModelOptionParameterDefinition, ModelProfile,
-    ParameterValue, ParameterValues, SpeculativeDecodingMethod,
+    ParameterValue, ParameterValues, ParameterVisibility, SpeculativeDecodingMethod,
     hugging_face_artifact_source::Content as HuggingFaceContent,
     model_option::Kind as ModelOptionKind,
     model_option_parameter_definition::ParameterType as ModelOptionParameterType,
@@ -31,9 +31,13 @@ use crate::{
         valid_option_values,
     },
     selector::{SelectorRelation, selector_relation},
-    shared_parameters::{is_shared_parameter, profile_may_default, profile_visibility_problem},
+    shared_parameters::{
+        is_shared_parameter, profile_may_default, profile_visibility_problem,
+        resolution_applies_default,
+    },
     typed_parameters::{
-        check_value, default_value, is_secret, unsigned_range_contains, unsigned_range_text,
+        check_value, default_value, is_declared_visibility, is_secret, unsigned_range_contains,
+        unsigned_range_text,
     },
     validation::{
         EngineDeclarationValidator, configuration_engine_release, release_for_configuration,
@@ -141,6 +145,18 @@ fn validate_model_options(model: &Model, errors: &mut Vec<anyhow::Error>) {
         {
             errors.push(anyhow::anyhow!(
                 "model option {:?} is invalid",
+                option.option_id
+            ));
+        }
+        if option.description.trim().is_empty() {
+            errors.push(anyhow::anyhow!(
+                "model option {:?} requires a description",
+                option.option_id
+            ));
+        }
+        if !ParameterVisibility::try_from(option.visibility).is_ok_and(is_declared_visibility) {
+            errors.push(anyhow::anyhow!(
+                "model option {:?} requires a basic, advanced or hidden visibility",
                 option.option_id
             ));
         }
@@ -1002,13 +1018,15 @@ pub fn overlay_parameter_defaults(
     overlaid
 }
 
-/// Engine defaults the release declares for its parameters, in schema order.
+/// Engine defaults the release declares for its parameters, in schema order, that the default
+/// merge applies: resolution applies the others itself.
 pub(super) fn engine_default_values(engine: &EngineRelease) -> ParameterValues {
     ParameterValues {
         values: engine
             .parameter_schema
             .iter()
             .flat_map(|schema| &schema.parameters)
+            .filter(|definition| !resolution_applies_default(&definition.parameter_id))
             .filter_map(|definition| {
                 default_value(definition).map(|default| ParameterValue {
                     parameter_id: definition.parameter_id.clone(),
@@ -1152,7 +1170,7 @@ mod tests {
         HardwareClass, InferenceRequestKind, KvCachePrecisionModelOption, Model,
         ModelArtifactBinding, ModelConfigurationOption, ModelEngineConfiguration, ModelOption,
         ModelOptionParameterDefinition, ModelOptionParameterValue, ModelOptionValues, ModelProfile,
-        OciPlatform, ParameterValues, Selector, SpeculativeDecodingMethod,
+        OciPlatform, ParameterValues, ParameterVisibility, Selector, SpeculativeDecodingMethod,
         SpeculativeDecodingModelOption, StringEnumModelOptionParameterSchema,
         UnsignedIntegerModelOptionParameterSchema, model_option,
         model_option_parameter_definition::ParameterType, model_option_parameter_value::Value,
@@ -1166,7 +1184,8 @@ mod tests {
     use crate::test_support::vendor_hardware_class;
 
     #[test]
-    fn engine_defaults_cover_every_parameter_declaring_one_booleans_included() {
+    fn engine_defaults_cover_every_parameter_declaring_one_booleans_included_but_not_the_context_per_request()
+     {
         use dotcore_proto::dotcore::catalog::v1::{
             BooleanParameterSchema, EngineParameterSchema, ParameterDefinition, ParameterValue,
             UnsignedIntegerParameterSchema, parameter_definition::ParameterType as Type,
@@ -1193,6 +1212,7 @@ mod tests {
                 schema_id: "fixture".to_owned(),
                 parameters: vec![
                     definition("parallel-requests", unsigned(Some(4))),
+                    definition("context-per-request", unsigned(Some(32))),
                     definition("flash-attention", boolean(Some(false))),
                     definition("cache-mib", unsigned(None)),
                     definition("mlock", boolean(None)),
@@ -1336,6 +1356,48 @@ mod tests {
                 "model \"fixture-model\" configuration \"fixture-configuration\" approves engine artifact \"metal\", which no supported hardware class [\"nvidia\"] describes"
             ]
         );
+    }
+
+    #[test]
+    fn option_without_a_visibility_is_rejected() {
+        for visibility in [ParameterVisibility::Unspecified as i32, i32::MAX] {
+            let mut model = speculative_model();
+            model.options[0].visibility = visibility;
+
+            assert_eq!(
+                option_errors(&model),
+                vec!["model option \"mtp\" requires a basic, advanced or hidden visibility"],
+                "{visibility}"
+            );
+        }
+    }
+
+    #[test]
+    fn option_with_every_declared_visibility_is_accepted() {
+        for visibility in [
+            ParameterVisibility::Basic,
+            ParameterVisibility::Advanced,
+            ParameterVisibility::Hidden,
+        ] {
+            let mut model = speculative_model();
+            model.options[0].visibility = visibility as i32;
+
+            assert_eq!(option_errors(&model), Vec::<String>::new());
+        }
+    }
+
+    #[test]
+    fn option_without_a_description_is_rejected() {
+        for description in ["", "  "] {
+            let mut model = speculative_model();
+            model.options[0].description = description.to_owned();
+
+            assert_eq!(
+                option_errors(&model),
+                vec!["model option \"mtp\" requires a description"],
+                "{description:?}"
+            );
+        }
     }
 
     #[test]
@@ -1636,6 +1698,8 @@ mod tests {
                 .map(|option_id| ModelOption {
                     option_id: option_id.to_owned(),
                     display_name: option_id.to_uppercase(),
+                    description: "Drafts tokens ahead.".to_owned(),
+                    visibility: ParameterVisibility::Advanced as i32,
                     kind: Some(model_option::Kind::SpeculativeDecoding(
                         SpeculativeDecodingModelOption {
                             method: SpeculativeDecodingMethod::Mtp as i32,
@@ -1681,6 +1745,8 @@ mod tests {
         model.options = vec![ModelOption {
             option_id: "kv-cache".to_owned(),
             display_name: "KV cache precision".to_owned(),
+            description: "Stores the cache at lower precision.".to_owned(),
+            visibility: ParameterVisibility::Advanced as i32,
             kind: Some(model_option::Kind::KvCachePrecision(
                 KvCachePrecisionModelOption {},
             )),

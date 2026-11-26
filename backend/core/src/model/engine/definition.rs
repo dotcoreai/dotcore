@@ -14,8 +14,8 @@ use dotcore_domain::WorkloadArtifactKind;
 use dotcore_proto::dotcore::{
     catalog::v1::{
         EngineParameterSchema, EngineRelease, HardwareClass, InferenceRequestKind, Model,
-        ModelArtifactBinding, ModelEngineConfiguration, ModelOptionValues, ParameterValue,
-        ParameterValues, UnsignedIntegerParameterSchema, parameter_definition, parameter_value,
+        ModelArtifactBinding, ModelEngineConfiguration, ModelOptionValues, ParameterValues,
+        UnsignedIntegerParameterSchema, parameter_definition, parameter_value,
     },
     engine::v1::{EngineKind, ResolvedEngineModelState},
     model::v1::{PortableModelLaunchPlan, ResolvedLocalModelDeploymentSnapshot},
@@ -67,27 +67,14 @@ pub(crate) trait EngineDefinition: Send + Sync {
         hardware_classes: &[&HardwareClass],
     ) -> Vec<anyhow::Error>;
 
-    /// Engine parameter defaults the engine derives from one configuration of the model. They
-    /// take the place of the release's defaults for the parameters they cover, while profile and
-    /// supplied values still win over them.
-    fn parameter_defaults(
+    /// How the engine relates the context values of one configuration, which resolution derives
+    /// the omitted ones by. By default it is the shared rule, for engines whose requests share one
+    /// total context.
+    fn context_rule(
         &self,
-        _model: &Model,
         _configuration: &ModelEngineConfiguration,
-    ) -> ParameterValues {
-        ParameterValues::default()
-    }
-
-    /// Context per request for values that leave it out, which counts as derived. By default it is
-    /// the maximum context capped by the total context, for engines whose requests share one total
-    /// context.
-    fn filled_context_per_request(
-        &self,
-        schema: &EngineParameterSchema,
-        values: &ParameterValues,
-        maximum_context_tokens: u32,
-    ) -> Option<ParameterValue> {
-        shared_parameters::filled_context_per_request(schema, values, maximum_context_tokens)
+    ) -> &'static dyn shared_parameters::ContextRule {
+        &shared_parameters::SharedContextRule
     }
 
     /// Rejects complete engine parameter values the engine cannot launch together, or cannot launch
@@ -187,6 +174,58 @@ pub(crate) trait EngineDefinition: Send + Sync {
     fn startup_refusal(&self, _output: &str) -> Option<StartupRefusal> {
         None
     }
+}
+
+/// A custom argument the operator supplied that the engine integration cannot accept: either it
+/// sets the same option from the resolved configuration, or the engine takes no custom arguments.
+/// It names only the flag, because the argument's value may be sensitive.
+#[derive(Debug, thiserror::Error)]
+pub struct CustomArgumentConflict {
+    engine: &'static str,
+    flag: String,
+    engine_takes_none: bool,
+}
+
+impl CustomArgumentConflict {
+    /// The argument collides with an option the engine integration sets itself.
+    pub(crate) fn new(engine: &'static str, token: &str) -> Self {
+        Self {
+            engine,
+            flag: custom_argument_flag(token).to_owned(),
+            engine_takes_none: false,
+        }
+    }
+
+    /// The engine accepts no custom arguments at all.
+    pub(crate) fn unsupported(engine: &'static str, token: &str) -> Self {
+        Self {
+            engine_takes_none: true,
+            ..Self::new(engine, token)
+        }
+    }
+}
+
+impl std::fmt::Display for CustomArgumentConflict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.engine_takes_none {
+            write!(
+                f,
+                "{} takes no custom arguments, but got {:?}",
+                self.engine, self.flag
+            )
+        } else {
+            write!(
+                f,
+                "{} custom argument {:?} conflicts with resolved settings",
+                self.engine, self.flag
+            )
+        }
+    }
+}
+
+/// Returns the flag part of a custom argument token, without any `=value` suffix.
+pub(crate) fn custom_argument_flag(token: &str) -> &str {
+    token.split_once('=').map_or(token, |(flag, _)| flag)
 }
 
 /// Returns the engine declared with the given raw engine kind, if it is supported.

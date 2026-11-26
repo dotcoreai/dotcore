@@ -13,8 +13,8 @@ Code: `backend/catalog/` (declarations, validation, sizing), `catalog/` (the mas
 - Serve local models through catalog-selected llama.cpp and vLLM profiles. You pick a profile, not
   an engine build.
 - Tell models you can discover or acquire from models you can deploy.
-- Set the same context parameters on every engine: total context, context per request and parallel
-  requests, with engine defaults.
+- Set the same context parameters on every engine: context per request and parallel requests, with
+  engine defaults, and a total context that follows them unless you set it.
 - See catalog estimates per hardware class for a scenario you choose.
 - Compare models by the Dotcore Bench Intelligence Score, and see each model's and each app's
   upstream licence with a link to its terms.
@@ -117,6 +117,8 @@ option effects itself.
 - Declares a maximum context, a property of its weights. A model-local engine configuration may
   declare a lower one when its engine can't serve the model's. Resolution enforces the lower of the
   two at deploy time. Engine limits stay separate, as engine parameter bounds.
+- Declares its options, each with a description and the same basic, advanced or hidden visibility
+  as engine parameters.
 - May carry an intelligence score and the upstream licence with a link to its terms. Both are display
   metadata, outside the model's release identity and deployment snapshots. The licence is not a
   compliance assessment.
@@ -137,16 +139,16 @@ A preset of defaults and parameter visibility overrides for one engine configura
 - Supplies defaults, never ongoing deployment authority.
 - Supplies no default for total context or context per request.
 - May override the default and the visibility of its configuration's engine parameters. It may hide total
-  context and context per request, never make them advanced.
+  context, context per request and parallel requests, never make them advanced.
 - Carries no platform. The hardware class follows from the exact placement, so one profile serves
   every hardware class its configuration supports.
 
 ### Engine release
 
 - Declares the shared engine parameters (total context, context per request, parallel requests),
-  with fixed visibilities, a default on total context and parallel requests and none on context per
-  request. Each release sets its own bounds, defaults and descriptions. A bound the engine doesn't
-  have stays undeclared, so a parameter may have no maximum.
+  all basic, with a default on context per request and parallel requests and none on total context.
+  Each release sets its own bounds, defaults and descriptions. A bound the engine doesn't have
+  stays undeclared, so a parameter may have no maximum.
 - May declare parameter defaults within their bounds. A default on a parameter that sizing derives
   is rejected.
 - Defines every engine parameter and its shape. A configuration only narrows that set, never adds

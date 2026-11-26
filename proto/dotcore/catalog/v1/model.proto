@@ -216,6 +216,13 @@ message ModelOption {
   // Human-readable option name.
   string display_name = 2;
 
+  // Operator-facing explanation of what turning the option on does and costs. Required.
+  string description = 6;
+
+  // Where the console shows the option, in every configuration and profile. Required: catalog
+  // validation rejects an unspecified visibility.
+  ParameterVisibility visibility = 7;
+
   oneof kind {
     // Option that adds image-input capability.
     VisionModelOption vision = 3;

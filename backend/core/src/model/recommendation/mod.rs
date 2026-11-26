@@ -3,14 +3,16 @@
 //!
 //! Each target reads the list of the most specific hardware class that has one for the use case,
 //! and each entry is judged with the same profile resolution and memory fit as the compatibility
-//! read, the entry's own minimums added to its configuration's. An entry is sized for one request
-//! using its whole total context, at the entry's context per request or else the profile's
-//! default. Entries that can't run on a target or exceed its total memory are left out there, and
-//! the rest merge across targets by their best declared position and context per request. Each
-//! target names the model's running or starting deployment of the same profile there, whatever its
-//! context. Asked for what can start now, it keeps only reachable targets that are deployed or fit
-//! free memory, deployed rows first. The answer is advisory: it never admits, reserves, or places a
-//! deployment.
+//! read, the entry's own minimums added to its configuration's. An entry is sized like a new
+//! deployment: the profile's parallel requests at the entry's context per request, or else the
+//! engine default, with the total context capped at the largest fit. It fits a target when it would
+//! start there at its context per request. Entries that can't run on a target or whose context per
+//! request exceeds its total memory that way are left out there, and the rest merge across targets
+//! by their best declared position and context per request. Each target names the model's running
+//! or starting deployment of the same profile there, whatever its context, and the context values
+//! a deployment starts from there. Asked for what can start now, it keeps only reachable targets
+//! that are deployed or fit free memory, deployed rows first. The answer is advisory: it never
+//! admits, reserves, or places a deployment.
 
 use std::{cmp::Ordering, collections::BTreeMap};
 
@@ -36,7 +38,7 @@ pub use machine::{IdleMachine, IdleMachineError};
 
 use crate::{
     hardware::{
-        capacity::WorkloadPhase,
+        capacity::{StartingContext, WorkloadPhase},
         selection::{
             HardwareClassSelectionError, SelectedTargetCapabilities, select_hardware_class,
         },
@@ -49,6 +51,7 @@ use crate::{
         engine::EngineIntegrationRegistry,
         sizing_scenario::{
             ProfileSizing, SizingScenario, default_context_per_request, size_profile,
+            smallest_total_serving,
         },
     },
 };
@@ -68,8 +71,8 @@ pub struct Recommendation {
 
     pub profile_id: String,
 
-    /// Context per request in tokens the profile is sized with: the entry's own, else the
-    /// profile's default.
+    /// Context per request in tokens the profile is sized with at its parallel requests: the
+    /// entry's own, else the engine default a new deployment starts from.
     pub context_tokens_per_request: u64,
 
     /// Targets whose list has the profile and that can run it, by node then target; deployed
@@ -88,9 +91,14 @@ pub struct TargetRecommendation {
     /// whatever its context per request.
     pub model_deployment_id: Option<String>,
 
-    /// Total context in tokens a deployment of the profile starts from there; absent without a
-    /// largest fit or a profile default.
+    /// Total context in tokens a deployment of the profile starts from there: the starting context
+    /// per request times the parallel requests, capped at the largest fit; absent when the profile
+    /// can't be sized there.
     pub starting_total_context_tokens: Option<u64>,
+
+    /// Context per request in tokens a deployment starts from there, when one request at the row's
+    /// doesn't fit; absent otherwise.
+    pub starting_context_tokens_per_request: Option<u64>,
 }
 
 /// A recommended profile's memory fit on a target whose total memory can hold it.
@@ -201,7 +209,7 @@ impl Recommender<'_> {
                 let Some(scenario) = entry_scenario(self.catalog, model, profile, entry) else {
                     continue;
                 };
-                let Some((fit, starting_total_context_tokens)) =
+                let Some((fit, starting)) =
                     self.judge(model, profile, entry, scenario, checked.target, selected)
                 else {
                     continue;
@@ -230,7 +238,11 @@ impl Recommender<'_> {
                     model_deployment_id: deployment_id(deployments, &placement, entry),
                     placement,
                     fit,
-                    starting_total_context_tokens,
+                    starting_total_context_tokens: starting
+                        .map(|starting| starting.total_context.tokens()),
+                    starting_context_tokens_per_request: starting
+                        .filter(|starting| starting.lowered)
+                        .map(|starting| starting.context_tokens_per_request),
                 });
             }
         }
@@ -238,8 +250,8 @@ impl Recommender<'_> {
     }
 
     /// Judges one entry sized for `scenario` on one target with the compatibility read's
-    /// evaluation, its minimums added to its configuration's: its fit and starting total context
-    /// there, or none when it is left out there.
+    /// evaluation, its minimums added to its configuration's: its fit and the context values a
+    /// deployment starts from there, or none when it is left out there.
     fn judge(
         &mut self,
         model: &Model,
@@ -248,7 +260,7 @@ impl Recommender<'_> {
         scenario: SizingScenario,
         target: &ExecutionTarget,
         selected: &SelectedTargetCapabilities,
-    ) -> Option<(RecommendationFit, Option<u64>)> {
+    ) -> Option<(RecommendationFit, Option<StartingContext>)> {
         let sizing = self
             .sizings
             .entry(row_key(entry, scenario))
@@ -331,9 +343,11 @@ impl Declarations {
     }
 }
 
-/// The sizing scenario an entry is judged with: one request using the whole total context, both
-/// the entry's context per request or else the profile's default. Returns none when the profile's
-/// defaults don't resolve.
+/// The sizing scenario an entry is judged with: the entry's context per request, or else the engine
+/// default a new deployment starts from, at the profile's parallel requests, with the smallest total
+/// context one such request starts from. Its memory fits then judge whether a deployment would
+/// start at that context per request, its total capped at the largest fit. Returns none when the
+/// profile's defaults don't resolve.
 fn entry_scenario(
     catalog: &Catalog,
     model: &Model,
@@ -343,7 +357,8 @@ fn entry_scenario(
     let context_tokens = entry
         .context_tokens_per_request
         .or_else(|| default_context_per_request(catalog, model, profile))?;
-    SizingScenario::new(context_tokens, Some(context_tokens)).ok()
+    let total_context = smallest_total_serving(catalog, model, profile, context_tokens)?;
+    SizingScenario::one_request(total_context, context_tokens).ok()
 }
 
 /// The row an entry sized for `scenario` merges into.
@@ -351,14 +366,18 @@ fn row_key(entry: &ModelRecommendation, scenario: SizingScenario) -> RowKey {
     (
         entry.model_id.clone(),
         entry.profile_id.clone(),
-        scenario.total_context_tokens(),
+        // An entry scenario always holds its context per request.
+        scenario.context_tokens_per_request().unwrap_or_default(),
     )
 }
 
-/// The fit of an evaluated entry on a target and the total context a deployment starts from
+/// The fit of an evaluated entry on a target and the context values a deployment starts from
 /// there, or none when the entry is left out there: its profile can't run there or serve its
-/// context there, or its memory fit, with the entry's minimums, exceeds the target's total.
-fn target_fit(evaluation: &ProfileEvaluation) -> Option<(RecommendationFit, Option<u64>)> {
+/// context there, or, with the entry's minimums, one request at its context per request exceeds
+/// the target's total memory, judged as the entry's scenario starts it.
+fn target_fit(
+    evaluation: &ProfileEvaluation,
+) -> Option<(RecommendationFit, Option<StartingContext>)> {
     let running = match evaluation {
         ProfileEvaluation::Runs(running) => running,
         // Observations expired between the target check and resolution.
@@ -376,12 +395,7 @@ fn target_fit(evaluation: &ProfileEvaluation) -> Option<(RecommendationFit, Opti
         (MemoryFit::Fits, MemoryFit::Exceeds) => RecommendationFit::NeedsMemoryFreed,
         _ => RecommendationFit::Unknown,
     };
-    Some((
-        fit,
-        running
-            .starting_total_context
-            .map(|starting| starting.tokens()),
-    ))
+    Some((fit, running.fit.starting_context))
 }
 
 /// The first running or starting model deployment of the entry's model and profile placed at

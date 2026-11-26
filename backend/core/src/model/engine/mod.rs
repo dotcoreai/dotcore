@@ -12,7 +12,10 @@ pub(crate) mod startup_facts;
 pub(crate) mod startup_refusal;
 
 pub use declaration::EngineFacade;
-pub(crate) use definition::{unsigned_parameter_range, unsigned_parameter_value};
+pub(crate) use definition::{
+    CustomArgumentConflict, custom_argument_flag, unsigned_parameter_range,
+    unsigned_parameter_value,
+};
 pub(crate) use realization::{realize_model, validate_snapshot};
 pub(crate) use registry::{
     EngineIntegrationError, EngineIntegrationRegistry, EngineTransportFactories,
@@ -49,22 +52,36 @@ pub(crate) fn engine_artifact_kinds(kind: i32) -> &'static [dotcore_domain::Work
     definition::definition(kind).map_or(&[], |engine| engine.artifact_kinds())
 }
 
-/// Returns the context per request resolution fills for values that leave it out, by the rule of
-/// the engine of a raw engine kind; an unsupported kind takes the shared rule.
-pub(crate) fn filled_context_per_request(
+/// Returns the context values resolution derives for values that leave them out, by the context
+/// rule the engine of a raw engine kind gives the model's configuration; an unsupported kind takes
+/// the shared rule.
+pub(crate) fn derived_context_values(
     kind: i32,
+    model: &dotcore_proto::dotcore::catalog::v1::Model,
+    configuration: &dotcore_proto::dotcore::catalog::v1::ModelEngineConfiguration,
     schema: &dotcore_proto::dotcore::catalog::v1::EngineParameterSchema,
     values: &dotcore_proto::dotcore::catalog::v1::ParameterValues,
-    maximum_context_tokens: u32,
-) -> Option<dotcore_proto::dotcore::catalog::v1::ParameterValue> {
-    match definition::definition(kind) {
-        Some(engine) => engine.filled_context_per_request(schema, values, maximum_context_tokens),
-        None => dotcore_catalog::shared_parameters::filled_context_per_request(
-            schema,
-            values,
-            maximum_context_tokens,
-        ),
-    }
+) -> Vec<dotcore_proto::dotcore::catalog::v1::ParameterValue> {
+    use dotcore_catalog::shared_parameters;
+
+    shared_parameters::derived_context_values(
+        schema,
+        values,
+        shared_parameters::maximum_context_tokens(model, configuration),
+        context_rule(kind, configuration),
+    )
+}
+
+/// Returns how the engine of a raw engine kind relates the context values of the configuration;
+/// an unsupported kind takes the shared rule.
+pub(crate) fn context_rule(
+    kind: i32,
+    configuration: &dotcore_proto::dotcore::catalog::v1::ModelEngineConfiguration,
+) -> &'static dyn dotcore_catalog::shared_parameters::ContextRule {
+    definition::definition(kind).map_or(
+        &dotcore_catalog::shared_parameters::SharedContextRule,
+        |engine| engine.context_rule(configuration),
+    )
 }
 
 /// Rejects complete engine parameter values the engine of a raw engine kind cannot launch

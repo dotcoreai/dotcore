@@ -12,7 +12,7 @@
 
 use std::{collections::BTreeMap, time::SystemTime};
 
-use dotcore_catalog::{Catalog, CatalogModelId, shared_parameters::TOTAL_CONTEXT_PARAMETER_ID};
+use dotcore_catalog::{Catalog, CatalogModelId};
 use dotcore_domain::MemoryArchitecture;
 use dotcore_domain::WorkloadArtifactKind;
 use dotcore_proto::dotcore::{
@@ -34,7 +34,6 @@ use crate::{
     hardware::attribution::PROCESS_MEMORY_PENDING,
     hardware::capacity::{
         Estimate, NodeWorkloads, StartingTotalContext, Workload, WorkloadKey, WorkloadPhase,
-        starting_total_context,
     },
     hardware::selection::{
         HardwareClassSelectionError, SelectedTargetCapabilities, TargetCapabilitySelectionError,
@@ -42,7 +41,7 @@ use crate::{
     },
     model::{
         advisory::local_deployment_advisories,
-        engine::{EngineIntegrationRegistry, engine_artifact_kinds, unsigned_parameter_value},
+        engine::{EngineIntegrationRegistry, engine_artifact_kinds},
         resolution::{
             ModelLaunchResolutionError, apply_profile_defaults,
             resolve_local_launch_on_selected_target,
@@ -206,10 +205,6 @@ pub(crate) struct RunningProfile {
     pub(crate) hardware_class_id: String,
 
     pub(crate) fit: TargetMemoryFit,
-
-    /// Total context a deployment of the profile starts from there; absent without a largest fit
-    /// or a profile default.
-    pub(crate) starting_total_context: Option<StartingTotalContext>,
 }
 
 /// One model profile to evaluate on targets, with its target-independent sizing.
@@ -247,11 +242,6 @@ pub(crate) fn evaluate_profile(
         &profile.profile_id,
         &LocalModelDeploymentConfiguration::default(),
     );
-    let default_total_context = defaults
-        .as_ref()
-        .ok()
-        .and_then(|configuration| configuration.engine_parameter_values.as_ref())
-        .and_then(|values| unsigned_parameter_value(values, TOTAL_CONTEXT_PARAMETER_ID));
     let resolved = defaults.and_then(|configuration| {
         resolve_local_launch_on_selected_target(
             catalog,
@@ -292,10 +282,6 @@ pub(crate) fn evaluate_profile(
             .hardware_support
             .map(|support| support.hardware_class_id)
             .unwrap_or_default(),
-        starting_total_context: starting_total_context(
-            fit.largest_total_context_tokens,
-            default_total_context,
-        ),
         fit,
     })
 }
@@ -457,13 +443,18 @@ fn profile_compatibility(
             entry.set_free_memory_fit(fit.free_memory_fit);
             entry.set_unsupported_reason(fit.unsupported_reason);
             entry.largest_total_context_tokens = fit.largest_total_context_tokens;
-            if let Some(starting) = running.starting_total_context {
-                entry.starting_total_context_tokens = Some(starting.tokens());
-                entry.set_starting_total_context_source(match starting {
+            entry.largest_context_tokens_per_request = fit.largest_context_tokens_per_request;
+            if let Some(starting) = fit.starting_context {
+                entry.starting_context_tokens_per_request = starting
+                    .lowered
+                    .then_some(starting.context_tokens_per_request);
+                entry.starting_total_context_tokens = Some(starting.total_context.tokens());
+                entry.set_starting_total_context_source(match starting.total_context {
                     StartingTotalContext::LargestFit(_) => StartingTotalContextSource::LargestFit,
-                    StartingTotalContext::ProfileDefault(_) => {
-                        StartingTotalContextSource::ProfileDefault
+                    StartingTotalContext::PerRequestTimesParallel(_) => {
+                        StartingTotalContextSource::PerRequestTimesParallel
                     }
+                    StartingTotalContext::Requested(_) => StartingTotalContextSource::ScenarioTotal,
                 });
             }
         }
@@ -925,10 +916,14 @@ mod tests {
                 memory_fit: MemoryFit::Exceeds as i32,
                 free_memory_fit: MemoryFit::Exceeds as i32,
                 unsupported_reason: SizingScenarioUnsupportedReason::Unspecified as i32,
+                largest_context_tokens_per_request: None,
+                starting_context_tokens_per_request: None,
                 largest_total_context_tokens: None,
-                // Without a largest fit, a deployment starts from the profile's default.
+                // Without a largest fit, a deployment starts from the context per request times the
+                // parallel requests.
                 starting_total_context_tokens: Some(32_768),
-                starting_total_context_source: StartingTotalContextSource::ProfileDefault as i32,
+                starting_total_context_source: StartingTotalContextSource::PerRequestTimesParallel
+                    as i32,
             }
         };
         let below_minimum =
@@ -1216,6 +1211,8 @@ mod tests {
                 memory_fit: MemoryFit::Unspecified as i32,
                 free_memory_fit: MemoryFit::Unspecified as i32,
                 unsupported_reason: SizingScenarioUnsupportedReason::Unspecified as i32,
+                largest_context_tokens_per_request: None,
+                starting_context_tokens_per_request: None,
                 largest_total_context_tokens: None,
                 starting_total_context_tokens: None,
                 starting_total_context_source: StartingTotalContextSource::Unspecified as i32,
@@ -1562,7 +1559,7 @@ mod tests {
     }
 
     /// Sizing of a fixture profile at its defaults: the given prompt cache, then the engine default
-    /// total context and parallel requests and the context per request filled from them, on the
+    /// parallel requests, context per request and the total context derived from them, on the
     /// fixture class, which declares no sizing.
     fn unsized_profile(profile_id: &str, prompt_cache_mib: u64) -> ModelProfileSizing {
         ModelProfileSizing {
@@ -1570,17 +1567,17 @@ mod tests {
             profile_id: profile_id.to_owned(),
             engine_parameter_values: Some(unsigned_parameter_values([
                 ("prompt-cache-memory-mib", prompt_cache_mib),
-                ("total-context", 32_768),
                 ("parallel-requests", 4),
-                ("context-per-request", 32_768),
+                ("context-per-request", 8192),
+                ("total-context", 32_768),
             ])),
             hardware_class_estimates: vec![HardwareClassResourceEstimate {
                 hardware_class_id: "fixture-nvidia".to_owned(),
                 estimates: Vec::new(),
-                derived_engine_parameter_values: Some(unsigned_parameter_values([(
-                    "context-per-request",
-                    32_768,
-                )])),
+                derived_engine_parameter_values: Some(unsigned_parameter_values([
+                    ("context-per-request", 8192),
+                    ("total-context", 32_768),
+                ])),
                 launch_rejection: None,
             }],
             unsupported_reason: SizingScenarioUnsupportedReason::Unspecified as i32,

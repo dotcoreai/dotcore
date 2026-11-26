@@ -8,6 +8,7 @@ import type { PredictedMemory } from "@/features/models/deploy/memory/model-depl
 import { MemoryCapacityWarning } from "@/features/models/deploy/memory/model-deploy-memory-strip";
 import {
   CONTEXT_PER_REQUEST_PARAMETER_ID,
+  PARALLEL_REQUESTS_PARAMETER_ID,
   TOTAL_CONTEXT_PARAMETER_ID,
 } from "@/features/models/runtime/engine-parameter-values";
 import type { ChangedEngineParameter } from "@/features/models/runtime/local-deployment-configuration";
@@ -18,11 +19,12 @@ import { formatBytes, formatCompactCount } from "@/lib/format";
 import type { LocalDeploymentMemoryPreview } from "./use-model-deploy-memory-preview";
 
 /**
- * The deploy dialog's Deploy step: the deployment name and route, notices about the site and the
- * launch's memory, and a summary of the target, profile, context, each changed parameter and the
- * other customized advanced settings.
+ * The deploy dialog's Review & deploy step: the deployment name and route, notices about the site
+ * and the launch's memory, and a summary of the target, profile, weights, context, the basic
+ * capabilities, each changed parameter and the other customized advanced settings.
  */
 export function ModelDeploySummaryStep({
+  capabilities,
   changedParameters,
   customizations,
   disabled,
@@ -41,6 +43,7 @@ export function ModelDeploySummaryStep({
   profileName,
   siteNotice,
   target,
+  weights,
 }: ModelDeploySummaryStepProps) {
   return (
     <DeploymentSummaryStep
@@ -66,10 +69,15 @@ export function ModelDeploySummaryStep({
       onNameBlur={onNameBlur}
       onNameChange={onNameChange}
       nameFields={exposureFields}
+      stepName="Review & deploy"
     >
-      <Detail label="Target" value={target ? executionTargetName(target) : "None"} />
+      <Detail label="Runs on" value={target ? executionTargetName(target) : "None"} />
       <Detail label="Profile" value={profileName} />
+      {weights ? <Detail label="Weights" value={weights} /> : null}
       <Detail label="Context" value={contextSummary(inputs, filledContextPerRequest)} />
+      {capabilities.map(({ label, value }) => (
+        <Detail key={label} label={label} value={value} />
+      ))}
       {changedParameters.map(({ parameter, value }) => (
         <Detail
           key={parameter.parameterId}
@@ -85,6 +93,8 @@ export function ModelDeploySummaryStep({
 }
 
 export interface ModelDeploySummaryStepProps {
+  /** The basic model options and their values, such as vision on or off. */
+  capabilities: readonly { label: string; value: string }[];
   /** The engine parameters outside the context whose values differ from the defaults. */
   changedParameters: readonly ChangedEngineParameter[];
   /** The other advanced settings that differ from the defaults, in a few words each. */
@@ -110,11 +120,13 @@ export interface ModelDeploySummaryStepProps {
   /** A notice about the site's execution targets, when none can deploy. */
   siteNotice?: ReactNode;
   target?: ConfiguredExecutionTarget;
+  /** The profile's weights, such as their quantization. */
+  weights?: string;
 }
 
 /**
- * The launch's context in a few words, such as "128k total · 64k per request". An empty context
- * per request reads as the value resolution fills in.
+ * The launch's context in a few words, such as "32k per request · 4 parallel · 128k total". An
+ * empty context per request reads as the value resolution fills in.
  */
 function contextSummary(
   inputs: ReadonlyMap<string, string>,
@@ -126,7 +138,12 @@ function contextSummary(
   const perRequest =
     inputs.get(CONTEXT_PER_REQUEST_PARAMETER_ID) ||
     (filledPerRequest === undefined ? "" : String(filledPerRequest));
-  return [total && `${tokens(total)} total`, perRequest && `${tokens(perRequest)} per request`]
+  const parallel = inputs.get(PARALLEL_REQUESTS_PARAMETER_ID) ?? "";
+  return [
+    perRequest && `${tokens(perRequest)} per request`,
+    parallel && `${parallel} parallel`,
+    total && `${tokens(total)} total`,
+  ]
     .filter(Boolean)
     .join(" · ");
 }

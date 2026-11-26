@@ -358,6 +358,9 @@ mod tests {
             .map(|option_id| ModelOption {
                 option_id: option_id.to_owned(),
                 display_name: option_id.to_uppercase(),
+                description: "Fixture option.".to_owned(),
+                visibility: dotcore_proto::dotcore::catalog::v1::ParameterVisibility::Advanced
+                    as i32,
                 kind: Some(model_option::Kind::SpeculativeDecoding(
                     SpeculativeDecodingModelOption {
                         method: SpeculativeDecodingMethod::Mtp as i32,

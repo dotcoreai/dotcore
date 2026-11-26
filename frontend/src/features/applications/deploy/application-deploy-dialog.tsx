@@ -17,7 +17,7 @@ import {
   type ConfiguredExecutionTargetLoader,
   useConfiguredExecutionTargets,
 } from "@/features/deployments/use-configured-execution-targets";
-import { type DeployStep, useDeployWizard } from "@/features/deployments/use-deploy-wizard";
+import { useDeployWizard } from "@/features/deployments/use-deploy-wizard";
 import type { ApplicationStorageChoice } from "@/gen/dotcore/application/v1/service_pb";
 import type { Application } from "@/gen/dotcore/catalog/v1/application_pb";
 import type { ParameterValue } from "@/gen/dotcore/catalog/v1/parameter_pb";
@@ -61,7 +61,7 @@ const APPLICATION_DEPLOY_STEPS = [
   "Settings",
   "Advanced",
   "Deploy",
-] as const satisfies readonly DeployStep[];
+] as const;
 
 type ApplicationDeployStep = (typeof APPLICATION_DEPLOY_STEPS)[number];
 
@@ -260,7 +260,11 @@ export function ApplicationDeployDialog({
       ["name", deploymentNameRef.current],
       ["placement", executionTargetRef.current],
     ]);
+  const severalTargets = deployableExecutionTargets.length > 1;
   const wizard = useDeployWizard<ApplicationDeployStep>({
+    advancedSteps: ["Advanced"],
+    // Basic mode asks for the target only when several can take the deployment.
+    basicShows: (candidate) => candidate !== "Target" || severalTargets,
     errorsFor: stepErrors,
     fieldControls,
     hasFields: (candidate) => {
@@ -280,7 +284,6 @@ export function ApplicationDeployDialog({
     open,
     order: APPLICATION_DEPLOY_STEPS,
     setFieldErrors,
-    severalTargets: deployableExecutionTargets.length > 1,
   });
   const { step } = wizard;
   // Converted once per blocked navigation, since a new map is what opens the groups.

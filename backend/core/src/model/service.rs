@@ -903,6 +903,7 @@ fn parse_profile_compatibility_request(
             SizingScenario::new(
                 scenario.total_context_tokens,
                 scenario.context_tokens_per_request,
+                scenario.parallel_requests.map(u64::from),
             )
         })
         .transpose()
@@ -1401,15 +1402,16 @@ mod tests {
                 model_id: Some("model".to_owned()),
                 target: Some(placement("node", "target")),
                 scenario: Some(dotcore_proto::dotcore::model::v1::SizingScenario {
-                    total_context_tokens: 1,
+                    total_context_tokens: Some(1),
                     context_tokens_per_request: Some(1),
+                    parallel_requests: None,
                 }),
             })
             .expect("valid request"),
             (
                 Some("model".to_owned()),
                 Some(placement("node", "target")),
-                Some(SizingScenario::new(1, Some(1)).expect("smallest scenario"))
+                Some(SizingScenario::new(Some(1), Some(1), None).expect("smallest scenario"))
             )
         );
         assert_eq!(
@@ -1439,8 +1441,9 @@ mod tests {
                     model_id: None,
                     target: None,
                     scenario: Some(dotcore_proto::dotcore::model::v1::SizingScenario {
-                        total_context_tokens: 4096,
+                        total_context_tokens: Some(4096),
                         context_tokens_per_request: Some(4097),
+                        parallel_requests: None,
                     }),
                 },
                 "Sizing scenario context per request must not be above its total context",
@@ -2251,6 +2254,7 @@ mod tests {
                     placement_preview: None,
                     memory_parameter_fits: Vec::new(),
                     largest_total_context_tokens: None,
+                    largest_context_tokens_per_request: None,
                 },
             ))
         }

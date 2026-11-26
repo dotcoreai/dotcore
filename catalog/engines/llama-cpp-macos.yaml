@@ -12,14 +12,13 @@ parameterSchema:
     - parameterId: "total-context"
       displayName: "Total context"
       visibility: "PARAMETER_VISIBILITY_BASIC"
-      description: "Memory the model holds for all requests at once; each active request stores its tokens in it, even when prompts start the same. Raise it to serve longer or more simultaneous conversations; when it fills, idle requests are dropped first, then active ones fail."
+      description: "Memory the model holds for all requests at once; each active request stores its tokens in it, even when prompts start the same. It follows the context per request times the parallel requests unless you set it. When it fills, idle requests give up their share first, kept in the prompt cache when it is on, then active ones fail."
       # At least Dotcore's context floor. `--ctx-size` (`common/arg.cpp`) takes an int, so at most
       # the int32 maximum; llama.cpp pads it to whole 256-token blocks (`src/llama-context.cpp`).
       unsignedInteger:
         minimum: "512"
         maximum: "2147483647"
         unit: "tokens"
-        defaultValue: "32768"
     - parameterId: "context-per-request"
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
@@ -30,10 +29,11 @@ parameterSchema:
         minimum: "512"
         maximum: "2147483647"
         unit: "tokens"
+        defaultValue: "32768"
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
-      visibility: "PARAMETER_VISIBILITY_ADVANCED"
-      description: "Requests generated at once; more wait in a queue. They share the total context, so raising it adds little memory; raise it when several people or agents use the model together."
+      visibility: "PARAMETER_VISIBILITY_BASIC"
+      description: "Requests generated at once; more wait in a queue. The total context grows with them unless you set it, so each added request adds memory; raise it when several people or agents use the model together."
       # The server's `-np` refuses 0 (`common/arg.cpp`), and at most `LLAMA_MAX_SEQ` sequences
       # (`src/llama-cparams.h`); `src/llama-context.cpp` refuses more.
       # A model with classifier-free guidance doubles its sequences (`common/common.cpp`), so it

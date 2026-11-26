@@ -195,6 +195,9 @@ message EstimateLocalModelResourcesResponse {
 
   // Largest total context that fits the target's free memory less the headroom, with every other value as supplied; absent without a placement, with custom arguments, when free memory is unknown, or when no accepted total fits.
   optional uint64 largest_total_context_tokens = 4;
+
+  // Largest context per request in tokens at the configuration's parallel requests whose total, by the engine's rule, fits the same memory; absent when the largest total context is.
+  optional uint64 largest_context_tokens_per_request = 5;
 }
 
 // Carries the estimates and derived engine parameter values of one configuration on one hardware class.
@@ -246,14 +249,17 @@ message ListModelProfileCompatibilityRequest {
   SizingScenario scenario = 3;
 }
 
-// An operator use case that sizing evaluates on each profile: a total context its requests share,
-// optionally with a cap on each request's context. Parallel requests keep each profile's defaults.
+// An operator use case that sizing evaluates on each profile: the context each request may use and how
+// many requests run at once, with the total context following them unless the scenario sets it.
 message SizingScenario {
-  // Context every request shares, in tokens; a profile whose engine range excludes it doesn't support the scenario.
-  uint64 total_context_tokens = 1;
-
-  // Context one request may use, in tokens, at most the total context; absent fills it from the maximum context.
+  // Context one request may use, in tokens; absent takes the engine default, or fills it from the total context when that is set.
   optional uint64 context_tokens_per_request = 2;
+
+  // Requests generated at once; absent keeps each profile's parallel requests.
+  optional uint32 parallel_requests = 3;
+
+  // Context the requests share, in tokens; absent derives it from the context per request and parallel requests by the engine's rule.
+  optional uint64 total_context_tokens = 1;
 }
 
 // Returns point-in-time compatibility for each evaluated target and, for targets that pass
@@ -302,7 +308,7 @@ message RecommendedModelProfile {
   // Model-local profile identifier.
   string profile_id = 2;
 
-  // Context per request in tokens the row is sized with: the entry's own, else the profile's default.
+  // Context per request in tokens the row is sized with at the profile's parallel requests: the entry's own, else the profile's default; a target may start lower.
   uint64 context_tokens_per_request = 4;
 
   // Targets that can run the profile, ordered by node then target identifier.
@@ -320,8 +326,11 @@ message RecommendedProfileTarget {
   // The running or starting deployment of the same model and profile on the target; absent when there is none.
   optional string model_deployment_id = 3;
 
-  // Total context in tokens a deployment of the profile starts from on the target; absent without a largest fit or a profile default.
+  // Total context in tokens a deployment of the profile starts from on the target: the starting context per request times the parallel requests, capped at the largest fit; absent when the profile can't be sized on the target.
   optional uint64 starting_total_context_tokens = 4;
+
+  // Context per request in tokens a deployment starts from on the target, when lowered below the row's because one request at that size doesn't fit; absent otherwise.
+  optional uint64 starting_context_tokens_per_request = 5;
 }
 
 // How a recommended profile fits a target whose total memory can hold it.
@@ -389,10 +398,16 @@ message ModelProfileCompatibility {
   // Why the profile can't serve the scenario on the target's hardware class; unspecified when it can.
   SizingScenarioUnsupportedReason unsupported_reason = 9;
 
-  // Largest total context in tokens whose estimate fits the target's observed free memory less a headroom, at the scenario's or the filled context per request; absent when free memory is unknown, nothing fits, or neither memory nor the engine bounds it.
+  // Largest total context in tokens whose estimate fits the target's observed free memory less a headroom, at the scenario's context per request and parallel requests; absent when free memory is unknown, nothing fits, or neither memory nor the engine bounds it.
   optional uint64 largest_total_context_tokens = 10;
 
-  // Total context in tokens a deployment of the profile starts from on the target: the largest fit, or the profile's default without one; absent when neither exists.
+  // Largest context per request in tokens at the scenario's parallel requests whose total, by the engine's rule, fits the same memory; absent when the largest total context is.
+  optional uint64 largest_context_tokens_per_request = 14;
+
+  // Context per request in tokens a deployment starts from on the target, when lowered below the scenario's because one request at that size doesn't fit; absent otherwise.
+  optional uint64 starting_context_tokens_per_request = 15;
+
+  // Total context in tokens a deployment of the profile starts from on the target: the scenario's total when it sets one, else the starting context per request times the parallel requests, capped at the largest fit; absent unless the profile runs and the scenario is supported.
   optional uint64 starting_total_context_tokens = 12;
 
   // Where the starting total context comes from; unspecified when it is absent.
@@ -408,7 +423,7 @@ message ModelProfileSizing {
   // Model-local profile identifier.
   string profile_id = 2;
 
-  // Profile and engine parameter defaults with the scenario's values and the filled context per request, without sizing-derived values; absent when unsupported.
+  // Profile and engine parameter defaults with the scenario's values and the derived context values, without sizing-derived values; absent when unsupported.
   dotcore.catalog.v1.ParameterValues engine_parameter_values = 3;
 
   // Estimates per supported hardware class in declaration order, omitting unsupported classes and classes whose sizing fails.
@@ -511,7 +526,7 @@ enum SizingScenarioUnsupportedReason {
   // The context per request is above the model's maximum context, or its configuration's lower maximum.
   SIZING_SCENARIO_UNSUPPORTED_REASON_CONTEXT_ABOVE_MAXIMUM = 1;
 
-  // A value the scenario sets or fills is outside the engine's accepted range or rules.
+  // A value the scenario sets or derives is outside the engine's accepted range or rules.
   SIZING_SCENARIO_UNSUPPORTED_REASON_PARAMETER_OUT_OF_RANGE = 3;
 
   // An engine parameter value sizing derives from the scenario is outside the engine's accepted range.
@@ -523,11 +538,14 @@ enum StartingTotalContextSource {
   // No starting total context exists.
   STARTING_TOTAL_CONTEXT_SOURCE_UNSPECIFIED = 0;
 
-  // The largest total context that fits the target's free memory.
+  // The largest total context that fits the target's free memory, because the total asked for, the scenario's or the context per request times the parallel requests, doesn't.
   STARTING_TOTAL_CONTEXT_SOURCE_LARGEST_FIT = 1;
 
-  // The profile's default, without a largest fit.
-  STARTING_TOTAL_CONTEXT_SOURCE_PROFILE_DEFAULT = 2;
+  // The starting context per request times the parallel requests, by the engine's rule; it fits, or no largest fit is known.
+  STARTING_TOTAL_CONTEXT_SOURCE_PER_REQUEST_TIMES_PARALLEL = 2;
+
+  // The total context the sizing scenario sets; it fits, or no largest fit is known.
+  STARTING_TOTAL_CONTEXT_SOURCE_SCENARIO_TOTAL = 3;
 }
 
 // Requests replacement of one upstream model deployment's private target configuration.

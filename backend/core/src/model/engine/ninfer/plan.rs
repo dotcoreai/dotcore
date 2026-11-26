@@ -431,7 +431,7 @@ pub(crate) enum NinferPlanError {
     #[error("ninfer launch plan has no valid value for engine parameter {0:?}")]
     ParameterNotConfigured(String),
 
-    #[error("ninfer custom argument {0:?} conflicts with resolved settings")]
+    #[error("ninfer custom argument {:?} conflicts with resolved settings", crate::model::engine::custom_argument_flag(.0))]
     ConflictingCustomArgument(String),
 }
 
@@ -748,7 +748,10 @@ mod tests {
 
             assert_eq!(
                 translate(&local).expect_err("owned flag").to_string(),
-                format!("ninfer custom argument {token:?} conflicts with resolved settings")
+                format!(
+                    "ninfer custom argument {:?} conflicts with resolved settings",
+                    crate::model::engine::custom_argument_flag(token)
+                )
             );
         }
     }

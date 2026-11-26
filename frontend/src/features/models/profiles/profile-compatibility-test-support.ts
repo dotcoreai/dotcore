@@ -23,8 +23,14 @@ export interface ProfileEntryInit {
   freeMemoryFit?: MemoryFit;
   /** The memory fit on the total of a profile that runs; defaults to fits. */
   memoryFit?: MemoryFit;
+  /** The largest context per request that fits the target, for a profile that runs. */
+  largestContextTokensPerRequest?: number;
+  /** The largest total context that fits the target, for a profile that runs. */
+  largestTotalContextTokens?: number;
   reason?: MessageInitShape<typeof ModelCompatibilityReasonSchema>;
-  /** Where the starting total context comes from; the largest fit when one is given. */
+  /** The lowered context per request a deployment starts from on the target. */
+  startingContextTokensPerRequest?: number;
+  /** Where the starting total context comes from; per request times parallel when one is given. */
   startingTotalContextSource?: StartingTotalContextSource;
   /** The total context a deployment starts from on the target, for a profile that runs. */
   startingTotalContextTokens?: number;
@@ -80,12 +86,15 @@ export function compatibilityResponse(
           hardwareClassId = "nvidia",
           memoryFit = MemoryFit.FITS,
           freeMemoryFit = memoryFit,
+          largestContextTokensPerRequest,
+          largestTotalContextTokens,
           profileId,
           reason,
+          startingContextTokensPerRequest,
           startingTotalContextTokens,
           startingTotalContextSource = startingTotalContextTokens === undefined
             ? StartingTotalContextSource.UNSPECIFIED
-            : StartingTotalContextSource.LARGEST_FIT,
+            : StartingTotalContextSource.PER_REQUEST_TIMES_PARALLEL,
           unsupportedReason = SizingScenarioUnsupportedReason.UNSPECIFIED,
         }) => ({
           advisories,
@@ -99,12 +108,12 @@ export function compatibilityResponse(
             : {
                 freeMemoryFit,
                 hardwareClassId,
+                largestContextTokensPerRequest: bigintOf(largestContextTokensPerRequest),
+                largestTotalContextTokens: bigintOf(largestTotalContextTokens),
                 memoryFit,
+                startingContextTokensPerRequest: bigintOf(startingContextTokensPerRequest),
                 startingTotalContextSource,
-                startingTotalContextTokens:
-                  startingTotalContextTokens === undefined
-                    ? undefined
-                    : BigInt(startingTotalContextTokens),
+                startingTotalContextTokens: bigintOf(startingTotalContextTokens),
                 unsupportedReason,
               }),
         }),
@@ -149,4 +158,8 @@ export function profileSizing(
     modelId,
     profileId,
   };
+}
+
+function bigintOf(value: number | undefined): bigint | undefined {
+  return value === undefined ? undefined : BigInt(value);
 }

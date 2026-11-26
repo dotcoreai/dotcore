@@ -7,6 +7,8 @@ maximumContextTokens: 524288
 options:
   - optionId: "kv-cache"
     displayName: "KV cache precision"
+    description: "Fixture option."
+    visibility: "PARAMETER_VISIBILITY_ADVANCED"
     kvCachePrecision: {}
 artifacts:
   - artifactId: "q3-iq3-s"

@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 
 use dotcore_catalog::{
     shared_parameters::{
-        self, CONTEXT_PER_REQUEST_PARAMETER_ID, PARALLEL_REQUESTS_PARAMETER_ID,
+        self, CONTEXT_PER_REQUEST_PARAMETER_ID, ContextRule, PARALLEL_REQUESTS_PARAMETER_ID,
         TOTAL_CONTEXT_PARAMETER_ID, is_shared_parameter,
     },
     typed_parameters::is_secret,
@@ -19,11 +19,10 @@ use dotcore_catalog::{
 use dotcore_domain::Accelerator;
 use dotcore_proto::dotcore::{
     catalog::v1::{
-        EngineParameterSchema, EngineRelease, HardwareClass, HuggingFaceArtifactSource,
-        HuggingFaceSnapshotArtifact, Model, ModelEngineConfiguration, ModelInputModality,
-        ModelParallelShape, ParameterValue, ParameterValues, StoragePlacement,
-        hugging_face_artifact_source::Content as HuggingFaceContent,
-        parameter_definition::ParameterType, parameter_value::Value as EngineParameterValueKind,
+        EngineRelease, HardwareClass, HuggingFaceArtifactSource, HuggingFaceSnapshotArtifact,
+        Model, ModelEngineConfiguration, ModelInputModality, ModelParallelShape, ParameterValues,
+        StoragePlacement, hugging_face_artifact_source::Content as HuggingFaceContent,
+        parameter_definition::ParameterType,
     },
     engine::{
         strata::v1::{
@@ -52,24 +51,21 @@ const READY_PACK_FILES: [&str; 2] = ["native_experts.txt", "tokenizer/vocab.json
 /// Files beside an Inkling pack the start wrapper builds the tokenizer from.
 const INKLING_PACK_FILES: [&str; 2] = ["tokenizer.json", "chat_template.jinja"];
 
-/// Context per request for values that leave it out: the total context split evenly among the
-/// parallel requests, capped by the maximum context, since Strata holds a full context per request
-/// for each of them. Returns none when the shared rule would fill nothing.
-pub(crate) fn filled_context_per_request(
-    schema: &EngineParameterSchema,
-    values: &ParameterValues,
-    maximum_context_tokens: u32,
-) -> Option<ParameterValue> {
-    let total_context = shared_parameters::total_context_to_fill(schema, values)?;
-    let parallel_requests = unsigned_parameter_value(values, PARALLEL_REQUESTS_PARAMETER_ID)
-        .unwrap_or(1)
-        .max(1);
-    Some(ParameterValue {
-        parameter_id: CONTEXT_PER_REQUEST_PARAMETER_ID.to_owned(),
-        value: Some(EngineParameterValueKind::UnsignedInteger(
-            (total_context / parallel_requests).min(u64::from(maximum_context_tokens)),
-        )),
-    })
+/// Strata's context rule: it holds a full context per request for each parallel request, so a
+/// total context fills the context per request as its even split among the parallel requests,
+/// capped by the maximum context, and the derived total context is exactly the context per request
+/// times the parallel requests, as the shared rule derives it.
+pub(super) struct StrataContextRule;
+
+impl ContextRule for StrataContextRule {
+    fn filled_context_per_request(
+        &self,
+        total_context: u64,
+        parallel_requests: u64,
+        maximum_context_tokens: u64,
+    ) -> u64 {
+        (total_context / parallel_requests.max(1)).min(maximum_context_tokens)
+    }
 }
 
 /// Rejects a context per request other than the total context split evenly among the parallel
@@ -1204,6 +1200,7 @@ mod tests {
                 derived_engine_parameter_ids: vec![
                     CONTEXT_PER_REQUEST_PARAMETER_ID.to_owned(),
                     EXPERT_VRAM_MIB_PARAMETER_ID.to_owned(),
+                    TOTAL_CONTEXT_PARAMETER_ID.to_owned(),
                 ],
                 host_memory_bytes: Some(20_000 * 1_048_576),
             })
@@ -1269,8 +1266,14 @@ mod tests {
     fn a_left_out_context_per_request_splits_the_total_context_among_parallel_requests() {
         let catalog = profile_shaped_catalog();
 
-        let split = launch(&catalog, &[(PARALLEL_REQUESTS_PARAMETER_ID, 2)])
-            .expect("engine default total context for two requests");
+        let split = launch(
+            &catalog,
+            &[
+                (TOTAL_CONTEXT_PARAMETER_ID, 32_768),
+                (PARALLEL_REQUESTS_PARAMETER_ID, 2),
+            ],
+        )
+        .expect("a total context for two requests");
         assert_eq!(
             launch_flags(&split),
             [
@@ -1281,8 +1284,14 @@ mod tests {
         );
 
         // 32,768 doesn't divide by 3: each request holds 10,922 tokens and sizing counts all 32,768.
-        let uneven =
-            launch(&catalog, &[(PARALLEL_REQUESTS_PARAMETER_ID, 3)]).expect("a split rounded down");
+        let uneven = launch(
+            &catalog,
+            &[
+                (TOTAL_CONTEXT_PARAMETER_ID, 32_768),
+                (PARALLEL_REQUESTS_PARAMETER_ID, 3),
+            ],
+        )
+        .expect("a split rounded down");
         assert_eq!(
             launch_flags(&uneven),
             [
@@ -1307,6 +1316,54 @@ mod tests {
             ],
         )
         .expect("the rounded-down split supplied explicitly");
+    }
+
+    #[test]
+    fn a_left_out_total_context_holds_exactly_the_context_per_request_for_each_parallel_request() {
+        let catalog = profile_shaped_catalog();
+        let accelerator_memory = |launch: &ResolvedLocalModelDeploymentSnapshot| {
+            launch
+                .sizing
+                .as_ref()
+                .and_then(|sizing| sizing.accelerator_memory_bytes)
+        };
+
+        // The engine default context per request for each of two requests.
+        let doubled = launch(&catalog, &[(PARALLEL_REQUESTS_PARAMETER_ID, 2)])
+            .expect("the engine default context per request for two requests");
+        assert_eq!(
+            launch_flags(&doubled),
+            [
+                ("--context", "32768".to_owned()),
+                ("--parallel", "2".to_owned()),
+                ("--expert-vram-mib", "8192".to_owned()),
+            ]
+        );
+        assert_eq!(
+            accelerator_memory(&doubled),
+            Some(1_000 + 10 * 65_536 + 8_192 * 1_048_576)
+        );
+
+        let supplied = launch(
+            &catalog,
+            &[
+                (CONTEXT_PER_REQUEST_PARAMETER_ID, 16_384),
+                (PARALLEL_REQUESTS_PARAMETER_ID, 3),
+            ],
+        )
+        .expect("a context per request for three requests");
+        assert_eq!(
+            launch_flags(&supplied),
+            [
+                ("--context", "16384".to_owned()),
+                ("--parallel", "3".to_owned()),
+                ("--expert-vram-mib", "8192".to_owned()),
+            ]
+        );
+        assert_eq!(
+            accelerator_memory(&supplied),
+            Some(1_000 + 10 * 49_152 + 8_192 * 1_048_576)
+        );
     }
 
     #[test]

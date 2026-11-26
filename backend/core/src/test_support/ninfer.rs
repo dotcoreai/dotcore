@@ -2,8 +2,8 @@
 //!
 //! They provide a model with vision and MTP speculative-decoding options, one valid ninfer
 //! configuration, and an accepted deployment snapshot whose launch plan is the canonical plan for
-//! the profile at engine defaults (a 32,768-token total context and context per request, 4
-//! parallel requests, MTP with 3 draft tokens).
+//! the profile with a 32,768-token total context and context per request, 4 parallel requests and
+//! MTP with 3 draft tokens.
 
 use dotcore_catalog::{
     options::SPECULATIVE_TOKEN_COUNT_PARAMETER_ID,
@@ -41,9 +41,8 @@ use dotcore_proto::dotcore::{
     },
 };
 
-/// Resolved engine parameter values of the Qwen3.8 27B ninfer profile: the engine's default total
-/// context, the context per request filled from it, and the profile's parallel requests and host
-/// context.
+/// Resolved engine parameter values of the Qwen3.8 27B ninfer profile: a total context, the
+/// context per request filled from it, and the profile's parallel requests and host context.
 const PROFILE_PARAMETERS: [(&str, u64); 4] = [
     (TOTAL_CONTEXT_PARAMETER_ID, 32_768),
     (CONTEXT_PER_REQUEST_PARAMETER_ID, 32_768),
@@ -143,7 +142,7 @@ pub(crate) fn release() -> EngineRelease {
                     512,
                     None,
                     "tokens",
-                    Some(32_768),
+                    None,
                 ),
                 (
                     CONTEXT_PER_REQUEST_PARAMETER_ID,
@@ -151,7 +150,7 @@ pub(crate) fn release() -> EngineRelease {
                     512,
                     Some(u64::from(u32::MAX)),
                     "tokens",
-                    None,
+                    Some(8192),
                 ),
                 (
                     PARALLEL_REQUESTS_PARAMETER_ID,
@@ -186,7 +185,9 @@ pub(crate) fn release() -> EngineRelease {
                             },
                         )),
                         visibility: match parameter_id {
-                            "total-context" | "context-per-request" => ParameterVisibility::Basic,
+                            "total-context" | "context-per-request" | "parallel-requests" => {
+                                ParameterVisibility::Basic
+                            }
                             _ => ParameterVisibility::Advanced,
                         } as i32,
                         description: parameter_id.to_owned(),
@@ -219,11 +220,17 @@ pub(crate) fn model() -> Model {
             ModelOption {
                 option_id: "vision".to_owned(),
                 display_name: "Vision".to_owned(),
+                description: "Fixture option.".to_owned(),
+                visibility: dotcore_proto::dotcore::catalog::v1::ParameterVisibility::Advanced
+                    as i32,
                 kind: Some(model_option::Kind::Vision(VisionModelOption {})),
             },
             ModelOption {
                 option_id: "mtp".to_owned(),
                 display_name: "MTP".to_owned(),
+                description: "Fixture option.".to_owned(),
+                visibility: dotcore_proto::dotcore::catalog::v1::ParameterVisibility::Advanced
+                    as i32,
                 kind: Some(model_option::Kind::SpeculativeDecoding(
                     SpeculativeDecodingModelOption {
                         method: SpeculativeDecodingMethod::Mtp as i32,

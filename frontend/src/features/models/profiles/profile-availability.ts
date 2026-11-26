@@ -228,9 +228,10 @@ export function catalogSizingView(
 }
 
 /**
- * The total context a profile is shown at in the scopes: the scenario's total context or, without
- * a scenario, the one its launch starts from on the machines there that run it, as the launch
- * shows it. The value is shown only; filters judge the read's memory fit.
+ * The total context a profile is shown at in the scopes: the scenario's total context or, when it
+ * follows the context per request and parallel requests, the one its launch starts from on the
+ * machines there that run it, as the launch shows it. The value is shown only; filters judge the
+ * read's memory fit.
  */
 export function profileTotalContext(
   compatibility: ProfileCompatibility | undefined,
@@ -239,7 +240,7 @@ export function profileTotalContext(
   scopes: readonly RunsOnScope[],
   scenario: SizingScenario | undefined,
 ): number | undefined {
-  if (scenario) return scenario.totalContextTokens;
+  if (scenario?.totalContextTokens !== undefined) return scenario.totalContextTokens;
   return (
     compatibility && profileScopeStartingTotalContext(compatibility, modelId, profileId, scopes)
   );

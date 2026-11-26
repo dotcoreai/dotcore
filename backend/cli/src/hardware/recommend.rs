@@ -138,7 +138,11 @@ fn table(catalog: &Catalog, machine: &IdleMachine, list: &UseCaseRecommendations
                     profile.clone(),
                     target_name(machine, &target.placement.execution_target_id),
                     fit_label(target.fit).to_owned(),
-                    row.context_tokens_per_request.to_string(),
+                    // A target where one request at the row's size doesn't fit starts lower.
+                    target
+                        .starting_context_tokens_per_request
+                        .unwrap_or(row.context_tokens_per_request)
+                        .to_string(),
                     target
                         .starting_total_context_tokens
                         .map_or("-".to_owned(), |tokens| tokens.to_string()),

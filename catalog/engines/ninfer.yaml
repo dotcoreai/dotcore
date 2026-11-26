@@ -15,14 +15,13 @@ parameterSchema:
     - parameterId: "total-context"
       displayName: "Total context"
       visibility: "PARAMETER_VISIBILITY_BASIC"
-      description: "Memory the model holds for all requests at once; requests that start with the same prompt share it. Raise it to serve longer or more simultaneous conversations; when it fills, cached prompts move to host memory, then the newest requests pause."
+      description: "Memory the model holds for all requests at once; requests that start with the same prompt share it. It follows the context per request times the parallel requests unless you set it. Raise it to serve longer or more simultaneous conversations; when it fills, cached prompts move to host memory, then the newest requests pause."
       # At least Dotcore's context floor. No ninfer argument: the adapter sizes `--context-capacity`
       # from it, so ninfer bounds nothing above. The adapter keeps it within the parallel requests at
       # their full context.
       unsignedInteger:
         minimum: "512"
         unit: "tokens"
-        defaultValue: "32768"
     - parameterId: "context-per-request"
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
@@ -34,10 +33,11 @@ parameterSchema:
         minimum: "512"
         maximum: "4294967295"
         unit: "tokens"
+        defaultValue: "32768"
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
-      visibility: "PARAMETER_VISIBILITY_ADVANCED"
-      description: "Requests generated at once; more wait in a queue, and new ones are refused when the queue is full. Each added request uses some extra accelerator memory, so raise it only when several callers use the model together."
+      visibility: "PARAMETER_VISIBILITY_BASIC"
+      description: "Requests generated at once; more wait in a queue, and new ones are refused when the queue is full. The total context grows with them unless you set it, so each added request uses more accelerator memory; raise it only when several callers use the model together."
       # `--max-concurrency` takes 1 to `kMaximumConcurrency` (`include/ninfer/types.h`,
       # `src/product/config/schema.cpp`).
       unsignedInteger:

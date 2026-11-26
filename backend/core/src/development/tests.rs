@@ -17,7 +17,7 @@ use dotcore_domain::SiteNodeId;
 use dotcore_node_hardware::MachineDescription;
 use dotcore_proto::dotcore::{
     catalog::v1::{
-        ModelOptionParameterValue, ModelOptionValues, Selector,
+        ModelOptionParameterValue, ModelOptionValues, ParameterValue, Selector,
         model_option_parameter_value::Value as ModelOptionValue,
         parameter_value::Value as EngineParameterValueKind,
     },
@@ -102,13 +102,13 @@ async fn facade_launches_exact_materialized_workload_and_reports_private_facts()
     assert_eq!(facts.workload_id, launch.correlation_workload_id());
     assert_eq!(
         facts.workload_id.0,
-        "dotcore_development-6aedcbb34d83dcf1611bb92f048869885b01538d68d95978_runner-5441427ad44c87d0862f074f160f4685e86327a2f8a8b6b572d6ef0d_2886705573666796869"
+        "dotcore_development-6aedcbb34d83dcf1611bb92f048869885b01538d68d95978_runner-5441427ad44c87d0862f074f160f4685e86327a2f8a8b6b572d6ef0d_15200675548115511691"
     );
     assert_eq!(
         facts.correlation,
         WorkloadCorrelation {
             owner_id: "runner-5441427ad44c87d0862f074f160f4685e86327a2f8a8b6b572d6ef0d".to_owned(),
-            reconcile_generation: 2_886_705_573_666_796_869,
+            reconcile_generation: 15_200_675_548_115_511_691,
         }
     );
     assert_eq!(facts.correlation, launch.correlation);
@@ -139,6 +139,8 @@ async fn facade_launches_exact_materialized_workload_and_reports_private_facts()
             "-np",
             "4",
             "--kv-unified",
+            "--kv-unified-per-slot",
+            "8192",
             "--mmproj",
             "/opt/dotcore/models/projector.gguf",
             "--image-min-tokens",
@@ -208,6 +210,87 @@ async fn facade_launches_exact_materialized_workload_and_reports_private_facts()
             }]
         );
     std::fs::remove_dir_all(cache_root).expect("cache cleanup");
+}
+
+#[tokio::test]
+async fn a_context_per_request_override_derives_the_launched_total_context() {
+    let catalog = development_catalog();
+    let cache_root = temporary_cache_root();
+    let artifacts = ArtifactManager::new(
+        cache_root.clone(),
+        Some(Arc::new(RecordingOciPreparer::default())),
+    )
+    .expect("Artifact manager");
+    // The override lands over the profile defaults, which leave both context values out.
+    let mut configuration = selected_configuration(&catalog);
+    configuration
+        .engine_parameter_values
+        .get_or_insert_default()
+        .values
+        .push(ParameterValue {
+            parameter_id: "context-per-request".to_owned(),
+            value: Some(EngineParameterValueKind::UnsignedInteger(4096)),
+        });
+    seed_selected_artifacts(&catalog, &artifacts, &configuration);
+    let runtime = Arc::new(RecordingDevelopmentRuntime::default());
+    let facade = DirectWorkloadFacade::new(
+        catalog,
+        artifacts,
+        runtime.clone(),
+        DevelopmentRuntimeNamespace::derive("experiment-one")
+            .expect("development runtime namespace"),
+    );
+
+    let facts = facade
+        .launch(
+            DirectWorkloadLaunchRequest {
+                handle_path: cache_root.join("ownership.json"),
+                owner_id: "development-run-one".to_owned(),
+                model_id: CatalogModelId(FIXTURE_MODEL_ID.to_owned()),
+                profile_id: FIXTURE_PROFILE_ID.to_owned(),
+                configuration,
+                execution_target: ExecutionTarget {
+                    managed_node_id: SiteNodeId::for_test("development-node"),
+                    accelerator_device_ids: vec!["0".to_owned()],
+                },
+            },
+            CancellationToken::new(),
+            DevelopmentLaunchProgress::default(),
+        )
+        .await
+        .expect("direct development launch");
+
+    // 4096 tokens for each of the profile's 4 parallel requests.
+    let context_values = facts
+        .engine_parameter_values
+        .values
+        .iter()
+        .filter(|value| {
+            ["context-per-request", "total-context"].contains(&value.parameter_id.as_str())
+        })
+        .map(|value| (value.parameter_id.as_str(), value.value.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        context_values,
+        [
+            (
+                "context-per-request",
+                Some(EngineParameterValueKind::UnsignedInteger(4096))
+            ),
+            (
+                "total-context",
+                Some(EngineParameterValueKind::UnsignedInteger(16_384))
+            ),
+        ]
+    );
+    assert!(
+        facts
+            .materialized_argv
+            .windows(2)
+            .any(|pair| pair == ["--ctx-size", "16384"]),
+        "{:?}",
+        facts.materialized_argv
+    );
 }
 
 #[tokio::test]
@@ -431,7 +514,7 @@ async fn teardown_validates_exact_facts_proves_absence_and_is_idempotent() {
     assert_eq!(
         removed.workload_id.as_deref(),
         Some(
-            "dotcore_development-6aedcbb34d83dcf1611bb92f048869885b01538d68d95978_runner-5441427ad44c87d0862f074f160f4685e86327a2f8a8b6b572d6ef0d_2886705573666796869"
+            "dotcore_development-6aedcbb34d83dcf1611bb92f048869885b01538d68d95978_runner-5441427ad44c87d0862f074f160f4685e86327a2f8a8b6b572d6ef0d_15200675548115511691"
         )
     );
     assert_eq!(
@@ -484,7 +567,7 @@ async fn stopped_workload_retains_exact_log_custody_after_process_exit() {
 
     assert_eq!(
         workload_id.0,
-        "dotcore_development-6aedcbb34d83dcf1611bb92f048869885b01538d68d95978_runner-5441427ad44c87d0862f074f160f4685e86327a2f8a8b6b572d6ef0d_2886705573666796869"
+        "dotcore_development-6aedcbb34d83dcf1611bb92f048869885b01538d68d95978_runner-5441427ad44c87d0862f074f160f4685e86327a2f8a8b6b572d6ef0d_15200675548115511691"
     );
     assert_eq!(transaction.handle().process_id, Some(4242));
     assert_eq!(
@@ -522,7 +605,7 @@ async fn launch_failures_record_attempts_and_leave_exact_recoverable_custody() {
             "start",
             (
                 Some(
-                    "dotcore_development-6aedcbb34d83dcf1611bb92f048869885b01538d68d95978_runner-5441427ad44c87d0862f074f160f4685e86327a2f8a8b6b572d6ef0d_2886705573666796869",
+                    "dotcore_development-6aedcbb34d83dcf1611bb92f048869885b01538d68d95978_runner-5441427ad44c87d0862f074f160f4685e86327a2f8a8b6b572d6ef0d_15200675548115511691",
                 ),
                 Some("sha256:development-container"),
             ),
@@ -533,7 +616,7 @@ async fn launch_failures_record_attempts_and_leave_exact_recoverable_custody() {
             "inspect",
             (
                 Some(
-                    "dotcore_development-6aedcbb34d83dcf1611bb92f048869885b01538d68d95978_runner-5441427ad44c87d0862f074f160f4685e86327a2f8a8b6b572d6ef0d_2886705573666796869",
+                    "dotcore_development-6aedcbb34d83dcf1611bb92f048869885b01538d68d95978_runner-5441427ad44c87d0862f074f160f4685e86327a2f8a8b6b572d6ef0d_15200675548115511691",
                 ),
                 None,
             ),

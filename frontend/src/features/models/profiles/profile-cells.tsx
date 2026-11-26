@@ -3,12 +3,14 @@ import { CpuIcon, FastForwardIcon, GpuIcon } from "lucide-react";
 import { Metric, PendingValue } from "@/components/data-table/data-table-cells";
 import type { ValueRange } from "@/components/data-table/data-table-model";
 import { Badge } from "@/components/ui/badge";
+import { formatCount } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 import {
   engineKindLabel,
   type ProfileAcceleratorRequirement,
   type ProfileFit,
+  type ProfileFitsPerRequest,
   type ProfileMemory,
   type ProfileRow,
 } from "./model-row";
@@ -27,9 +29,12 @@ import type { ProfileStatus } from "./profile-fields";
  */
 export function ProfileNameCell({
   profile,
+  quantization = true,
   status,
 }: {
   profile: ProfileRow;
+  /** Whether the quantization shows under the name; a table with a Weights column leaves it out. */
+  quantization?: boolean;
   status?: ProfileStatus;
 }) {
   return (
@@ -38,7 +43,7 @@ export function ProfileNameCell({
         {profile.displayName}
         <ProfilePills profile={profile} />
       </div>
-      {profile.quantization ? (
+      {quantization && profile.quantization ? (
         <div className="mt-0.5 text-xs text-muted-foreground">{profile.quantization}</div>
       ) : null}
       {status ? (
@@ -119,6 +124,25 @@ export function MemoryPlaceholder() {
 /** A context size or range, such as "32k" or "32k–128k". */
 export function ContextValue({ context }: { context: ValueRange | number | undefined }) {
   return <Metric value={formatContext(context)} />;
+}
+
+/**
+ * The largest context per request a profile fits, with the parallel requests it assumes, or a dash
+ * when unknown.
+ */
+export function FitsPerRequestValue({ fits }: { fits: ProfileFitsPerRequest | undefined }) {
+  if (!fits) return <Metric value={formatContext(undefined)} />;
+
+  return (
+    <Metric
+      label={
+        fits.parallelRequests === undefined
+          ? undefined
+          : formatCount(fits.parallelRequests, "parallel request")
+      }
+      value={formatContext(fits.contextTokens)}
+    />
+  );
 }
 
 /** A model's intelligence score, or nothing when unscored. */

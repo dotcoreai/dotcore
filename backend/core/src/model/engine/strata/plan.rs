@@ -60,7 +60,9 @@ pub(crate) fn translate(
     // The wrapper parses with argparse, where any token could name or abbreviate an option the
     // plan sets, and it takes no other arguments.
     if let Some(token) = snapshot.custom_argument_tokens.first() {
-        return Err(StrataPlanError::CustomArgument(token.clone()));
+        return Err(StrataPlanError::CustomArgument(
+            crate::model::engine::custom_argument_flag(token).to_owned(),
+        ));
     }
 
     let mut arguments = vec![
@@ -850,13 +852,34 @@ mod tests {
             let mut local = local("qwen3-6-35b-a3b");
             local.custom_argument_tokens = vec![token.to_owned()];
 
+            let flag = token.split_once('=').map_or(token, |(flag, _)| flag);
             assert_eq!(
                 translate(&local).expect_err("custom argument").to_string(),
                 format!(
-                    "Strata takes no custom arguments, but got {token:?}; its start wrapper accepts only the options Dotcore sets"
+                    "Strata takes no custom arguments, but got {flag:?}; its start wrapper accepts only the options Dotcore sets"
                 )
             );
         }
+    }
+
+    #[test]
+    fn engine_reports_custom_arguments_as_a_flag_only_conflict() {
+        use crate::model::engine::{
+            definition::{CustomArgumentConflict, EngineDefinition},
+            strata::Strata,
+        };
+
+        let mut local = local("qwen3-6-35b-a3b");
+        local.custom_argument_tokens = vec!["--secret=hunter2".to_owned()];
+
+        let error = Strata.translate(&local).expect_err("custom argument");
+        let conflict = error
+            .downcast_ref::<CustomArgumentConflict>()
+            .expect("typed conflict");
+        assert_eq!(
+            conflict.to_string(),
+            "Strata takes no custom arguments, but got \"--secret\""
+        );
     }
 
     #[test]

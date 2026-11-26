@@ -20,6 +20,11 @@ export interface Timing {
   sidebarPeekLeaveMs: number;
   /** How long typing pauses before a typed sizing scenario applies, so reads don't follow keys. */
   scenarioInputMs: number;
+  /**
+   * How long typing pauses before the deploy dialog previews the launch command again, so previews
+   * don't follow keys.
+   */
+  commandPreviewInputMs: number;
   /** How long the pointer rests on a tooltip's trigger before the tooltip opens. */
   tooltipOpenMs: number;
   /** How long copy feedback stays on a copy control. */
@@ -57,6 +62,7 @@ export const productionTiming: Timing = Object.freeze({
   sidebarPeekEnterMs: 150,
   sidebarPeekLeaveMs: 300,
   scenarioInputMs: 500,
+  commandPreviewInputMs: 500,
   tooltipOpenMs: 600,
   copyFeedbackMs: 1_500,
   pollRetryMs: Object.freeze([1_000, 2_000, 5_000]),

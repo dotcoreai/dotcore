@@ -16,6 +16,8 @@ options:
   - optionId: "vision"
     displayName: "Vision"
     vision: {}
+    visibility: "PARAMETER_VISIBILITY_BASIC"
+    description: "Lets requests include images. Loads the vision projector next to the model, which uses more memory."
 artifacts:
   - artifactId: "nvfp4"
     weightQuantization: "NVFP4"
@@ -411,36 +413,54 @@ profiles:
     configurationId: "strata-nvidia-cuda"
     defaultModelArtifactBindingId: "sq-10"
     engineParameterDefaults: {}
+    # Strata's total context is always the parallel requests times the context per request.
+    engineParameterVisibilityOverrides:
+      - { parameterId: "total-context", visibility: "PARAMETER_VISIBILITY_HIDDEN" }
   - profileId: "strata-sq-15"
     displayName: "SQ-15 on Strata"
     description: "Runs Inkling 2 Mini's SQ-15 pack through Strata on an RTX 5090 or RTX PRO 6000 for text inference."
     configurationId: "strata-nvidia-cuda"
     defaultModelArtifactBindingId: "sq-15"
     engineParameterDefaults: {}
+    # Strata's total context is always the parallel requests times the context per request.
+    engineParameterVisibilityOverrides:
+      - { parameterId: "total-context", visibility: "PARAMETER_VISIBILITY_HIDDEN" }
   - profileId: "strata-sq-20"
     displayName: "SQ-20 on Strata"
     description: "Runs Inkling 2 Mini's SQ-20 pack through Strata on an RTX 5090 or RTX PRO 6000 for text inference."
     configurationId: "strata-nvidia-cuda"
     defaultModelArtifactBindingId: "sq-20"
     engineParameterDefaults: {}
+    # Strata's total context is always the parallel requests times the context per request.
+    engineParameterVisibilityOverrides:
+      - { parameterId: "total-context", visibility: "PARAMETER_VISIBILITY_HIDDEN" }
   - profileId: "strata-gb10-sq-10"
     displayName: "SQ-10 on Strata for GB10"
     description: "Runs Inkling 2 Mini's SQ-10 pack through Strata on a GB10 for text inference."
     configurationId: "strata-nvidia-gb10"
     defaultModelArtifactBindingId: "sq-10"
     engineParameterDefaults: {}
+    # Strata's total context is always the parallel requests times the context per request.
+    engineParameterVisibilityOverrides:
+      - { parameterId: "total-context", visibility: "PARAMETER_VISIBILITY_HIDDEN" }
   - profileId: "strata-gb10-sq-15"
     displayName: "SQ-15 on Strata for GB10"
     description: "Runs Inkling 2 Mini's SQ-15 pack through Strata on a GB10 for text inference."
     configurationId: "strata-nvidia-gb10"
     defaultModelArtifactBindingId: "sq-15"
     engineParameterDefaults: {}
+    # Strata's total context is always the parallel requests times the context per request.
+    engineParameterVisibilityOverrides:
+      - { parameterId: "total-context", visibility: "PARAMETER_VISIBILITY_HIDDEN" }
   - profileId: "strata-gb10-sq-20"
     displayName: "SQ-20 on Strata for GB10"
     description: "Runs Inkling 2 Mini's SQ-20 pack through Strata on a GB10 for text inference."
     configurationId: "strata-nvidia-gb10"
     defaultModelArtifactBindingId: "sq-20"
     engineParameterDefaults: {}
+    # Strata's total context is always the parallel requests times the context per request.
+    engineParameterVisibilityOverrides:
+      - { parameterId: "total-context", visibility: "PARAMETER_VISIBILITY_HIDDEN" }
 intelligence:
   overall: 33
 license:

@@ -731,6 +731,9 @@ mod tests {
             .push(dotcore_proto::dotcore::catalog::v1::ModelOption {
                 option_id: "kv-cache".to_owned(),
                 display_name: "KV cache precision".to_owned(),
+                description: "Fixture option.".to_owned(),
+                visibility: dotcore_proto::dotcore::catalog::v1::ParameterVisibility::Advanced
+                    as i32,
                 kind: Some(ModelOptionKind::KvCachePrecision(
                     dotcore_proto::dotcore::catalog::v1::KvCachePrecisionModelOption {},
                 )),
@@ -839,7 +842,7 @@ mod tests {
                 "0",
                 "--vision",
                 "--max-context",
-                "32768",
+                "8192",
                 "--context-capacity",
                 "2771177472",
                 "--spec",
@@ -866,7 +869,10 @@ mod tests {
             launch.sizing,
             Some(ResolvedSizing {
                 accelerator_memory_bytes: Some(395_116),
-                derived_engine_parameter_ids: vec![CONTEXT_PER_REQUEST_PARAMETER_ID.to_owned()],
+                derived_engine_parameter_ids: vec![
+                    CONTEXT_PER_REQUEST_PARAMETER_ID.to_owned(),
+                    TOTAL_CONTEXT_PARAMETER_ID.to_owned(),
+                ],
                 host_memory_bytes: Some(20_480 * 1_048_576),
             })
         );
@@ -1015,9 +1021,9 @@ version: "1"
 parameterSchema:
   schemaId: "fixture-ninfer-v2"
   parameters:
-    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", description: "total-context", unsignedInteger: { minimum: "512", unit: "tokens", defaultValue: "32768" } }
-    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", description: "context-per-request", unsignedInteger: { minimum: "512", maximum: "4294967295", unit: "tokens" } }
-    - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "parallel-requests", unsignedInteger: { minimum: "1", maximum: "8", unit: "requests", defaultValue: "4" } }
+    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", description: "total-context", unsignedInteger: { minimum: "512", unit: "tokens" } }
+    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", description: "context-per-request", unsignedInteger: { minimum: "512", maximum: "4294967295", unit: "tokens", defaultValue: "8192" } }
+    - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_BASIC", description: "parallel-requests", unsignedInteger: { minimum: "1", maximum: "8", unit: "requests", defaultValue: "4" } }
     - { parameterId: "host-context-mib", displayName: "Host context memory", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "host-context-mib", unsignedInteger: { minimum: "0", maximum: "17592186044415", unit: "MiB" } }
 artifacts:
   - artifactId: "linux-amd64-cuda"
@@ -1036,8 +1042,8 @@ displayName: "Fixture ninfer model"
 version: "1"
 maximumContextTokens: 262144
 options:
-  - { optionId: "vision", displayName: "Vision", vision: {} }
-  - { optionId: "mtp", displayName: "MTP", speculativeDecoding: { method: "SPECULATIVE_DECODING_METHOD_MTP" } }
+  - { optionId: "vision", displayName: "Vision", description: "Fixture option.", visibility: "PARAMETER_VISIBILITY_ADVANCED", vision: {} }
+  - { optionId: "mtp", displayName: "MTP", description: "Fixture option.", visibility: "PARAMETER_VISIBILITY_ADVANCED", speculativeDecoding: { method: "SPECULATIVE_DECODING_METHOD_MTP" } }
 artifacts:
   - artifactId: "fixture-ninfer-artifact"
     weightQuantization: "NVFP4"

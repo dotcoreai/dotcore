@@ -28,7 +28,7 @@ flowchart LR
   AM -->|"app per use case, preferred accelerators"| AC["Apps controller: app targets"]
   INV["Reconciled inventory"] -->|"targets, observed facts"| IC & AC
   IC -->|"sizing estimates"| CAP["Capacity component"]
-  CAP -->|"verdicts, starting total context"| IC
+  CAP -->|"verdicts, starting context values"| IC
   IC -->|"one ranking per use case"| CL["Console and CLI"]
   AC -->|"targets best first"| CL
 ```
@@ -61,7 +61,8 @@ case proposes a model, an app or both.
 - An entry may require more memory than its configuration does, so a small and a large machine of
   the same class get different models.
 - An entry may set its own context per request, within its configuration's minimum and maximum
-  context. Without one, the profile's default applies.
+  context. Without one, it starts as a new deployment's does
+  ([models](models.md#resolving-a-deployment)).
 - Validation rejects an entry that names an unknown model, profile, hardware class or use case; an
   entry whose configuration supports neither its class, a wider class containing it, nor a narrower
   class nested in it; an entry that doesn't accept the requests its use case sends; and an entry
@@ -83,16 +84,19 @@ flowchart TB
 
 - Each target takes the list of its most specific hardware class that has one for the use case. A
   class without a list for that use case falls back to the closest wider class that has one.
-- Each entry is sized for one request using the whole total context, at its context per request,
-  and judged with the compatibility read's resolution and the capacity component's fit. Its
-  minimums add to its configuration's and compare with total memory.
+- Each entry is sized as a new deployment starts: its context per request at its profile's parallel
+  requests, with total context following them and capped at the largest fit. It is judged with the
+  compatibility read's resolution and the capacity component's fit, and its minimums add to its
+  configuration's and compare with total memory.
+- An entry fits a target when a deployment would start there at its context per request, without
+  lowering it.
 - An entry is left out on a target when its profile can't run there or serve its context, or when
-  its fit exceeds the target's total memory.
+  its context per request doesn't fit the target's total memory that way.
 - A kept entry fits now, needs memory freed first, has an unknown fit (free memory can't be judged
   yet), or is unreachable.
 - Rows merge across targets and rank by their best declared position on any target, then by the
   model's intelligence score, then by a stable identity order.
-- Each row names the targets that can run it, with the fit, the starting total context, and the
+- Each row names the targets that can run it, with the fit, the starting context values, and the
   running or starting deployment of the same profile there.
 - A caller may ask for what can start now: rows keep only reachable targets that already run the
   profile or fit free memory, and rows with a running or starting deployment come first.

@@ -32,6 +32,7 @@ export function useResourceEstimate(
   return {
     error: read.error,
     filledContextPerRequest: read.value?.estimate.filledContextPerRequest,
+    largestContextPerRequest: read.value?.estimate.largestContextPerRequest,
     largestTotalContext: read.value?.estimate.largestTotalContext,
     launchRejection: read.value?.estimate.launchRejection,
     loadingVisible: read.loadingVisible,
@@ -53,6 +54,11 @@ export type ResourceEstimateLoader = (
 export interface LocalResourceEstimate {
   /** The context per request resolution fills when the configuration leaves it out. */
   filledContextPerRequest?: number;
+  /**
+   * The largest context per request that fits the placement at the configuration's parallel
+   * requests; absent when no largest total context is known.
+   */
+  largestContextPerRequest?: number;
   /**
    * The largest total context that fits the placement with the configuration's other values;
    * absent without a placement, with custom arguments, or when none fits.
@@ -91,6 +97,8 @@ export interface ResourceEstimate {
   error?: string;
   /** The context per request resolution fills when the configuration leaves it out. */
   filledContextPerRequest?: number;
+  /** The largest context per request that fits the placement at the parallel requests. */
+  largestContextPerRequest?: number;
   /** The largest total context that fits the placement with the configuration's other values. */
   largestTotalContext?: number;
   launchRejection?: string;

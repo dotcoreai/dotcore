@@ -80,8 +80,10 @@ keeps the result as the deployment's snapshot.
 - A secret engine parameter has no catalog default, and sizing never reads it. Only creation
   generates a missing one, after sizing. Previews, estimates and placement need no secret value,
   so a preview carries none.
-- An omitted context per request becomes the smaller of the maximum context and the total context,
-  kept as a derived value.
+- An omitted total context is enough for every parallel request to use its full context per
+  request at once. An omitted context per request becomes the engine release's default, or, with a
+  total context given, the smaller of the maximum context and the total context. Both are kept as
+  derived values.
 - It evaluates the declared sizing for the configuration, the selected hardware class and the
   binding, deriving the values the caller omitted and advisory estimates. Supplied values win.
 - Engines that need sizing deploy only when the catalog declares it. Derived values aren't verified
@@ -159,7 +161,7 @@ flowchart LR
   CAT["Catalog profiles"] --> RES
   SCN["Sizing scenario"] --> RES
   RES -->|"estimates per hardware class"| COMP["Compatibility read"]
-  CAP["Capacity component"] -->|"fits on free and total memory, largest fit, starting total context"| COMP
+  CAP["Capacity component"] -->|"fits on free and total memory, largest fits, starting context values"| COMP
   CAP -->|"placement preview, memory parameter fits"| EST["Resource estimates"]
   CAP -->|"verdicts"| RECS["Recommendations"]
   RES --> RECS
@@ -168,17 +170,18 @@ flowchart LR
 - The compatibility read covers catalog model profiles and configured model targets. It runs the same
   resolution as admission over the reconciled inventory. A target without fresh observations is
   unknown.
-- It can evaluate a sizing scenario (total context and optional context per request) and report
-  estimates per hardware class and the capacity component's two fits per target: on free memory and
-  on total memory. Declared memory minimums always compare with the total.
-- For each running target, it reports the capacity component's largest fitting total context and
-  starting total context. Narrowing by scenario uses the fit.
+- It can evaluate a sizing scenario (context per request, parallel requests and an optional total
+  context) and report estimates per hardware class and the capacity component's two fits per
+  target: on free memory and on total memory. Declared memory minimums always compare with the total.
+- For each running target, it reports the capacity component's largest fitting total context, its
+  largest fitting context per request for the scenario's parallel requests, and the starting context
+  values. Narrowing by scenario uses the fit.
 - Resource estimates for a launch configuration carry the capacity component's placement preview for
   the selected target, the largest fit of each engine memory parameter there, and the largest
-  fitting total context. These fits use the configuration's values as given, so they follow the
-  values an operator picks; the per-target read above stays on the profile's defaults, to compare
-  profiles and to start the total context. With custom arguments, the preview carries no demand and
-  the estimate no fits.
+  fitting total context and context per request. These fits use the configuration's values as
+  given, so they follow the values an operator picks; the per-target read above stays on the
+  profile's defaults, to compare profiles and to start the context values. With custom arguments,
+  the preview carries no demand and the estimate no fits.
 - Recommendations rank the catalog's lists with the same resolution and the capacity component's
   verdicts ([recommendations](recommendations.md#ranking-models-for-a-site)).
 

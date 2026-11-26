@@ -10,8 +10,14 @@ import { Button } from "@/components/ui/button";
 
 import type { ProfileRow } from "./model-row";
 import type { CatalogHiddenReason } from "./profile-availability";
-import { ContextValue, IntelligenceValue, MemoryValue, ProfileNameCell } from "./profile-cells";
-import { profileFieldUi, type ProfileMetricColumnId, runsOnFieldUi } from "./profile-fields";
+import {
+  ContextValue,
+  FitsPerRequestValue,
+  IntelligenceValue,
+  MemoryValue,
+  ProfileNameCell,
+} from "./profile-cells";
+import { profileFieldUi, runsOnFieldUi } from "./profile-fields";
 import {
   buildProfileTable,
   type ProfileAvailability,
@@ -22,6 +28,7 @@ import {
   type ProfileTableModel,
   type ProfileTableRunsOn,
   type ProfileTableView,
+  type ProfileValueColumnId,
   withRunsOn,
 } from "./profile-table-model";
 
@@ -31,12 +38,12 @@ export interface ProfileTableProps {
   /** Settings the filter chips carry beside their values, such as the Runs on chip's "Sized for". */
   chipSettings?: Partial<Record<ProfileTableField, DataTableChipSetting>>;
   /** The metric columns to show after Profile; every one by default. */
-  columns?: readonly ProfileMetricColumnId[];
+  columns?: readonly ProfileValueColumnId[];
   /**
    * The metric columns shown at first and after Reset. With it, the View menu shows or hides the
    * others; without it, every column shows and none can be hidden.
    */
-  defaultColumns?: readonly ProfileMetricColumnId[];
+  defaultColumns?: readonly ProfileValueColumnId[];
   /** Disables every row, such as while a deployment is pending. */
   disabled?: boolean;
   estimatesPending: boolean;
@@ -224,14 +231,18 @@ type ProfileTableUi = DataTableUiDefinition<
 
 function profileTableUi(
   runsOn: ProfileTableRunsOn | undefined,
-  columns: readonly ProfileMetricColumnId[] | undefined,
-  defaultColumns: readonly ProfileMetricColumnId[] | undefined,
+  columns: readonly ProfileValueColumnId[] | undefined,
+  defaultColumns: readonly ProfileValueColumnId[] | undefined,
   start: readonly DataTablePredicate<ProfileTableField>[],
 ): ProfileTableUi {
   const definition = profileTableDefinition(runsOn, columns, defaultColumns);
+  const weightsColumn = definition.columns.some(({ id }) => id === "weights");
   return {
     codec: profileTableCodec(definition, start),
     columns: {
+      fitsPerRequest: {
+        cell: ({ row }) => <FitsPerRequestValue fits={row.fitsPerRequest} />,
+      },
       intelligence: {
         cell: ({ row }) => <IntelligenceValue score={row.referenceScore} />,
         showFrom: "32rem",
@@ -245,12 +256,19 @@ function profileTableUi(
       },
       profile: {
         cell: ({ availability, row }) => (
-          <ProfileNameCell profile={row} status={availability?.status} />
+          <ProfileNameCell
+            profile={row}
+            quantization={!weightsColumn}
+            status={availability?.status}
+          />
         ),
       },
       totalContext: {
         cell: ({ row }) => <ContextValue context={row.totalContext} />,
         showFrom: "32rem",
+      },
+      weights: {
+        cell: ({ row }) => <span className="font-mono text-xs">{row.quantization ?? "—"}</span>,
       },
     },
     definition,

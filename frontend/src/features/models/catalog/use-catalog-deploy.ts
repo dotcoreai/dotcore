@@ -318,6 +318,10 @@ export function modelDeployRequests(
       return {
         filledContextPerRequest:
           filled?.case === "unsignedInteger" ? Number(filled.value) : undefined,
+        largestContextPerRequest:
+          response.largestContextTokensPerRequest === undefined
+            ? undefined
+            : Number(response.largestContextTokensPerRequest),
         largestTotalContext:
           response.largestTotalContextTokens === undefined
             ? undefined
@@ -340,10 +344,6 @@ export function modelDeployRequests(
           snapshot.selectedTarget?.acceleratorMemoryArchitecture ??
           AcceleratorMemoryArchitecture.UNSPECIFIED,
         advisories,
-        engineRelease: snapshot.engineArtifact && {
-          engineReleaseId: snapshot.engineArtifact.engineReleaseId,
-          version: snapshot.engineArtifact.engineVersion,
-        },
         memoryPoolTotalBytes: snapshot.selectedTarget?.acceleratorMemoryPoolTotalBytes,
         minimumMemoryBytesPerDevice: minimum || undefined,
       };

@@ -1,10 +1,7 @@
 import type { ProfileCompatibilityLoader } from "@/features/models/profiles/use-profile-compatibility";
 import { maximumContext } from "@/features/models/runtime/engine-parameter-values";
 import type { Model } from "@/gen/dotcore/catalog/v1/model_pb";
-import {
-  type ListModelProfileCompatibilityResponse,
-  StartingTotalContextSource,
-} from "@/gen/dotcore/model/v1/service_pb";
+import type { ListModelProfileCompatibilityResponse } from "@/gen/dotcore/model/v1/service_pb";
 
 import type { ResourceEstimateLoader } from "./use-resource-estimate";
 
@@ -36,8 +33,9 @@ export function sharedContextEstimate(model: Model): ResourceEstimateLoader {
 
 /**
  * Pairs `listProfileCompatibility` with an estimate loader answering like the backend at a
- * profile's values: the context per request `sharedContextEstimate` fills, and the largest total
- * context of the latest compatibility read's entry for the profile and placement. The pass-through
+ * profile's values: the context per request `sharedContextEstimate` fills, and the largest context
+ * per request and total context of the latest compatibility read's entry for the profile and
+ * placement. The pass-through
  * loader records each read without adding calls, so tests keep counting the reads they asked for.
  */
 export function compatibilityFitEstimates(
@@ -64,14 +62,12 @@ export function compatibilityFitEstimates(
           candidate.target?.siteNodeId === values.placement?.siteNodeId &&
           candidate.target?.executionTargetId === values.placement?.executionTargetId,
       );
-      // A starting value from the largest fit is the fit; a profile default is no fit.
-      const fit =
-        entry?.startingTotalContextSource === StartingTotalContextSource.LARGEST_FIT
-          ? entry.startingTotalContextTokens
-          : undefined;
+      const number = (value: bigint | undefined) =>
+        value === undefined ? undefined : Number(value);
       return {
         ...(await filled(values)),
-        largestTotalContext: fit === undefined ? undefined : Number(fit),
+        largestContextPerRequest: number(entry?.largestContextTokensPerRequest),
+        largestTotalContext: number(entry?.largestTotalContextTokens),
       };
     },
   };

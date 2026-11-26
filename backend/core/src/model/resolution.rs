@@ -43,7 +43,10 @@ use crate::{
         },
     },
     model::{
-        engine::{EngineIntegrationRegistry, engine_artifact_kinds},
+        engine::{
+            CustomArgumentConflict, EngineIntegrationError, EngineIntegrationRegistry,
+            engine_artifact_kinds,
+        },
         resolved::ResolvedHardwareRequirementsValue,
         selection::{
             EngineArtifactSelectionError, MatchedEngineTarget, SelectedEngineArtifact,
@@ -408,8 +411,11 @@ impl LocalLaunchResolution<'_> {
         local.desired_launch_plan = Some(
             EngineIntegrationRegistry::production()
                 .translate(&local)
-                .map_err(|error| {
-                    ModelLaunchResolutionError::LaunchPlan(anyhow::Error::new(error))
+                .map_err(|error| match error {
+                    EngineIntegrationError::CustomArgumentConflict(conflict) => {
+                        ModelLaunchResolutionError::ConflictingCustomArgument(conflict)
+                    }
+                    error => ModelLaunchResolutionError::LaunchPlan(anyhow::Error::new(error)),
                 })?,
         );
         let resolution =
@@ -751,8 +757,8 @@ pub(crate) fn estimate_local_values_on_target(
 /// Completes a local configuration with the selected profile's catalog defaults before
 /// resolution. An empty binding ID takes the profile's default binding. Engine parameter values
 /// merge per parameter, for an absent or supplied set alike: a supplied value wins, then the
-/// profile default, then the engine default; parameters with none stay out for resolution to fill
-/// or derive from sizing.
+/// profile default, then the engine default. The context values and parameters with no default
+/// stay out for resolution to derive, from the context rule or from sizing.
 pub(crate) fn apply_profile_defaults(
     catalog: &Catalog,
     model_id: &CatalogModelId,
@@ -882,17 +888,18 @@ pub(crate) fn evaluate_values(
         .hardware_class
         .hardware_class_id
         .clone();
-    // The filled context per request counts as derived, and sizing may read it.
-    let filled_context_per_request = crate::model::engine::filled_context_per_request(
+    // The derived context values count as derived, and sizing may read them.
+    let derived_context_values = crate::model::engine::derived_context_values(
         selection.engine_release.engine_kind,
+        &selection.model,
+        &selection.configuration,
         &schema,
         engine_parameter_values,
-        shared_parameters::maximum_context_tokens(&selection.model, &selection.configuration),
     );
     let mut sizing_inputs = engine_parameter_values.clone();
     sizing_inputs
         .values
-        .extend(filled_context_per_request.iter().cloned());
+        .extend(derived_context_values.iter().cloned());
     let mut derived_values = catalog
         .derive_local_parameters(
             &selection.model.model_id,
@@ -908,7 +915,7 @@ pub(crate) fn evaluate_values(
             parameter_id,
             value: Some(EngineParameterValueKind::UnsignedInteger(value)),
         })
-        .chain(filled_context_per_request)
+        .chain(derived_context_values)
         .collect::<Vec<_>>();
     derived_values.sort_by(|left, right| left.parameter_id.cmp(&right.parameter_id));
     let derived_engine_parameter_values = ParameterValues {
@@ -1135,6 +1142,11 @@ pub enum ModelLaunchResolutionError {
     /// fixes it by changing the overrides.
     #[error("invalid model option values: {0}")]
     InvalidOptionValues(#[source] anyhow::Error),
+
+    /// A custom argument sets something the engine integration already resolves; the operator
+    /// fixes it by removing the argument.
+    #[error(transparent)]
+    ConflictingCustomArgument(CustomArgumentConflict),
 
     #[error("could not translate local model launch plan: {0}")]
     LaunchPlan(#[source] anyhow::Error),
@@ -1992,10 +2004,7 @@ mod tests {
             LocalModelDeploymentConfiguration {
                 model_artifact_binding_id: "sized".to_owned(),
                 engine_parameter_values: Some(ParameterValues {
-                    values: [prompt_cache_value(30_000)]
-                        .into_iter()
-                        .chain(context_and_request_values())
-                        .collect(),
+                    values: vec![prompt_cache_value(30_000), parallel_requests_value()],
                 }),
                 custom_argument_tokens: vec!["--verbose".to_owned()],
                 option_overrides: Vec::new(),
@@ -2004,17 +2013,16 @@ mod tests {
         assert_eq!(
             values.engine_parameter_values,
             ParameterValues {
-                values: [prompt_cache_value(30_000)]
+                values: [prompt_cache_value(30_000), parallel_requests_value()]
                     .into_iter()
-                    .chain(context_and_request_values())
-                    .chain([filled_context_per_request()])
+                    .chain(default_context_values())
                     .collect(),
             }
         );
         assert_eq!(
             values.derived_engine_parameter_values,
             ParameterValues {
-                values: vec![filled_context_per_request()],
+                values: default_context_values(),
             }
         );
     }
@@ -2050,10 +2058,7 @@ mod tests {
             LocalModelDeploymentConfiguration {
                 model_artifact_binding_id: "sized".to_owned(),
                 engine_parameter_values: Some(ParameterValues {
-                    values: [prompt_cache_value(8)]
-                        .into_iter()
-                        .chain(context_and_request_values())
-                        .collect(),
+                    values: vec![prompt_cache_value(8), parallel_requests_value()],
                 }),
                 ..Default::default()
             }
@@ -2063,7 +2068,7 @@ mod tests {
                 .expect("overlaid values")
                 .derived_engine_parameter_values,
             ParameterValues {
-                values: vec![filled_context_per_request()],
+                values: default_context_values(),
             }
         );
     }
@@ -2083,7 +2088,6 @@ mod tests {
             completed.engine_parameter_values,
             Some(unsigned_values(&[
                 ("prompt-cache-memory-mib", 0),
-                (TOTAL_CONTEXT_PARAMETER_ID, 32_768),
                 (PARALLEL_REQUESTS_PARAMETER_ID, 4),
             ]))
         );
@@ -2093,9 +2097,9 @@ mod tests {
                 .engine_parameter_values,
             unsigned_values(&[
                 ("prompt-cache-memory-mib", 0),
-                (TOTAL_CONTEXT_PARAMETER_ID, 32_768),
                 (PARALLEL_REQUESTS_PARAMETER_ID, 4),
-                (CONTEXT_PER_REQUEST_PARAMETER_ID, 32_768),
+                (CONTEXT_PER_REQUEST_PARAMETER_ID, 8192),
+                (TOTAL_CONTEXT_PARAMETER_ID, 32_768),
             ])
         );
     }
@@ -2128,9 +2132,9 @@ mod tests {
                 .expect("values without the excluded parameter")
                 .engine_parameter_values,
             unsigned_values(&[
-                (TOTAL_CONTEXT_PARAMETER_ID, 32_768),
                 (PARALLEL_REQUESTS_PARAMETER_ID, 4),
-                (CONTEXT_PER_REQUEST_PARAMETER_ID, 32_768),
+                (CONTEXT_PER_REQUEST_PARAMETER_ID, 8192),
+                (TOTAL_CONTEXT_PARAMETER_ID, 32_768),
             ])
         );
 
@@ -2169,7 +2173,6 @@ mod tests {
             Some(unsigned_values(&[
                 ("prompt-cache-memory-mib", 0),
                 (PARALLEL_REQUESTS_PARAMETER_ID, 2),
-                (TOTAL_CONTEXT_PARAMETER_ID, 32_768),
             ]))
         );
         assert_eq!(
@@ -2236,33 +2239,122 @@ mod tests {
     }
 
     #[test]
-    fn single_micro_batch_total_context_defaults_to_and_is_capped_by_the_configuration_maximum() {
-        let catalog = single_micro_batch_catalog(true);
-        let defaults = apply_profile_defaults(
-            &catalog,
-            &derived_model_id(),
-            "balanced",
-            &LocalModelDeploymentConfiguration::default(),
-        )
-        .expect("engine defaults");
+    fn a_total_context_left_out_follows_the_context_per_request_times_the_parallel_requests() {
+        let catalog = shared_parameter_catalog("");
+        let resolve = |values: &[(&str, u64)]| {
+            let configuration = apply_profile_defaults(
+                &catalog,
+                &derived_model_id(),
+                "balanced",
+                &LocalModelDeploymentConfiguration {
+                    engine_parameter_values: Some(unsigned_values(values)),
+                    ..Default::default()
+                },
+            )
+            .expect("defaults");
+            resolve_local_values(&catalog, &derived_model_id(), "balanced", &configuration)
+                .expect("derived values")
+                .derived_engine_parameter_values
+        };
 
         assert_eq!(
-            defaults.engine_parameter_values,
-            Some(unsigned_values(&[
-                ("prompt-cache-memory-mib", 0),
-                (TOTAL_CONTEXT_PARAMETER_ID, 16_384),
-                (PARALLEL_REQUESTS_PARAMETER_ID, 4),
-            ]))
+            resolve(&[
+                (CONTEXT_PER_REQUEST_PARAMETER_ID, 16_384),
+                (PARALLEL_REQUESTS_PARAMETER_ID, 3),
+            ]),
+            unsigned_values(&[(TOTAL_CONTEXT_PARAMETER_ID, 49_152)])
         );
         assert_eq!(
-            resolve_local_values(&catalog, &derived_model_id(), "balanced", &defaults)
+            resolve(&[(CONTEXT_PER_REQUEST_PARAMETER_ID, 16_384)]),
+            unsigned_values(&[(TOTAL_CONTEXT_PARAMETER_ID, 65_536)])
+        );
+        // A supplied total context stays as given, even below the product.
+        assert_eq!(
+            resolve(&[
+                (CONTEXT_PER_REQUEST_PARAMETER_ID, 16_384),
+                (TOTAL_CONTEXT_PARAMETER_ID, 20_000),
+            ]),
+            ParameterValues::default()
+        );
+    }
+
+    #[test]
+    fn without_either_context_value_the_context_per_request_starts_at_the_engine_default_capped_by_the_maximum()
+     {
+        let lowered = shared_parameter_catalog_with("", |model| {
+            model.replacen(
+                "  - configurationId: \"local\"\n",
+                "  - configurationId: \"local\"\n    maximumContextTokens: 4096\n",
+                1,
+            )
+        });
+        let derived = |catalog: &Catalog| {
+            let configuration = apply_profile_defaults(
+                catalog,
+                &derived_model_id(),
+                "balanced",
+                &LocalModelDeploymentConfiguration::default(),
+            )
+            .expect("defaults");
+            resolve_local_values(catalog, &derived_model_id(), "balanced", &configuration)
                 .expect("default values")
-                .engine_parameter_values,
+                .derived_engine_parameter_values
+        };
+
+        assert_eq!(
+            derived(&shared_parameter_catalog("")),
+            ParameterValues {
+                values: default_context_values(),
+            }
+        );
+        assert_eq!(
+            derived(&lowered),
+            unsigned_values(&[
+                (CONTEXT_PER_REQUEST_PARAMETER_ID, 4096),
+                (TOTAL_CONTEXT_PARAMETER_ID, 16_384),
+            ])
+        );
+    }
+
+    #[test]
+    fn single_micro_batch_total_context_is_derived_within_and_capped_by_the_configuration_maximum()
+    {
+        let resolved = |catalog: &Catalog| {
+            let defaults = apply_profile_defaults(
+                catalog,
+                &derived_model_id(),
+                "balanced",
+                &LocalModelDeploymentConfiguration::default(),
+            )
+            .expect("engine defaults");
+            resolve_local_values(catalog, &derived_model_id(), "balanced", &defaults)
+                .expect("default values")
+                .engine_parameter_values
+        };
+
+        // Four parallel requests at the default context per request would need twice the maximum.
+        let catalog = single_micro_batch_catalog(true, 16_384, "");
+        assert_eq!(
+            resolved(&catalog),
             unsigned_values(&[
                 ("prompt-cache-memory-mib", 0),
-                (TOTAL_CONTEXT_PARAMETER_ID, 16_384),
                 (PARALLEL_REQUESTS_PARAMETER_ID, 4),
-                (CONTEXT_PER_REQUEST_PARAMETER_ID, 16_384),
+                (CONTEXT_PER_REQUEST_PARAMETER_ID, 8192),
+                (TOTAL_CONTEXT_PARAMETER_ID, 16_384),
+            ])
+        );
+        // A maximum below the engine default and one parallel request, as a decision model runs.
+        assert_eq!(
+            resolved(&single_micro_batch_catalog(
+                true,
+                4096,
+                "        - parameterId: \"parallel-requests\"\n          unsignedInteger: \"1\"\n",
+            )),
+            unsigned_values(&[
+                ("prompt-cache-memory-mib", 0),
+                (PARALLEL_REQUESTS_PARAMETER_ID, 1),
+                (CONTEXT_PER_REQUEST_PARAMETER_ID, 4096),
+                (TOTAL_CONTEXT_PARAMETER_ID, 4096),
             ])
         );
         assert_eq!(
@@ -2278,8 +2370,9 @@ mod tests {
     }
 
     #[test]
-    fn without_a_single_micro_batch_the_release_total_context_default_and_range_apply() {
-        let catalog = single_micro_batch_catalog(false);
+    fn without_a_single_micro_batch_the_total_context_follows_the_parallel_requests_and_the_release_range_applies()
+     {
+        let catalog = single_micro_batch_catalog(false, 16_384, "");
         let defaults = apply_profile_defaults(
             &catalog,
             &derived_model_id(),
@@ -2289,12 +2382,12 @@ mod tests {
         .expect("engine defaults");
 
         assert_eq!(
-            defaults.engine_parameter_values,
-            Some(unsigned_values(&[
-                ("prompt-cache-memory-mib", 0),
-                (TOTAL_CONTEXT_PARAMETER_ID, 32_768),
-                (PARALLEL_REQUESTS_PARAMETER_ID, 4),
-            ]))
+            resolve_local_values(&catalog, &derived_model_id(), "balanced", &defaults)
+                .expect("default values")
+                .derived_engine_parameter_values,
+            ParameterValues {
+                values: default_context_values(),
+            }
         );
         for total_context in [16_384, 16_385] {
             assert_eq!(
@@ -2303,7 +2396,6 @@ mod tests {
             );
         }
     }
-
     #[test]
     fn supplied_binding_with_omitted_parameters_takes_the_profile_parameter_defaults() {
         let catalog = profile_defaults_catalog();
@@ -2323,10 +2415,9 @@ mod tests {
         assert_eq!(
             values.engine_parameter_values,
             ParameterValues {
-                values: [prompt_cache_value(30_000)]
+                values: [prompt_cache_value(30_000), parallel_requests_value()]
                     .into_iter()
-                    .chain(context_and_request_values())
-                    .chain([filled_context_per_request()])
+                    .chain(default_context_values())
                     .collect(),
             }
         );
@@ -3121,20 +3212,26 @@ mod tests {
     }
 
     /// Profile `balanced` sets the prompt cache plus `profile_defaults` (eight-space list
-    /// entries) on the sizing engine, which defaults the total context to 32768 tokens
+    /// entries) on the sizing engine, which defaults the context per request to 8192 tokens
     /// and the parallel requests to 4, in an unsized configuration of a 262144-token model.
     fn shared_parameter_catalog(profile_defaults: &str) -> Catalog {
         shared_parameter_catalog_with(profile_defaults, |model| model)
     }
 
-    /// The shared parameter catalog under the engines' own declaration rules, with a 16384-token
-    /// configuration maximum and, when `single_micro_batch` is set, the single micro-batch
-    /// llama.cpp fixed setting.
-    fn single_micro_batch_catalog(single_micro_batch: bool) -> Catalog {
-        let root = shared_parameter_root("", |model| {
+    /// The shared parameter catalog under the engines' own declaration rules, with the profile
+    /// defaults and configuration maximum given and, when `single_micro_batch` is set, the single
+    /// micro-batch llama.cpp fixed setting.
+    fn single_micro_batch_catalog(
+        single_micro_batch: bool,
+        maximum_context_tokens: u32,
+        profile_defaults: &str,
+    ) -> Catalog {
+        let root = shared_parameter_root(profile_defaults, |model| {
             let model = model.replacen(
                 "  - configurationId: \"local\"\n",
-                "  - configurationId: \"local\"\n    maximumContextTokens: 16384\n",
+                &format!(
+                    "  - configurationId: \"local\"\n    maximumContextTokens: {maximum_context_tokens}\n"
+                ),
                 1,
             );
             if single_micro_batch {
@@ -3245,6 +3342,24 @@ mod tests {
             parameter_id: "prompt-cache-memory-mib".to_owned(),
             value: Some(parameter_value::Value::UnsignedInteger(value)),
         }
+    }
+
+    /// The parallel requests the sizing engine defaults to.
+    fn parallel_requests_value() -> ParameterValue {
+        ParameterValue {
+            parameter_id: "parallel-requests".to_owned(),
+            value: Some(parameter_value::Value::UnsignedInteger(4)),
+        }
+    }
+
+    /// The context values resolution derives without either one: the sizing engine's default
+    /// context per request and the total context for its default parallel requests.
+    fn default_context_values() -> Vec<ParameterValue> {
+        unsigned_values(&[
+            (CONTEXT_PER_REQUEST_PARAMETER_ID, 8192),
+            (TOTAL_CONTEXT_PARAMETER_ID, 32_768),
+        ])
+        .values
     }
 
     /// The context per request resolution fills from the fixtures' total context.

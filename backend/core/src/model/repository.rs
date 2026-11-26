@@ -147,6 +147,7 @@ impl ModelDeclarationRepository {
                 placement_preview: None,
                 memory_parameter_fits: Vec::new(),
                 largest_total_context_tokens: None,
+                largest_context_tokens_per_request: None,
             });
         };
 
@@ -178,7 +179,7 @@ impl ModelDeclarationRepository {
             estimates_apply,
             observed_at,
         );
-        let (memory_parameter_fits, largest_total_context_tokens) = if estimates_apply {
+        let (memory_parameter_fits, largest) = if estimates_apply {
             let fits = crate::model::memory_parameter_fit::memory_parameter_fits(
                 &self.catalog,
                 profile_id,
@@ -187,28 +188,28 @@ impl ModelDeclarationRepository {
                 &resolved,
                 &selected,
             );
-            let largest_total_context =
-                crate::model::sizing_scenario::configuration_largest_total_context(
-                    &self.catalog,
-                    &catalog_model_id,
-                    profile_id,
-                    &completed,
-                    &selected,
-                    resolved
-                        .selection
-                        .hardware_support
-                        .hardware_requirements
-                        .as_ref(),
-                );
-            (fits, largest_total_context)
+            let largest = crate::model::sizing_scenario::configuration_largest_contexts(
+                &self.catalog,
+                &catalog_model_id,
+                profile_id,
+                &completed,
+                &selected,
+                resolved
+                    .selection
+                    .hardware_support
+                    .hardware_requirements
+                    .as_ref(),
+            );
+            (fits, largest)
         } else {
-            (Vec::new(), None)
+            (Vec::new(), Default::default())
         };
         Ok(EstimateLocalModelResourcesResponse {
             hardware_class_estimates: vec![resolved.into_hardware_class_estimate(estimates_apply)],
             placement_preview: Some(placement_preview),
             memory_parameter_fits,
-            largest_total_context_tokens,
+            largest_total_context_tokens: largest.total_context_tokens,
+            largest_context_tokens_per_request: largest.context_tokens_per_request,
         })
     }
 
@@ -779,6 +780,8 @@ fn recommendations_response(
                                 .into(),
                                 model_deployment_id: target.model_deployment_id,
                                 starting_total_context_tokens: target.starting_total_context_tokens,
+                                starting_context_tokens_per_request: target
+                                    .starting_context_tokens_per_request,
                             })
                             .collect(),
                     })
@@ -857,6 +860,7 @@ pub(crate) fn launch_resolution_error(
         }
         | crate::model::resolution::ModelLaunchResolutionError::InvalidParameterValues(_)
         | crate::model::resolution::ModelLaunchResolutionError::InvalidOptionValues(_)
+        | crate::model::resolution::ModelLaunchResolutionError::ConflictingCustomArgument(_)
         | crate::model::resolution::ModelLaunchResolutionError::ContextAboveMaximum { .. }
         | crate::model::resolution::ModelLaunchResolutionError::DerivedParameterOutOfRange {
             ..
@@ -1428,6 +1432,7 @@ mod tests {
             Some(vec![
                 "context-per-request".to_owned(),
                 EXPERT_VRAM_MIB_PARAMETER_ID.to_owned(),
+                "total-context".to_owned(),
             ])
         );
         let kept_local = local_snapshot(&kept);
@@ -1547,10 +1552,7 @@ mod tests {
         assert_eq!(
             local.profile_engine_parameter_defaults,
             Some(ParameterValues {
-                values: vec![
-                    unsigned_value("parallel-requests", 2),
-                    unsigned_value("total-context", 32_768),
-                ],
+                values: vec![unsigned_value("parallel-requests", 2),],
             })
         );
         assert_eq!(
@@ -2125,17 +2127,12 @@ mod tests {
                 profiles: vec![dotcore_proto::dotcore::model::v1::ModelProfileSizing {
                     model_id: "fixture-model".to_owned(),
                     profile_id: "fixture-profile".to_owned(),
-                    engine_parameter_values: Some(resolved_values(
-                        profile_default_values(),
-                        32_768
-                    )),
+                    engine_parameter_values: Some(resolved_values(profile_default_values())),
                     hardware_class_estimates: vec![
                         dotcore_proto::dotcore::model::v1::HardwareClassResourceEstimate {
                             hardware_class_id: "fixture-nvidia".to_owned(),
                             estimates: Vec::new(),
-                            derived_engine_parameter_values: Some(filled_context_per_request(
-                                32_768
-                            )),
+                            derived_engine_parameter_values: Some(default_context_values()),
                             launch_rejection: None,
                         }
                     ],
@@ -3238,12 +3235,25 @@ mod tests {
             configuration
         };
 
-        // At the profile's values, the estimate's fit is the compatibility read's starting total.
-        let at_defaults = target
-            .estimate(&with_cache(0))
+        // At the profile's values, the estimate's fit is the compatibility read's. The largest total
+        // split among the 4 parallel requests is above the model's 262144-token maximum context,
+        // which bounds the largest context per request. The profile's 8192 tokens per request for 4
+        // requests fit, so a deployment starts from them.
+        let estimate = target.estimate(&with_cache(0));
+        let at_defaults = estimate
             .largest_total_context_tokens
             .expect("a fit at the profile's values");
-        assert_eq!(target.starting_total_context(), Some(at_defaults));
+        assert_eq!(estimate.largest_context_tokens_per_request, Some(262_144));
+        let compatibility = target.compatibility();
+        assert_eq!(
+            (
+                compatibility.largest_total_context_tokens,
+                compatibility.largest_context_tokens_per_request,
+                compatibility.starting_context_tokens_per_request,
+                compatibility.starting_total_context_tokens,
+            ),
+            (Some(at_defaults), Some(262_144), None, Some(32_768))
+        );
 
         // A larger prompt cache takes its bytes from the context: 1 GiB is 262144 tokens.
         assert_eq!(
@@ -3308,8 +3318,8 @@ mod tests {
             .profile_compatibility(Some("fixture-model"), None, None, None, &Default::default())
             .expect("profile compatibility");
 
-        // The fixture sizes 100 + 3 × the default 32768-token total context on the accelerator and
-        // 50 on the host.
+        // The fixture sizes 100 + 3 × the 32768-token total context derived for the default context
+        // per request and parallel requests on the accelerator, and 50 on the host.
         assert_eq!(
             estimate
                 .hardware_class_estimates
@@ -3330,7 +3340,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             [(
                 "fixture-profile".to_owned(),
-                Some(resolved_values(profile_default_values(), 32_768)),
+                Some(resolved_values(profile_default_values())),
                 estimate.hardware_class_estimates
             )]
         );
@@ -3366,7 +3376,7 @@ mod tests {
             execution_target_id: "fixture-target".to_owned(),
         };
         let omitted = LocalModelDeploymentConfiguration::default();
-        let profile_defaults = Some(resolved_values(profile_default_values(), 32_768));
+        let profile_defaults = Some(resolved_values(profile_default_values()));
 
         let estimate = repository
             .estimate_local_model_resources("fixture-model", "fixture-profile", &omitted, None)
@@ -3380,7 +3390,10 @@ mod tests {
                 "fixture-model",
                 "fixture-profile",
                 &placement,
-                &crate::test_support::local_model_configuration(),
+                &LocalModelDeploymentConfiguration {
+                    engine_parameter_values: Some(profile_default_values()),
+                    ..crate::test_support::local_model_configuration()
+                },
             )
             .expect("preview with the explicit profile defaults");
         let created = repository
@@ -3414,7 +3427,7 @@ mod tests {
         assert_eq!(created_snapshot(&created), preview);
         assert_eq!(
             estimate.derived_engine_parameter_values,
-            Some(filled_context_per_request(32_768))
+            Some(default_context_values())
         );
         assert_eq!(
             estimate.estimates,
@@ -3458,14 +3471,10 @@ mod tests {
                 .preview_local_model("fixture-model", "fixture-profile", &placement, &omitted)
                 .expect("preview with edited defaults")
                 .engine_parameter_values,
-            Some(resolved_values(
-                unsigned_values(&[
-                    ("prompt-cache-memory-mib", 7),
-                    ("total-context", 32_768),
-                    ("parallel-requests", 4),
-                ]),
-                32_768
-            ))
+            Some(resolved_values(unsigned_values(&[
+                ("prompt-cache-memory-mib", 7),
+                ("parallel-requests", 4),
+            ])))
         );
         let retained = edited_repository
             .snapshot()
@@ -3669,11 +3678,7 @@ mod tests {
     /// The fixture profile's engine parameter defaults: its prompt cache, then the engine defaults
     /// of the total context and the parallel requests.
     fn profile_default_values() -> ParameterValues {
-        unsigned_values(&[
-            ("prompt-cache-memory-mib", 0),
-            ("total-context", 32_768),
-            ("parallel-requests", 4),
-        ])
+        unsigned_values(&[("prompt-cache-memory-mib", 0), ("parallel-requests", 4)])
     }
 
     /// The context per request resolution fills from the total context, within the fixture
@@ -3682,12 +3687,16 @@ mod tests {
         unsigned_values(&[("context-per-request", total_context.min(262_144))])
     }
 
-    /// Values in the given order, followed by the filled context per request, as a resolved
+    /// The context values resolution derives without either one: the fixture engine's default
+    /// context per request and the total context for its 4 parallel requests.
+    fn default_context_values() -> ParameterValues {
+        unsigned_values(&[("context-per-request", 8192), ("total-context", 32_768)])
+    }
+
+    /// Values in the given order, followed by the derived default context values, as a resolved
     /// snapshot retains them.
-    fn resolved_values(mut values: ParameterValues, total_context: u64) -> ParameterValues {
-        values
-            .values
-            .extend(filled_context_per_request(total_context).values);
+    fn resolved_values(mut values: ParameterValues) -> ParameterValues {
+        values.values.extend(default_context_values().values);
         values
     }
 
@@ -3790,9 +3799,8 @@ mod tests {
                 .expect("estimate on the target")
         }
 
-        /// The fixture profile's starting total context on the target, from the compatibility
-        /// read of its defaults.
-        fn starting_total_context(&self) -> Option<u64> {
+        /// The compatibility read of the fixture profile's defaults on the target.
+        fn compatibility(&self) -> dotcore_proto::dotcore::model::v1::ModelProfileCompatibility {
             self.repository
                 .profile_compatibility(
                     Some("fixture-model"),
@@ -3806,7 +3814,6 @@ mod tests {
                 .into_iter()
                 .find(|entry| entry.profile_id == "fixture-profile")
                 .expect("fixture profile entry")
-                .starting_total_context_tokens
         }
     }
 

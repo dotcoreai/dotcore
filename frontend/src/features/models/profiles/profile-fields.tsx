@@ -21,6 +21,9 @@ export interface RunsOnOption {
 /** A metric column every table of model profiles shares. */
 export type ProfileMetricColumnId = "intelligence" | "memory" | "maximumContext" | "totalContext";
 
+/** A column a profile table shows only when it lists it, such as the deploy dialog's. */
+export type LaunchProfileColumnId = "weights" | "fitsPerRequest";
+
 /** A capability filter value. */
 export type ProfileCapability = "image";
 
@@ -159,6 +162,27 @@ export const profileMetricColumns: readonly DataTableColumn<ProfileRow, ProfileM
     key: "total-context",
     label: "Total context",
     sort: { kind: "value", value: (profile) => profile.totalContext },
+  },
+];
+
+/**
+ * The Weights and Fits up to columns, which show the weights a profile launches with and the
+ * largest context per request it fits where it would launch.
+ */
+export const launchProfileColumns: readonly DataTableColumn<ProfileRow, LaunchProfileColumnId>[] = [
+  {
+    defaultVisible: true,
+    id: "weights",
+    key: "weights",
+    label: "Weights",
+    sort: { kind: "text", value: (profile) => profile.quantization },
+  },
+  {
+    defaultVisible: true,
+    id: "fitsPerRequest",
+    key: "fits",
+    label: "Fits up to per request",
+    sort: { kind: "value", value: (profile) => profile.fitsPerRequest?.contextTokens },
   },
 ];
 

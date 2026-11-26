@@ -733,7 +733,7 @@ mod tests {
                 "qwen3",
                 "--chat-template",
                 "--max-model-len",
-                "32768",
+                "8192",
                 "--max-num-seqs",
                 "4",
                 "--max-num-batched-tokens",
@@ -751,7 +751,8 @@ mod tests {
             ]
         );
         // 51380224 × (1 + 4 × 7) + 32768 × 32768 bytes of KV cache: the 32768-token total context
-        // plus the 4 requests' own blocks.
+        // derived from the 8192-token default context per request for the 4 requests, plus their own
+        // blocks.
         assert_eq!(
             launch.sizing,
             Some(ResolvedSizing {
@@ -759,6 +760,7 @@ mod tests {
                 derived_engine_parameter_ids: vec![
                     CONTEXT_PER_REQUEST_PARAMETER_ID.to_owned(),
                     "kv-cache-memory-bytes".to_owned(),
+                    TOTAL_CONTEXT_PARAMETER_ID.to_owned(),
                 ],
                 host_memory_bytes: None,
             })
@@ -875,7 +877,7 @@ mod tests {
                 "qwen3",
                 "--chat-template",
                 "--max-model-len",
-                "32768",
+                "8192",
                 "--max-num-seqs",
                 "4",
                 "--max-num-batched-tokens",
@@ -930,14 +932,15 @@ mod tests {
     }
 
     #[test]
-    fn more_parallel_requests_grow_only_the_kv_cache_memory() {
+    fn more_parallel_requests_grow_the_kv_cache_memory_with_the_derived_total_context() {
         let catalog = profile_shaped_catalog();
 
         let four = launch(&catalog, "text", &[]).expect("vLLM launch at 4 parallel requests");
         let eight = launch(&catalog, "text", &[(PARALLEL_REQUESTS_PARAMETER_ID, 8)])
             .expect("vLLM launch at 8 parallel requests");
 
-        // Same total context: each added request adds its own 51380224 × 7 bytes of blocks.
+        // The derived total context follows the parallel requests: each added request adds its own
+        // 51380224 × 7 bytes of blocks and 32768 × 8192 bytes for its context per request.
         let changed: Vec<_> = launch_argv(&four)
             .windows(2)
             .zip(launch_argv(&eight).windows(2))
@@ -948,8 +951,8 @@ mod tests {
             changed,
             [
                 ("--max-num-seqs", "4", "8"),
-                ("--kv-cache-memory-bytes", "2563768320", "4002414592"),
-                ("--gpu-memory-utilization", "0.6600", "0.7021"),
+                ("--kv-cache-memory-bytes", "2563768320", "5076156416"),
+                ("--gpu-memory-utilization", "0.6600", "0.7335"),
             ]
         );
         let footprint = |launch: &ResolvedLocalModelDeploymentSnapshot| {
@@ -960,7 +963,7 @@ mod tests {
         };
         assert_eq!(
             (footprint(&four), footprint(&eight)),
-            (Some(22_563_768_320), Some(24_002_414_592))
+            (Some(22_563_768_320), Some(25_076_156_416))
         );
     }
 
@@ -990,9 +993,9 @@ version: "1"
 parameterSchema:
   schemaId: "fixture-vllm-v2"
   parameters:
-    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "512", maximum: "16777216", unit: "tokens", defaultValue: "32768" } }
-    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "512", maximum: "1048576", unit: "tokens" } }
-    - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_ADVANCED", unsignedInteger: { minimum: "1", maximum: "1024", unit: "requests", defaultValue: "4" } }
+    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "512", maximum: "16777216", unit: "tokens" } }
+    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "512", maximum: "1048576", unit: "tokens", defaultValue: "8192" } }
+    - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "1", maximum: "1024", unit: "requests", defaultValue: "4" } }
     - { parameterId: "maximum-batched-tokens", displayName: "Maximum batched tokens", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "1", maximum: "1048576", unit: "tokens" } }
     - { parameterId: "maximum-cudagraph-capture-size", displayName: "Maximum CUDA graph capture size", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "1", maximum: "1024", unit: "sequences" } }
     - { parameterId: "kv-cache-memory-bytes", displayName: "KV cache memory", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "1", maximum: "1099511627776", unit: "bytes" } }
@@ -1014,7 +1017,7 @@ displayName: "Fixture vLLM model"
 version: "1"
 maximumContextTokens: 262144
 options:
-  - { optionId: "mtp", displayName: "MTP", speculativeDecoding: { method: "SPECULATIVE_DECODING_METHOD_MTP" } }
+  - { optionId: "mtp", displayName: "MTP", description: "Fixture option.", visibility: "PARAMETER_VISIBILITY_ADVANCED", speculativeDecoding: { method: "SPECULATIVE_DECODING_METHOD_MTP" } }
 artifacts:
   - artifactId: "snapshot"
     source:
@@ -1202,6 +1205,9 @@ profiles:
             options: vec![dotcore_proto::dotcore::catalog::v1::ModelOption {
                 option_id: "kv-cache".to_owned(),
                 display_name: "KV cache precision".to_owned(),
+                description: "Fixture option.".to_owned(),
+                visibility: dotcore_proto::dotcore::catalog::v1::ParameterVisibility::Advanced
+                    as i32,
                 kind: Some(ModelOptionKind::KvCachePrecision(
                     dotcore_proto::dotcore::catalog::v1::KvCachePrecisionModelOption {},
                 )),

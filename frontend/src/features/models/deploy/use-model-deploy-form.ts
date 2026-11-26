@@ -1,160 +1,66 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 import { validateDeploymentName } from "@/domain/deployment-name";
-import {
-  executionTargetName,
-  executionTargetPresentation,
-  placedExecutionTargetName,
-} from "@/domain/execution-target";
-import {
-  type ConfiguredExecutionTargetLoader,
-  useConfiguredExecutionTargets,
-} from "@/features/deployments/use-configured-execution-targets";
+import { executionTargetPresentation, placedExecutionTargetName } from "@/domain/execution-target";
 import { useDeployWizard } from "@/features/deployments/use-deploy-wizard";
 import {
   deploymentExposure,
   type DeploymentExposureValues,
   deploymentExposureValues,
   routeBlockingMessage,
-  type RouteNameConflict,
   validateDeploymentExposure,
 } from "@/features/models/deployment-exposure";
-import {
-  configurationSpeculativeOptions,
-  profileEstimateKey,
-  projectProfileRows,
-} from "@/features/models/profiles/model-row";
-import {
-  defaultMemoryBasis,
-  type MemoryBasis,
-} from "@/features/models/profiles/profile-compatibility";
-import { compareProfiles } from "@/features/models/profiles/profile-fields";
-import {
-  type CatalogChips,
-  defaultCatalogChips,
-  profileTableStart,
-  startShows,
-} from "@/features/models/profiles/profile-table-seed";
-import {
-  followContextInputs,
-  sameSizingScenario,
-  scenarioFromInputs,
-  type SizingScenario,
-  sizingScenarioKey,
-} from "@/features/models/profiles/sizing-scenario";
-import {
-  type ProfileCompatibilityLoader,
-  type ProfileEstimateState,
-  useProfileCompatibility,
-} from "@/features/models/profiles/use-profile-compatibility";
-import {
-  CONTEXT_PARAMETER_IDS,
-  CONTEXT_PER_REQUEST_PARAMETER_ID,
-  effectiveEngineParameters,
-  effectiveVisibility,
-  engineParameterError,
-  engineParameterValues,
-  PARALLEL_REQUESTS_PARAMETER_ID,
-  TOTAL_CONTEXT_PARAMETER_ID,
-} from "@/features/models/runtime/engine-parameter-values";
-import {
-  configurationKvCachePrecision,
-  currentKvCachePrecision,
-  kvCachePrecisionCustomizations,
-  kvCachePrecisionOverrides,
-} from "@/features/models/runtime/kv-cache-precision";
-import {
-  artifactCustomization,
-  changedEngineParameters,
-  type LocalDeploymentConfigurationValues,
-  profileEngineRelease,
-  runtimeCustomizations,
-} from "@/features/models/runtime/local-deployment-configuration";
-import {
-  currentSpeculativeChoice,
-  type SpeculativeChoice,
-  speculativeChoiceError,
-  speculativeCustomizations,
-  speculativeOptionOverrides,
-} from "@/features/models/runtime/speculative-choice";
-import type { ApplicationDeployment } from "@/gen/dotcore/application/v1/deployment_pb";
-import { type EngineRelease } from "@/gen/dotcore/catalog/v1/engine_release_pb";
-import type { HardwareClass } from "@/gen/dotcore/catalog/v1/hardware_class_pb";
-import type { Model } from "@/gen/dotcore/catalog/v1/model_pb";
-import {
-  type ParameterDefinition,
-  type ParameterValues,
-  ParameterVisibility,
-} from "@/gen/dotcore/catalog/v1/parameter_pb";
+import { defaultMemoryBasis } from "@/features/models/profiles/profile-compatibility";
+import { defaultCatalogChips } from "@/features/models/profiles/profile-table-seed";
+import { ParameterVisibility } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import type { ExactPlacement } from "@/gen/dotcore/deployment/v1/placement_pb";
-import {
-  type ModelDeployment,
-  type ResolvedLocalModelDeploymentSnapshot,
-} from "@/gen/dotcore/model/v1/deployment_pb";
-import type { ModelDeploymentExposure } from "@/gen/dotcore/model/v1/service_pb";
 import { ExecutionTargetWorkloadKind } from "@/gen/dotcore/site/v1/service_pb";
-import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { useDirtyFields } from "@/hooks/use-dirty-fields";
 import { type FieldErrors, toFieldErrors, withFieldError } from "@/lib/form-validation";
-import { formatCompactCount, formatCount } from "@/lib/format";
+import { formatCount } from "@/lib/format";
 
+import type { ModelDeployFormOptions } from "./model-deploy-form-options";
 import {
-  configurationStart,
   launchRejectionField,
   type LocalDeploymentValues,
+  MODEL_DEPLOY_ADVANCED_STEPS,
   MODEL_DEPLOY_STEPS,
   type ModelDeployField,
   type ModelDeployStep,
-  operatorSentence,
   scenarioContext,
-  scenarioInput,
-  settledContext,
-  startContext,
-  useLaunchEngineValues,
-  withoutChosenContextErrors,
-  withoutUnsetContextPerRequest,
 } from "./model-deploy-launch";
-import { useCommandPreview } from "./use-command-preview";
-import {
-  type LocalDeploymentMemoryPreview,
-  type LocalMemoryPreviewValues,
-  useModelDeployMemoryPreview,
-} from "./use-model-deploy-memory-preview";
-import { useModelDeployProfileTable } from "./use-model-deploy-profile-table";
-import { useModelDeployTarget } from "./use-model-deploy-target";
-import type { ResourceEstimateLoader } from "./use-resource-estimate";
+import { useModelDeployContext } from "./use-model-deploy-context";
+import { useCustomArguments, useLiveCommandPreview } from "./use-model-deploy-engine";
+import { useModelDeployMachine } from "./use-model-deploy-machine";
+import { useModelDeployMemoryPreview } from "./use-model-deploy-memory-preview";
+import { useModelDeployOptions } from "./use-model-deploy-options";
+import { useModelDeployParameters } from "./use-model-deploy-parameters";
 
 /**
- * The deploy dialog's form: the launch the operator builds across the steps, its validation, the
- * command preview and the submit. Profile, target and memory facts come from their own hooks; the
- * launch's context is shared by the Settings step and the profile table's "Sized for".
+ * The deploy dialog's form: the launch the operator builds across the steps, its validation and
+ * the submit. The machine and profile, the context, the engine parameters, the model options and
+ * the engine's custom arguments and command each come from their own hook; this one ties them to
+ * the steps.
  */
-export function useModelDeployForm({
-  applications,
-  engineReleases,
-  hardwareClasses,
-  existingRouteNames = [],
-  catalogChips = defaultCatalogChips,
-  deployments,
-  initialConfiguration,
-  initialExposure,
-  initialName,
-  initialPlacement,
-  initialProfileId,
-  listConfiguredExecutionTargets,
-  listProfileCompatibility,
-  memoryBasis: startBasis = defaultMemoryBasis,
-  model,
-  onEstimate,
-  onPreview,
-  onPreviewMemory,
-  onSubmit,
-  open,
-  pending,
-  profileEstimates,
-  routeConflict,
-  scenario: startScenario,
-}: ModelDeployFormOptions) {
+export function useModelDeployForm(options: ModelDeployFormOptions) {
+  const {
+    applications,
+    catalogChips = defaultCatalogChips,
+    deployments,
+    existingRouteNames = [],
+    initialExposure,
+    initialName,
+    memoryBasis = defaultMemoryBasis,
+    model,
+    onEstimate,
+    onPreview,
+    onPreviewMemory,
+    onSubmit,
+    open,
+    pending,
+    routeConflict,
+    scenario: startScenario,
+  } = options;
   const dirtyFields = useDirtyFields<ModelDeployField>(open);
   const [exposureValues, setExposureValues] = useState<DeploymentExposureValues>(() =>
     initialExposure
@@ -162,533 +68,90 @@ export function useModelDeployForm({
       : { exposure: "direct" },
   );
   // The launch's context, starting from the opener's; changing it leaves the opener alone.
-  const [context, setContext] = useState(() => startContext(startScenario, initialConfiguration));
-  // The chosen context's "Sized for", which the dialog's read sizes; absent at the default context.
-  const scenario = context.scenario;
-  // The memory basis profiles are judged on, starting from the opener's; changing it leaves the
-  // opener alone.
-  const [basis, setBasis] = useState(startBasis);
-  const profileCompatibility = useProfileCompatibility(
-    listProfileCompatibility,
-    model.modelId,
-    open,
-    scenario,
-  );
-  // Under a scenario, the table shows the estimates of the dialog's own read, which are the ones
-  // the launch is sized from; until that read lands, and without a scenario, the opener's, which
-  // only answer the scenario the dialog started from.
-  const openerEstimates = sameSizingScenario(scenario, startScenario)
-    ? profileEstimates
-    : undefined;
-  const ownEstimates = profileCompatibility.compatibility
-    ? profileCompatibility.estimates
-    : undefined;
-  const tableEstimates = scenario
-    ? (ownEstimates ?? openerEstimates)
-    : (openerEstimates ?? ownEstimates);
-  // The read that sized the scenario, which prefills the launch.
-  const sizing = scenario ? profileCompatibility.sizing : undefined;
-  const profileEstimateValues = tableEstimates?.estimates;
-  const profileRows = useMemo(
-    () =>
-      projectProfileRows(model, {
-        engineReleases,
-        hardwareClasses,
-        estimates: profileEstimateValues ?? new Map(),
-      }),
-    [engineReleases, hardwareClasses, model, profileEstimateValues],
-  );
-  // Before compatibility is known, the requested profile or the first in the table's order that the
-  // catalog's chips show, which stays when the read fails.
-  const selectedInitialProfileId =
-    initialProfileId ??
-    [...profileRows]
-      .sort(compareProfiles)
-      .find((row) => startShows(profileTableStart(catalogChips, undefined), row))?.profileId ??
-    "";
-  const [profileId, setProfileId] = useState(selectedInitialProfileId);
-  // The runtime fields start from the opener's configuration on the starting profile, else the
-  // profile's defaults.
-  const [start] = useState(() => ({
-    profileId: selectedInitialProfileId,
-    values: configurationStart(
-      model,
-      engineReleases,
-      selectedInitialProfileId,
-      initialConfiguration,
-    ),
-  }));
-  const [bindingId, setBindingId] = useState(start.values.bindingId);
-  // The operator's engine parameter edits over the inputs the profile or scenario starts from.
-  const [editedInputs, setEditedInputs] = useState<Map<string, string>>(start.values.edits);
-  const [storedSpeculativeChoice, setSpeculativeChoice] = useState<SpeculativeChoice>(
-    start.values.speculativeChoice,
-  );
-  // The operator's KV cache precision pick; empty while the profile's default stands.
-  const [pickedKvCachePrecision, setPickedKvCachePrecision] = useState(
-    start.values.kvCachePrecision,
-  );
-  const [customArgumentTokens, setCustomArgumentTokens] = useState<string[]>(
-    start.values.customArgumentTokens,
-  );
-  const commandPreview = useCommandPreview(onPreview);
-  const { invalidatePreview } = commandPreview;
-  // The operator's target choice, starting from the opener's: undefined until they choose, null
-  // once they clear it.
-  const [pickedPlacement, setPickedPlacement] = useState<ExactPlacement | null | undefined>(
-    initialPlacement,
-  );
-  const [targetValidationPending, setTargetValidationPending] = useState(false);
-  const [ineligibleTarget, setIneligibleTarget] = useState<string>();
-  const preselectionKeyRef = useRef<string>(undefined);
-  // Whether the last preselection found nothing to select, so a later read may still select one.
-  const preselectionEmptyRef = useRef(false);
-  // Whether the operator selected or cleared a profile, which later reads then leave alone.
-  const operatorSelectedRef = useRef(false);
-  // The profiles the table shows, in order, which preselection picks from.
-  const shownProfileIdsRef = useRef<readonly string[]>([]);
-  const updateShownProfiles = useCallback((profileIds: readonly string[]) => {
-    shownProfileIdsRef.current = profileIds;
-  }, []);
-  const {
-    current: executionTargetsCurrent,
-    error: targetsError,
-    loading: targetsLoading,
-    refresh: refreshExecutionTargets,
-    executionTargets: loadedExecutionTargets,
-  } = useConfiguredExecutionTargets(listConfiguredExecutionTargets, open);
+  const [context, setContext] = useState(() => scenarioContext(startScenario));
   const [name, setName] = useState(initialName ?? model.displayName);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>(new Map());
-  const artifactRef = useRef<HTMLInputElement>(null);
-  const engineParameterRefs = useRef<Map<string, HTMLElement | null>>(new Map());
+  const [targetValidationPending, setTargetValidationPending] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
   const routeNameRef = useRef<HTMLInputElement>(null);
   const profileRef = useRef<HTMLInputElement>(null);
-  const speculativeCountRef = useRef<HTMLInputElement>(null);
   const executionTargetRef = useRef<HTMLInputElement>(null);
-
-  const profile = model.profiles.find((candidate) => candidate.profileId === profileId);
-  const configuration = model.configurations.find(
-    (candidate) => candidate.configurationId === profile?.configurationId,
-  );
-  const binding = configuration?.artifactBindings.find(
-    (candidate) => candidate.bindingId === bindingId,
-  );
-  // A configuration that excludes parameters gets a new release object per call, and the launch
-  // values and previews built on it must keep their identity across renders.
-  const engineRelease = useMemo(
-    () => profileEngineRelease(model, profile, engineReleases),
-    [model, profile, engineReleases],
-  );
-  const exposedParameters = effectiveEngineParameters(engineRelease, profile);
-  const parameterGroups = engineRelease?.parameterSchema?.parameterGroups ?? [];
-  // The scenario's values for the profile, hidden ones included, replace the profile's defaults.
-  // Resolution fills the context per request the scenario leaves unset; it stays empty here so it
-  // isn't submitted as a supplied value and keeps following the total context.
-  const profileReadKey = profile ? profileEstimateKey(model.modelId, profile.profileId) : undefined;
-  // The parameters sizing derives come from the backend's read of the profile; until it lands, an
-  // empty one reads as missing, and the deploy waits for the read anyway.
-  const derivedParameterIds =
-    (profileReadKey &&
-      profileCompatibility.compatibility?.derivedParameterIds.get(profileReadKey)) ||
-    noDerivedParameterIds;
-  const ownReadValues = profileReadKey
-    ? profileCompatibility.sizing?.engineValues.get(profileReadKey)
-    : undefined;
-  // With a scenario, a second read without one backs the launch values of a profile the scenario's
-  // settled read has none for; it starts only then.
-  const defaultsCompatibility = useProfileCompatibility(
-    listProfileCompatibility,
-    model.modelId,
-    open && Boolean(scenario) && !profileCompatibility.estimates.pending && !ownReadValues,
-  );
-  // A scenario the backend can't size the profile for carries no values; the profile's own
-  // defaults, resolved without a scenario, start the launch instead of the release defaults.
-  const defaultReadValues =
-    scenario && !ownReadValues && profileReadKey
-      ? defaultsCompatibility.sizing?.engineValues.get(profileReadKey)
-      : undefined;
-  const readValues = ownReadValues
-    ? withoutUnsetContextPerRequest(ownReadValues, scenario)
-    : withoutUnsetContextPerRequest(defaultReadValues, undefined);
-  // The values of a profile's first read under each scenario stay for the dialog's life, so later
-  // reads never swap them under the operator; a new "Sized for" starts from its own read.
-  const [frozenValues, setFrozenValues] = useState<ReadonlyMap<string, ParameterValues>>(new Map());
-  const frozenKey = profile ? `${profile.profileId}\0${sizingScenarioKey(scenario)}` : undefined;
-  if (frozenKey && readValues && !frozenValues.has(frozenKey))
-    setFrozenValues(new Map(frozenValues).set(frozenKey, readValues));
-  const scenarioValues = frozenKey ? (frozenValues.get(frozenKey) ?? readValues) : undefined;
-  const speculativeOptions = configurationSpeculativeOptions(model, configuration, profile);
-  const speculativeChoice = currentSpeculativeChoice(speculativeOptions, storedSpeculativeChoice);
-  // Undefined while the speculative count is invalid, which holds back estimates like other values.
-  const speculativeOverrides = speculativeOptionOverrides(speculativeOptions, speculativeChoice);
-  const kvCachePrecisionOption = configurationKvCachePrecision(model, configuration, profile);
-  const kvCachePrecision = currentKvCachePrecision(kvCachePrecisionOption, pickedKvCachePrecision);
-  const optionOverrides = speculativeOverrides && [
-    ...speculativeOverrides,
-    ...kvCachePrecisionOverrides(kvCachePrecisionOption, kvCachePrecision),
-  ];
-  const executionTargets = useMemo(
-    () =>
-      loadedExecutionTargets.filter(
-        (target) => target.workloadKind === ExecutionTargetWorkloadKind.MODEL,
-      ),
-    [loadedExecutionTargets],
-  );
-  const deployableExecutionTargets = executionTargets.filter(
-    (target) => executionTargetPresentation(target).deployable,
-  );
-  const targetsLoadingVisible = useDelayedLoading(targetsLoading);
-  const effectiveTargetsError = !listConfiguredExecutionTargets
-    ? "Execution targets are unavailable because the site service does not support configured-target listing."
-    : targetsError;
-  const targetsLoadingPresentation =
-    (targetsLoading || targetsLoadingVisible) && !effectiveTargetsError;
-  const compatibilityLoadingVisible = useDelayedLoading(profileCompatibility.loading);
-  // Compatibility applies once the read has evaluated a target. Until then, and when it fails,
-  // every profile is listed and the target is chosen as without it.
-  const compatibility = profileCompatibility.compatibility?.targets.length
-    ? profileCompatibility.compatibility
-    : undefined;
-  // A "Sized for" becomes the chosen context and removing it returns the context to the default;
-  // either way the operator's parallel requests stay.
-  const chooseSizedFor = useCallback((next: SizingScenario | undefined) => {
-    setContext((previous) =>
-      next
-        ? { ...previous, ...scenarioContext(next) }
-        : { parallelRequests: previous.parallelRequests },
-    );
-    setFieldErrors(withoutChosenContextErrors);
-  }, []);
-  const profileTable = useModelDeployProfileTable({
-    basis,
-    catalogChips,
-    compatibility,
-    compatibilityRead: profileCompatibility.compatibility,
-    engineReleases,
-    executionTargets,
-    initialProfileId,
-    model,
-    onBasisChange: setBasis,
-    onSizedForChange: chooseSizedFor,
-    profileRows,
-    scenario,
-    sizingFailed: profileCompatibility.sizingFailed,
-    sizingRead: profileCompatibility.sizing,
-    startBasis,
-    startScenario,
-  });
-  const { chipKey, profileAvailability, scopes, tableProfileRows } = profileTable;
-  const {
-    fitStart,
-    launchesOn,
-    pickedTarget,
-    placement,
-    profileLaunchCandidates,
-    selectedExecutionTarget,
-  } = useModelDeployTarget({
-    basis,
-    compatibility,
-    executionTargets,
-    model,
-    pickedPlacement,
-    profile,
-    profileId,
-    scenario,
-    scopes,
-    sizing,
-    sizingRead: profileCompatibility.sizing,
-  });
-
-  // The selected profile's row shows the value the Settings step starts from, frozen with it; the
-  // other rows stay live, so their changes still show.
-  const shownProfileRows =
-    scenario || fitStart === undefined
-      ? tableProfileRows
-      : tableProfileRows.map((row) =>
-          row.profileId === profileId ? { ...row, totalContext: fitStart } : row,
-        );
-  const { declaredValues, engineParameterInputs } = useLaunchEngineValues(
-    scenarioValues,
-    engineRelease,
-    profile,
-    editedInputs,
-    context,
-    fitStart,
-  );
-  const selectedProfileRow = profileRows.find((row) => row.profileId === profileId);
-  const selectedAvailability = selectedProfileRow && profileAvailability?.(selectedProfileRow);
-  const noProfileRuns = Boolean(
-    profileAvailability && profileRows.every((row) => !profileAvailability(row)?.selectable),
-  );
-  const notRunningReasons = [
-    ...new Set(profileRows.flatMap((row) => profileAvailability?.(row)?.status?.text ?? [])),
-  ];
-  // A selection that can't run in the Runs on scope, which a refresh can cause, blocks the step.
-  const profileError = !profile
-    ? noProfileRuns
-      ? `No profile can run here.${notRunningReasons.length === 1 ? ` ${notRunningReasons[0]}.` : ""}`
-      : "Select a model profile."
-    : selectedAvailability?.selectable === false
-      ? `${profile.displayName || profileId} can't run here.${selectedAvailability.status ? ` ${selectedAvailability.status.text}.` : ""}`
-      : undefined;
-
-  // Basic mode asks for the target only when several can deploy the profile.
-  const severalTargets = profileLaunchCandidates
-    ? profileLaunchCandidates.length > 1
-    : deployableExecutionTargets.length > 1;
-
-  // Selects a profile with its runtime values, the profile's defaults unless given.
-  const selectProfile = (
-    nextProfileId: string,
-    values = configurationStart(model, engineReleases, nextProfileId, undefined),
-  ) => {
-    setProfileId(nextProfileId);
-    setIneligibleTarget(undefined);
-    // A chosen target that can't launch the new profile gives way to the profile's own targets.
-    if (pickedTarget && !launchesOn(nextProfileId, pickedTarget)) setPickedPlacement(undefined);
-    setBindingId(values.bindingId);
-    setEditedInputs(values.edits);
-    setSpeculativeChoice(values.speculativeChoice);
-    setPickedKvCachePrecision(values.kvCachePrecision);
-    setFieldErrors((errors) => {
-      const nextErrors = new Map(errors);
-      nextErrors.delete("profileId");
-      nextErrors.delete("artifact");
-      nextErrors.delete("speculativeCount");
-      for (const release of engineReleases)
-        for (const parameter of release.parameterSchema?.parameters ?? [])
-          nextErrors.delete(parameter.parameterId);
-      return nextErrors;
-    });
-    invalidatePreview();
-  };
-  // The operator's own pick, which later reads then leave alone.
-  const chooseProfile = (nextProfileId: string) => {
-    operatorSelectedRef.current = true;
-    dirtyFields.markDirty("profileId");
-    selectProfile(nextProfileId);
-  };
-  const selectProfileRef = useRef(selectProfile);
-  useEffect(() => {
-    selectProfileRef.current = selectProfile;
-  });
-
-  // Preselects when compatibility first arrives and on later reads while that found nothing, unless
-  // the operator has chosen, and whenever the Runs on chip changes, including its arrival with the
-  // first read. A selection that can't launch there, or that the table hides, moves to the requested
-  // profile when the table shows it and it can launch, otherwise to the first shown profile that can.
-  useEffect(() => {
-    if (!profileAvailability) return;
-    const chipChanged =
-      preselectionKeyRef.current !== chipKey &&
-      (preselectionKeyRef.current !== undefined || chipKey !== "");
-    const pending = preselectionKeyRef.current === undefined || preselectionEmptyRef.current;
-    preselectionKeyRef.current = chipKey;
-    if (!chipChanged && (!pending || operatorSelectedRef.current)) return;
-
-    // The table reports its rows before this effect runs, so they match the chip.
-    const shown = shownProfileIdsRef.current;
-    const selectable = (candidate: string) => {
-      const row = profileRows.find((profileRow) => profileRow.profileId === candidate);
-      return Boolean(row && shown.includes(candidate) && profileAvailability(row)?.selectable);
-    };
-    if (selectable(profileId)) return;
-    const next = [initialProfileId ?? "", ...shown].find(selectable) ?? "";
-    preselectionEmptyRef.current = !next;
-    // A read can briefly select nothing; returning to the starting profile restores its starting
-    // values rather than the profile's defaults.
-    const values = next === start.profileId ? start.values : undefined;
-    if (next !== profileId) queueMicrotask(() => selectProfileRef.current(next, values));
-  }, [chipKey, initialProfileId, profileAvailability, profileId, profileRows, start]);
-
-  // The latest inputs, for a deferred blur check that runs after a change the blur preceded, such
-  // as a total context preset clicked while the context per request had focus.
-  const engineParameterInputsRef = useRef(engineParameterInputs);
-  useEffect(() => {
-    engineParameterInputsRef.current = engineParameterInputs;
-  });
-  const values = engineParameterValues(
-    declaredValues,
-    exposedParameters,
-    engineParameterInputs,
-    derivedParameterIds,
-  );
   const setFieldError = (field: string, nextError: string | undefined) =>
     setFieldErrors((errors) => withFieldError(errors, field, nextError));
-  const contextParameters = exposedParameters.filter((parameter) =>
-    CONTEXT_PARAMETER_IDS.has(parameter.parameterId),
-  );
-  // The other parameters split by the profile's visibility: basic ones follow the context on the
-  // Settings step, advanced ones sit on the Advanced step. Hidden ones are not exposed.
-  const overrides = profile?.engineParameterVisibilityOverrides ?? [];
-  const nonContextParameters = (visibility: ParameterVisibility) =>
-    exposedParameters.filter(
-      (parameter) =>
-        !CONTEXT_PARAMETER_IDS.has(parameter.parameterId) &&
-        effectiveVisibility(parameter, overrides) === visibility,
-    );
-  const settingsParameters = nonContextParameters(ParameterVisibility.BASIC);
-  const advancedParameters = nonContextParameters(ParameterVisibility.ADVANCED);
-  // A context change edits the shared context: total context and context per request become the
-  // chosen ones, starting from what the step shows. A settled change, from a slider or preset, also
-  // moves the other of the two to keep the edited one, and sizes "Sized for" when valid; typing
-  // waits until the input is left.
-  const changeContext = (parameter: ParameterDefinition, nextInput: string, settled?: boolean) => {
-    const edited = scenarioInput(parameter.parameterId);
-    if (!edited) return;
 
-    dirtyFields.markDirty(parameter.parameterId);
-    const shown = {
-      perRequest: engineParameterInputs.get(CONTEXT_PER_REQUEST_PARAMETER_ID) ?? "",
-      total: engineParameterInputs.get(TOTAL_CONTEXT_PARAMETER_ID) ?? "",
-    };
-    const changed = { ...shown, [edited]: nextInput };
-    const chosen = settled ? followContextInputs(changed, edited) : changed;
-    setContext((previous) => ({
-      ...previous,
-      inputs: chosen,
-      scenario: (settled && scenarioFromInputs(chosen)) || previous.scenario,
-    }));
-    // A shown error re-validates, including one the changed value causes or clears on another
-    // field, such as a context per request above a new total context.
-    const nextInputs = new Map(engineParameterInputs)
-      .set(TOTAL_CONTEXT_PARAMETER_ID, chosen.total)
-      .set(CONTEXT_PER_REQUEST_PARAMETER_ID, chosen.perRequest);
-    for (const shownParameter of contextParameters)
-      if (fieldErrors.has(shownParameter.parameterId))
-        setFieldError(
-          shownParameter.parameterId,
-          engineParameterError(shownParameter, nextInputs, derivedParameterIds),
-        );
-    invalidatePreview();
-  };
-  // A typed context settles once left, as a settled change does.
-  const blurContext = (parameter: ParameterDefinition) => {
-    if (!dirtyFields.isDirty(parameter.parameterId)) return;
-    const edited = scenarioInput(parameter.parameterId);
-    if (edited) setContext((previous) => settledContext(previous, edited));
-    // Runs after a change the blur preceded, such as a total context preset clicked while the
-    // context per request had focus, and re-validates any context field the settling moved.
-    setTimeout(() =>
-      setFieldErrors((errors) => {
-        const nextErrors = new Map(errors);
-        for (const shownParameter of contextParameters) {
-          if (shownParameter !== parameter && !errors.has(shownParameter.parameterId)) continue;
-          const error = engineParameterError(
-            shownParameter,
-            engineParameterInputsRef.current,
-            derivedParameterIds,
-          );
-          if (error) nextErrors.set(shownParameter.parameterId, error);
-          else nextErrors.delete(shownParameter.parameterId);
-        }
-        return nextErrors;
-      }),
-    );
-  };
-  // A change to a parameter outside the context, on the Settings or the Advanced step.
-  const changeParameter = (parameter: ParameterDefinition, nextInput: string) => {
-    dirtyFields.markDirty(parameter.parameterId);
-    const nextInputs = new Map(engineParameterInputs).set(parameter.parameterId, nextInput);
-    // Parallel requests belong to the shared context, which "Sized for" also edits and a profile
-    // change keeps.
-    if (parameter.parameterId === PARALLEL_REQUESTS_PARAMETER_ID)
-      setContext((previous) => ({ ...previous, parallelRequests: nextInput }));
-    else setEditedInputs((inputs) => new Map(inputs).set(parameter.parameterId, nextInput));
-    if (fieldErrors.has(parameter.parameterId))
-      setFieldError(
-        parameter.parameterId,
-        engineParameterError(parameter, nextInputs, derivedParameterIds),
-      );
-    invalidatePreview();
-  };
-  const blurParameter = (parameter: ParameterDefinition) => {
-    if (!dirtyFields.isDirty(parameter.parameterId)) return;
-    setTimeout(
-      () =>
-        setFieldError(
-          parameter.parameterId,
-          engineParameterError(parameter, engineParameterInputsRef.current, derivedParameterIds),
-        ),
-      0,
-    );
-  };
-  const validateRoute = (values = exposureValues, deploymentName = name): string | undefined =>
-    validateDeploymentExposure(values, deploymentName, existingRouteNames);
-  const parameterErrors = (
-    parameters: readonly ParameterDefinition[],
-  ): [string, string | undefined][] =>
-    parameters.map((parameter) => [
-      parameter.parameterId,
-      engineParameterError(parameter, engineParameterInputs, derivedParameterIds),
-    ]);
-  // A rejection spans the context values, so it shows as soon as it's known, on the context per
-  // request once the operator set one, else on the first context field. A profile that sets its
-  // context itself has no field to fix.
-  const launchRejectionParameter =
-    contextParameters.find(
-      ({ parameterId }) =>
-        parameterId === CONTEXT_PER_REQUEST_PARAMETER_ID && engineParameterInputs.get(parameterId),
-    ) ?? contextParameters[0];
-  // The launch values arrive with the read, so the first estimate and the deploy wait for them.
-  const launchValuesPending =
-    profileCompatibility.estimates.pending ||
-    (Boolean(scenario) && !ownReadValues && defaultsCompatibility.estimates.pending);
-  const launchValuesLoadingVisible = useDelayedLoading(launchValuesPending);
+  const machine = useModelDeployMachine(
+    { ...options, catalogChips, memoryBasis },
+    { dirtyFields, scenario: context.scenario, setFieldErrors },
+  );
+  const { configuration, placement, profile, profileId, selection } = machine;
+  const parameters = useModelDeployParameters({
+    context,
+    contextStart: machine.start,
+    derivedParameterIds: machine.derivedParameterIds,
+    dirtyFields,
+    engineRelease: machine.engineRelease,
+    exposedParameters: machine.exposedParameters,
+    fieldErrors,
+    profile,
+    scenarioValues: machine.scenarioValues,
+    selection,
+    setFieldError,
+    setFieldErrors,
+  });
+  const { engineParameterInputs, values } = parameters;
+  const modelOptions = useModelDeployOptions({
+    configuration,
+    dirtyFields,
+    fieldErrors,
+    model,
+    profile,
+    selection,
+    setFieldError,
+  });
+  const { optionOverrides } = modelOptions;
+  const customArguments = useCustomArguments(selection.values.customArgumentTokens);
+  const customArgumentTokens = customArguments.tokens;
   const memory = useModelDeployMemoryPreview({
     applications,
-    binding,
-    bindingId,
-    compatibilityRead: profileCompatibility.compatibility,
-    configuration,
+    compatibilityRead: machine.tableRead.compatibility,
     customArgumentTokens,
-    declaredValues,
+    declaredValues: parameters.declaredValues,
     deployments,
-    derivedParameterIds,
+    derivedParameterIds: machine.derivedParameterIds,
     engineParameterInputs,
-    engineRelease,
-    engineReleases,
-    exposedParameters,
-    launchValuesPending,
+    engineRelease: machine.engineRelease,
+    exposedParameters: machine.exposedParameters,
+    launchValuesPending: machine.launchValuesPending,
     model,
     name,
     onEstimate,
     onPreviewMemory,
     optionOverrides,
-    pickedKvCachePrecision,
     placement,
     profile,
     profileId,
-    selectedExecutionTarget,
-    storedSpeculativeChoice,
-    targetsLoading,
-    targetsLoadingPresentation,
+    selectedExecutionTarget: machine.selectedExecutionTarget,
+    targetsLoading: machine.targetsLoading,
+    targetsLoadingPresentation: machine.targetsLoadingPresentation,
     values,
   });
-  // The total context's largest fit with the dialog's values, from the estimate of the selected
-  // profile on the selected target; the starting value stands in until that estimate lands. An
-  // estimate without a fit, such as with custom arguments, offers none.
-  const estimate = memory.estimate;
-  const estimateMatches =
-    placement !== null &&
-    estimate.profileId === profileId &&
-    estimate.placement?.siteNodeId === placement.siteNodeId &&
-    estimate.placement.executionTargetId === placement.executionTargetId;
-  const largestTotalContext = estimateMatches ? estimate.largestTotalContext : fitStart;
-  const contextHint =
-    largestTotalContext !== undefined && selectedExecutionTarget
-      ? `Up to ${formatCompactCount(largestTotalContext)} on ${executionTargetName(selectedExecutionTarget)}`
-      : undefined;
-  // Offered as the total context's last chip; choosing it sets the shown value like a size chip.
-  const largestFit = largestTotalContext === undefined ? undefined : { value: largestTotalContext };
-  const launchRejectionMessage =
-    memory.estimate.launchRejection && launchRejectionParameter
-      ? operatorSentence(memory.estimate.launchRejection)
-      : undefined;
-  const contextFieldErrors = launchRejectionMessage
-    ? new Map(fieldErrors).set(launchRejectionParameter.parameterId, launchRejectionMessage)
-    : fieldErrors;
+  const contextStep = useModelDeployContext({
+    context,
+    contextParameters: parameters.contextParameters,
+    derivedParameterIds: machine.derivedParameterIds,
+    dirtyFields,
+    engineParameterInputs,
+    engineParameterInputsRef: parameters.engineParameterInputsRef,
+    estimate: memory.estimate,
+    fieldErrors,
+    placement,
+    profileId,
+    selectedExecutionTarget: machine.selectedExecutionTarget,
+    setContext,
+    setFieldError,
+    setFieldErrors,
+    targetVerdict: machine.targetVerdict,
+  });
 
   const following = exposureValues.routeName === undefined;
   const routeBlocking = routeBlockingMessage({
@@ -697,29 +160,56 @@ export function useModelDeployForm({
     existingRouteNames,
     values: exposureValues,
   });
+  const validateRoute = (values = exposureValues, deploymentName = name): string | undefined =>
+    validateDeploymentExposure(values, deploymentName, existingRouteNames);
+  // The launch the preview reads and the deploy submits; undefined while a value is invalid.
+  const launch = (target: ExactPlacement | null): LocalDeploymentValues | undefined =>
+    profile && values && optionOverrides && target
+      ? {
+          configuration: {
+            customArgumentTokens,
+            engineParameterValues: values,
+            // Left unset, so resolution takes the profile's weights.
+            modelArtifactBindingId: "",
+            optionOverrides,
+          },
+          exposure: deploymentExposure(exposureValues, name),
+          name: name.trim(),
+          profileId,
+          placement: target,
+        }
+      : undefined;
 
   const stepErrors = (activeStep: ModelDeployStep): FieldErrors => {
     switch (activeStep) {
-      case "Target":
+      case "Model & machine":
         return toFieldErrors([
-          ["placement", placement ? undefined : "Execution target is required."],
+          ["profileId", machine.profileError],
+          [
+            "placement",
+            !machine.profileError && !placement && machine.deployableExecutionTargets.length
+              ? "Execution target is required."
+              : undefined,
+          ],
         ]);
-      case "Profile":
-        return toFieldErrors([["profileId", profileError]]);
-      case "Settings":
+      case "Capabilities":
+        return toFieldErrors(modelOptions.errorsAt(ParameterVisibility.BASIC));
+      case "Context":
         return toFieldErrors([
-          ...parameterErrors(contextParameters),
-          ...parameterErrors(settingsParameters),
+          ...parameters.parameterErrors(parameters.contextParameters),
+          ...parameters.parameterErrors(parameters.basicParameters),
           // Held while the next estimate loads: leaving a field restarts it, so Next would pass.
-          [launchRejectionField, launchRejectionMessage],
+          [launchRejectionField, contextStep.launchRejectionMessage],
         ]);
-      case "Advanced":
+      case "Performance & memory":
         return toFieldErrors([
-          ["artifact", binding ? undefined : "Select a model artifact."],
-          ...parameterErrors(advancedParameters),
-          ["speculativeCount", speculativeChoiceError(speculativeOptions, speculativeChoice)],
+          ...parameters.parameterErrors(parameters.advancedParameters),
+          ...modelOptions.errorsAt(ParameterVisibility.ADVANCED),
         ]);
-      case "Deploy": {
+      // A rejected command blocks the deploy, not the way through the steps.
+      case "Engine":
+        return new Map();
+      case "Review & deploy": {
         const nameError = validateDeploymentName(name);
         // A route following an invalid name is explained by the name's own error.
         const routeError = following && nameError ? undefined : validateRoute();
@@ -733,88 +223,85 @@ export function useModelDeployForm({
   const fieldControls = () =>
     new Map<string, HTMLElement | null>([
       ["profileId", profileRef.current],
-      ["artifact", artifactRef.current],
       ["placement", executionTargetRef.current],
-      ...exposedParameters.map((parameter): [string, HTMLElement | null] => [
-        parameter.parameterId,
-        engineParameterRefs.current.get(parameter.parameterId) ?? null,
-      ]),
-      ["speculativeCount", speculativeCountRef.current],
+      ...parameters.fieldControls(),
+      ...modelOptions.fieldControls(),
       [
         launchRejectionField,
-        launchRejectionParameter
-          ? (engineParameterRefs.current.get(launchRejectionParameter.parameterId) ?? null)
+        contextStep.launchRejectionParameter
+          ? (parameters.engineParameterRefs.current.get(
+              contextStep.launchRejectionParameter.parameterId,
+            ) ?? null)
           : null,
       ],
       ["name", nameRef.current],
       ["routeName", routeNameRef.current],
     ]);
   const wizard = useDeployWizard<ModelDeployStep>({
+    advancedSteps: MODEL_DEPLOY_ADVANCED_STEPS,
     errorsFor: stepErrors,
     fieldControls,
-    // The Advanced step's fields, the artifact and custom arguments among them, belong to the
-    // selected profile's engine configuration.
-    hasFields: (step) => step !== "Advanced" || Boolean(configuration),
+    hasFields: (step) => {
+      switch (step) {
+        case "Capabilities":
+          return modelOptions.basicControls.length > 0;
+        case "Performance & memory":
+          return (
+            parameters.advancedParameters.length > 0 || modelOptions.advancedControls.length > 0
+          );
+        case "Engine":
+          return Boolean(configuration);
+        default:
+          return true;
+      }
+    },
+    // Advanced inputs never reach a basic launch, so leaving advanced mode returns them to the
+    // profile's values.
+    onAdvancedOff: () => {
+      parameters.resetAdvanced();
+      modelOptions.resetAdvanced();
+      customArguments.reset();
+    },
     // The target placed for the operator stays theirs, so a refresh can't take it away unasked.
     onLeaveFirstStep: () => {
-      if (pickedPlacement === undefined && placement) setPickedPlacement(placement);
+      if (machine.pickedPlacement === undefined && placement) machine.setPickedPlacement(placement);
     },
     onSubmit: () => void submit(),
     open,
     order: MODEL_DEPLOY_STEPS,
     setFieldErrors,
-    severalTargets,
   });
-  const targetStepShown = wizard.steps.includes("Target");
+  // The first step before the Engine step with errors, which holds back the command.
+  const commandBlockedBy = MODEL_DEPLOY_STEPS.slice(0, MODEL_DEPLOY_STEPS.indexOf("Engine")).find(
+    (step) => wizard.steps.includes(step) && stepErrors(step).size > 0,
+  );
+  const commandPreview = useLiveCommandPreview({
+    active: open && wizard.step === "Engine",
+    blocked: commandBlockedBy !== undefined,
+    onPreview,
+    request: launch(placement),
+  });
 
-  const launchEdits = { bindingId, declaredValues, inputs: engineParameterInputs };
-  const optionCustomizations = [
-    ...speculativeCustomizations(speculativeOptions, speculativeChoice),
-    ...kvCachePrecisionCustomizations(kvCachePrecisionOption, kvCachePrecision),
-  ];
-  // The settings a profile change resets.
-  const customizations = [
-    ...runtimeCustomizations(model, profile, engineRelease, launchEdits),
-    ...optionCustomizations,
-  ];
-  // What the Deploy summary lists apart from the context: each changed engine parameter, then the
-  // other advanced settings that differ from the defaults, including the custom arguments that a
-  // profile change keeps.
-  const changedParameters = changedEngineParameters(profile, engineRelease, launchEdits);
-  const deployCustomizations = [
-    ...artifactCustomization(model, profile, bindingId),
-    ...optionCustomizations,
-    ...(customArgumentTokens.length
-      ? [formatCount(customArgumentTokens.length, "custom argument")]
-      : []),
-  ];
-
-  const runPreview = async () => {
-    if (wizard.revealFirstError(["Profile", "Settings", "Advanced"])) return;
-    setFieldErrors(new Map());
-    if (!profile || !binding || !values || !optionOverrides || !placement) return;
-    await commandPreview.requestPreview({
-      configuration: {
-        customArgumentTokens,
-        engineParameterValues: values,
-        modelArtifactBindingId: binding.bindingId,
-        optionOverrides,
-      },
-      exposure: deploymentExposure(exposureValues, name),
-      name: name.trim(),
-      profileId,
-      placement,
-    });
+  // The Engine step only exists in advanced mode, so going there turns Advanced on.
+  const revealEngine = () => {
+    if (!wizard.advanced) wizard.toggleAdvanced(true);
+    wizard.goTo("Engine");
   };
+
   const submit = async () => {
-    setIneligibleTarget(undefined);
+    machine.setIneligibleTarget(undefined);
     if (wizard.revealFirstError()) return;
+    // The latest command preview for these values was rejected, which the Engine step shows.
+    if (commandPreview.rejection) {
+      revealEngine();
+      return;
+    }
     setFieldErrors(new Map());
-    if (pending || !placement || !values || !binding || !optionOverrides) return;
+    if (pending || !placement || !launch(placement)) return;
 
     setTargetValidationPending(true);
     const selectedPlacement = placement;
-    const freshTargets = await refreshExecutionTargets();
+    const freshTargets = await machine.refreshExecutionTargets();
     setTargetValidationPending(false);
     const selectedTarget = freshTargets?.find(
       (target) =>
@@ -823,191 +310,67 @@ export function useModelDeployForm({
         target.siteNodeId === selectedPlacement.siteNodeId,
     );
     if (!selectedTarget || !executionTargetPresentation(selectedTarget).deployable) {
-      setIneligibleTarget(placedExecutionTargetName(selectedPlacement, executionTargets));
-      // A chosen target is chosen again on the Target step; an automatic one gives way to the
-      // profile's remaining targets, decided on the Profile step.
-      if (pickedPlacement && targetStepShown) {
-        setPickedPlacement(null);
+      machine.setIneligibleTarget(
+        placedExecutionTargetName(selectedPlacement, machine.executionTargets),
+      );
+      // A chosen target is chosen again; an automatic one gives way to the profile's remaining
+      // targets. Either way on the Model & machine step.
+      if (machine.pickedPlacement) {
+        machine.setPickedPlacement(null);
         setFieldError("placement", "Select an eligible execution target.");
-        wizard.goTo("Target");
-      } else {
-        setPickedPlacement(undefined);
-        wizard.goTo("Profile");
-      }
+      } else machine.setPickedPlacement(undefined);
+      wizard.goTo("Model & machine");
       return;
     }
 
-    onSubmit({
-      configuration: {
-        customArgumentTokens,
-        engineParameterValues: values,
-        modelArtifactBindingId: binding.bindingId,
-        optionOverrides,
-      },
-      exposure: deploymentExposure(exposureValues, name),
-      name: name.trim(),
-      profileId,
-      placement: selectedPlacement,
-    });
-  };
-  const updateCustomArguments = (update: (tokens: string[]) => string[]) => {
-    setCustomArgumentTokens(update);
-    invalidatePreview();
+    const submitted = launch(selectedPlacement);
+    if (submitted) onSubmit(submitted);
   };
 
   const deploymentPrerequisiteUnavailable =
-    targetsLoading || Boolean(effectiveTargetsError) || deployableExecutionTargets.length === 0;
-  const deployDisabled =
-    targetValidationPending ||
-    deploymentPrerequisiteUnavailable ||
-    launchValuesPending ||
-    Boolean(routeBlocking);
+    machine.targetsLoading ||
+    Boolean(machine.effectiveTargetsError) ||
+    machine.deployableExecutionTargets.length === 0;
 
   return {
-    advancedParameters,
-    artifactRef,
-    binding,
-    bindingId,
-    blurContext,
-    blurParameter,
-    changedParameters,
-    changeContext,
-    changeParameter,
-    chooseProfile,
+    commandBlockedBy,
     commandPreview,
-    compatibility,
-    compatibilityLoadingVisible,
-    configuration,
-    contextFieldErrors,
-    contextHint,
-    contextParameters,
-    customArgumentTokens,
-    customizations,
-    deployCustomizations,
-    deployDisabled,
-    deployableExecutionTargets,
-    deploymentPrerequisiteUnavailable,
+    context: contextStep,
+    customArguments,
+    deployDisabled:
+      targetValidationPending ||
+      deploymentPrerequisiteUnavailable ||
+      machine.launchValuesPending ||
+      Boolean(routeBlocking),
     dirtyFields,
-    effectiveTargetsError,
-    engineParameterInputs,
-    engineParameterRefs,
     executionTargetRef,
-    executionTargets,
-    executionTargetsCurrent,
-    exposedParameters,
     exposureValues,
     fieldErrors,
     following,
-    ineligibleTarget,
-    kvCachePrecision,
-    kvCachePrecisionOption,
-    largestFit,
-    launchValuesLoadingVisible,
+    machine,
     memory,
+    modelOptions,
     name,
     nameRef,
-    parameterGroups,
-    placement,
-    profile,
-    profileCompatibility,
-    profileError,
-    profileId,
-    profileLaunchCandidates,
+    parameters,
     profileRef,
-    profileTable,
+    // Settings a profile change resets.
+    revealEngine,
+    resetsRuntime: parameters.customizations.length > 0 || modelOptions.changed,
     routeBlocking,
     routeNameRef,
-    runPreview,
-    scenario,
-    selectedExecutionTarget,
-    selectedProfileRow,
-    setBindingId,
     setExposureValues,
     setFieldError,
-    setIneligibleTarget,
     setName,
-    setPickedKvCachePrecision,
-    setPickedPlacement,
-    setSpeculativeChoice,
-    settingsParameters,
-    shownProfileRows,
-    sizing,
-    speculativeChoice,
-    speculativeCountRef,
-    speculativeOptions,
-    tableEstimates,
-    targetsLoading,
-    targetsLoadingPresentation,
-    targetsLoadingVisible,
-    updateCustomArguments,
-    updateShownProfiles,
+    // What the summary lists beside the context and the changed parameters: the advanced options
+    // that differ from the profile's, and the custom arguments.
+    summaryCustomizations: [
+      ...modelOptions.customizations,
+      ...(customArgumentTokens.length
+        ? [formatCount(customArgumentTokens.length, "custom argument")]
+        : []),
+    ],
     validateRoute,
     wizard,
   };
 }
-
-/** What the deploy form needs from its opener: the model, the site's facts and the API calls. */
-export interface ModelDeployFormOptions {
-  engineReleases: readonly EngineRelease[];
-  hardwareClasses: readonly HardwareClass[];
-  existingRouteNames?: readonly string[];
-  /**
-   * The catalog's chips the profile table starts from, taken when the dialog opened; the catalog's
-   * default chips without them.
-   */
-  catalogChips?: CatalogChips;
-  /** The site's application deployments, which name their memory in the memory strip. */
-  applications?: readonly ApplicationDeployment[];
-  /**
-   * The site's model deployments, which name what occupies the selected target's memory in the
-   * memory strip. Without them, the strip doesn't show.
-   */
-  deployments?: readonly ModelDeployment[];
-  /**
-   * The runtime configuration the launch starts from, such as one the dialog submitted before: its
-   * artifact, engine parameters, options and custom arguments, until a profile change resets the
-   * profile's own. The context comes from `scenario`. The profile's defaults without it.
-   */
-  initialConfiguration?: LocalDeploymentConfigurationValues;
-  /** The exposure the launch starts with, such as one the dialog submitted before; direct without it. */
-  initialExposure?: ModelDeploymentExposure;
-  /** The deployment name the launch starts with, such as one the operator already chose. */
-  initialName?: string;
-  /**
-   * The target the launch starts on, such as a proposal's, kept while it can run the selected
-   * profile; the dialog picks one without it.
-   */
-  initialPlacement?: ExactPlacement;
-  initialProfileId?: string;
-  listConfiguredExecutionTargets?: ConfiguredExecutionTargetLoader;
-  /**
-   * Reads which of the model's profiles can run on each target. Without it, or while it loads or
-   * fails, every profile is listed and selectable.
-   */
-  listProfileCompatibility?: ProfileCompatibilityLoader;
-  /** The memory basis the Runs on chip starts from, such as the catalog's; free now without it. */
-  memoryBasis?: MemoryBasis;
-  model: Model;
-  /** The route name the backend rejected as taken on the last deploy attempt. */
-  routeConflict?: RouteNameConflict;
-  onEstimate?: ResourceEstimateLoader;
-  onPreview: (values: LocalDeploymentValues) => Promise<ResolvedLocalModelDeploymentSnapshot>;
-  onPreviewMemory?: (values: LocalMemoryPreviewValues) => Promise<LocalDeploymentMemoryPreview>;
-  onSubmit: (values: LocalDeploymentValues) => void;
-  open: boolean;
-  pending: boolean;
-  /**
-   * The opener's profile memory estimates under `scenario`, for the profile table's Memory column.
-   * Without them, profiles show their declared minimums. Under a scenario, or once the operator
-   * changes "Sized for", the dialog's own read replaces them once it lands.
-   */
-  profileEstimates?: ProfileEstimateState;
-  /**
-   * The sizing scenario the Runs on chip's "Sized for" starts from, such as the catalog's. The
-   * dialog's read sizes the chip's scenario, and the launch starts from its engine parameter values
-   * on a target where the profile fits.
-   */
-  scenario?: SizingScenario;
-}
-
-const noDerivedParameterIds: ReadonlySet<string> = new Set();

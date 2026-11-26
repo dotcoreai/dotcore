@@ -24,42 +24,49 @@ import {
   ParameterVisibility,
 } from "@/gen/dotcore/catalog/v1/parameter_pb";
 
-/** The shared engine parameter that sets the total context in tokens, declared by every engine. */
+/**
+ * The shared engine parameter that sets the total context in tokens, declared by every engine. Left
+ * empty, it is omitted and resolution derives it from the context per request and parallel requests.
+ */
 export const TOTAL_CONTEXT_PARAMETER_ID = "total-context";
 
 /**
- * The shared engine parameter capping one request's context. It is optional: left empty, it is
- * omitted and resolution fills it from the maximum context and the total context.
+ * The shared engine parameter capping one request's context. Left empty, it is omitted and
+ * resolution fills it from the total context, or starts it at the engine default.
  */
 export const CONTEXT_PER_REQUEST_PARAMETER_ID = "context-per-request";
 
 /** The shared engine parameter setting how many requests an engine generates at once. */
 export const PARALLEL_REQUESTS_PARAMETER_ID = "parallel-requests";
 
-/** The context size parameters, which lead the deploy dialog's Settings step. */
+/**
+ * The context parameters, which lead the deploy dialog's Settings step: context per request,
+ * parallel requests, and the total context that follows them.
+ */
 export const CONTEXT_PARAMETER_IDS: ReadonlySet<string> = new Set([
-  TOTAL_CONTEXT_PARAMETER_ID,
   CONTEXT_PER_REQUEST_PARAMETER_ID,
+  PARALLEL_REQUESTS_PARAMETER_ID,
+  TOTAL_CONTEXT_PARAMETER_ID,
 ]);
 
 /**
  * A profile's exposed engine parameters, split as the deploy dialog presents them: the context
- * sizes have their fixed place in the Settings step, parallel requests lead the Advanced step, and
- * the others follow in schema order, laid out by the engine's parameter groups.
+ * parameters have their fixed place in the Settings step, and the others follow in schema order,
+ * laid out by the engine's parameter groups.
  */
 export interface RuntimeParameterGroups {
   context: ContextParameterGroup;
   others: ParameterDefinition[];
-  parallelRequests?: ParameterDefinition;
 }
 
-/** The context size parameters a profile exposes; every engine declares both. */
+/** The context parameters a profile exposes; every engine declares all three. */
 export interface ContextParameterGroup {
   contextPerRequest?: ParameterDefinition;
+  parallelRequests?: ParameterDefinition;
   totalContext?: ParameterDefinition;
 }
 
-/** Splits exposed engine parameters into the context sizes, parallel requests and the others. */
+/** Splits exposed engine parameters into the context parameters and the others. */
 export function runtimeParameterGroups(
   parameters: readonly ParameterDefinition[],
 ): RuntimeParameterGroups {
@@ -70,16 +77,12 @@ export function runtimeParameterGroups(
     );
   const context = {
     contextPerRequest: unsigned(CONTEXT_PER_REQUEST_PARAMETER_ID),
+    parallelRequests: unsigned(PARALLEL_REQUESTS_PARAMETER_ID),
     totalContext: unsigned(TOTAL_CONTEXT_PARAMETER_ID),
   };
-  const parallelRequests = unsigned(PARALLEL_REQUESTS_PARAMETER_ID);
-  const placed = new Set([...Object.values(context), parallelRequests]);
+  const placed = new Set(Object.values(context));
 
-  return {
-    context,
-    others: parameters.filter((parameter) => !placed.has(parameter)),
-    parallelRequests,
-  };
+  return { context, others: parameters.filter((parameter) => !placed.has(parameter)) };
 }
 
 /**
@@ -190,7 +193,7 @@ export function engineParameterValues(
 /**
  * Why a parameter's input in `inputs` can't launch, or undefined when it can: a value its type
  * refuses, or a context per request above the total context. An empty input is valid for a secret,
- * which is generated at deploy, for the context per request, and for a parameter in `derived`.
+ * which is generated at deploy, for the context sizes, and for a parameter in `derived`.
  */
 export function engineParameterError(
   parameter: ParameterDefinition,
@@ -229,8 +232,8 @@ export function resolvedEngineParameterValue(
 
 const noDerivedParameters: ReadonlySet<string> = new Set();
 
-// An empty context per request or sizing-derived parameter is left out rather than rejected, on
-// top of the inputs every parameter type leaves out.
+// An empty context size or sizing-derived parameter is left out rather than rejected, since
+// resolution fills it, on top of the inputs every parameter type leaves out.
 function omitsEngineValue(
   view: ParameterView,
   input: string,
@@ -238,7 +241,10 @@ function omitsEngineValue(
 ): boolean {
   return (
     omitsParameterValue(view, input) ||
-    (input === "" && (view.id === CONTEXT_PER_REQUEST_PARAMETER_ID || derived.has(view.id)))
+    (input === "" &&
+      (view.id === CONTEXT_PER_REQUEST_PARAMETER_ID ||
+        view.id === TOTAL_CONTEXT_PARAMETER_ID ||
+        derived.has(view.id)))
   );
 }
 

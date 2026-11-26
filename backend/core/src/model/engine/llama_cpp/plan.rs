@@ -621,7 +621,7 @@ pub(crate) enum LlamaCppPlanError {
     #[error("llama.cpp launch plan has vision settings without image capability")]
     ImageInputUnsupported,
 
-    #[error("llama.cpp custom argument {0:?} conflicts with resolved settings")]
+    #[error("llama.cpp custom argument {:?} conflicts with resolved settings", crate::model::engine::custom_argument_flag(.0))]
     ConflictingCustomArgument(String),
 }
 
@@ -819,7 +819,10 @@ mod tests {
                 translate(local)
                     .expect_err("snapshot-owned custom argument")
                     .to_string(),
-                format!("llama.cpp custom argument {token:?} conflicts with resolved settings")
+                format!(
+                    "llama.cpp custom argument {:?} conflicts with resolved settings",
+                    crate::model::engine::custom_argument_flag(token)
+                )
             );
         }
     }
@@ -966,7 +969,10 @@ mod tests {
                 translate(local)
                     .expect_err("schema-owned prompt cache bound")
                     .to_string(),
-                format!("llama.cpp custom argument {token:?} conflicts with resolved settings")
+                format!(
+                    "llama.cpp custom argument {:?} conflicts with resolved settings",
+                    crate::model::engine::custom_argument_flag(token)
+                )
             );
         }
     }
@@ -1122,7 +1128,10 @@ mod tests {
                 translate(&local)
                     .expect_err("single micro-batch custom argument")
                     .to_string(),
-                format!("llama.cpp custom argument {token:?} conflicts with resolved settings")
+                format!(
+                    "llama.cpp custom argument {:?} conflicts with resolved settings",
+                    crate::model::engine::custom_argument_flag(token)
+                )
             );
 
             let mut snapshot = crate::test_support::local_model_snapshot("fixture-model");
@@ -1202,7 +1211,10 @@ mod tests {
                 translate(local)
                     .expect_err("shared-parameter flag")
                     .to_string(),
-                format!("llama.cpp custom argument {token:?} conflicts with resolved settings")
+                format!(
+                    "llama.cpp custom argument {:?} conflicts with resolved settings",
+                    crate::model::engine::custom_argument_flag(token)
+                )
             );
         }
     }
@@ -1467,7 +1479,10 @@ mod tests {
                     translate(&snapshot)
                         .expect_err("option-owned cache type")
                         .to_string(),
-                    format!("llama.cpp custom argument {token:?} conflicts with resolved settings")
+                    format!(
+                        "llama.cpp custom argument {:?} conflicts with resolved settings",
+                        crate::model::engine::custom_argument_flag(token)
+                    )
                 );
             }
         }

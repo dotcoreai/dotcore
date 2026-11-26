@@ -7,6 +7,7 @@ import {
   DropdownMenuRadioItem,
 } from "@/components/ui/dropdown-menu";
 import { FieldError } from "@/components/ui/field-error";
+import { Input } from "@/components/ui/input";
 import type { ContextSliderEnds } from "@/features/models/runtime/context-slider-ends";
 import { SizeInput } from "@/features/models/runtime/size-input";
 import { useDirtyFields } from "@/hooks/use-dirty-fields";
@@ -14,7 +15,6 @@ import { timing } from "@/lib/timing";
 
 import type { MemoryBasis } from "./profile-compatibility";
 import {
-  followContextInputs,
   sameSizingScenario,
   scenarioFromInputs,
   type ScenarioInput,
@@ -25,11 +25,12 @@ import {
 } from "./sizing-scenario";
 
 /**
- * The Runs on chip's "Sized for" menu section: defaults, or a custom sizing scenario with the shared
- * size input for the total context and the optional context per request. Their sliders span
- * the given ends, which cover every profile the scenario sizes. A custom scenario applies once its
- * inputs hold valid values and typing pauses, and at once when an input loses focus; defaults apply
- * at once.
+ * The Runs on chip's "Sized for" menu section: defaults, or a custom sizing scenario with the
+ * context per request, the optional parallel requests that each profile's own replace when empty,
+ * and the optional total context that follows the other two when empty. The size sliders span the
+ * given ends, which cover every profile the scenario sizes. A custom scenario applies once its
+ * inputs hold valid values and typing pauses, and at once when an input loses focus; defaults
+ * apply at once.
  */
 export function CatalogSizedFor({
   ends,
@@ -43,13 +44,10 @@ export function CatalogSizedFor({
   const [custom, setCustom] = useState(Boolean(scenario));
   const [inputs, setInputs] = useState(() => scenarioInputs(scenario ?? initialCustomScenario));
   const [errors, setErrors] = useState<Partial<Record<ScenarioInput, string>>>({});
-  // The input the operator last edited, which the other follows once the edit settles.
-  const [edited, setEdited] = useState<ScenarioInput>("total");
   const [shownScenario, setShownScenario] = useState(scenario);
   const dirtyFields = useDirtyFields<ScenarioInput>(true);
   const id = useId();
-  const followed = followContextInputs(inputs, edited);
-  const typed = scenarioFromInputs(followed);
+  const typed = scenarioFromInputs(inputs);
 
   // A scenario applied elsewhere, such as from browser history, replaces the choice and inputs.
   if (!sameSizingScenario(shownScenario, scenario)) {
@@ -65,18 +63,15 @@ export function CatalogSizedFor({
   const pending = custom && typed && !sameSizingScenario(typed, scenario) ? typed : undefined;
   const onChangeRef = useRef(onChange);
   const pendingRef = useRef(pending);
-  const followedRef = useRef(followed);
   useEffect(() => {
     onChangeRef.current = onChange;
     pendingRef.current = pending;
-    followedRef.current = followed;
   });
 
   const pendingKey = sizingScenarioKey(pending);
   useEffect(() => {
     if (!pendingKey) return;
     const timer = setTimeout(() => {
-      setInputs(followedRef.current);
       if (pendingRef.current) onChangeRef.current(pendingRef.current);
     }, timing().scenarioInputMs);
     return () => clearTimeout(timer);
@@ -91,29 +86,33 @@ export function CatalogSizedFor({
       onChange(typed);
     }
   };
-  // A settled value, from the slider or a preset, moves the other input at once; typing moves it
-  // once it pauses or the input is left.
-  const change = (input: ScenarioInput, value: string, settled: boolean) => {
+  const change = (input: ScenarioInput, value: string) => {
     dirtyFields.markDirty(input);
     const next = { ...inputs, [input]: value };
-    setInputs(settled ? followContextInputs(next, input) : next);
-    setEdited(input);
+    setInputs(next);
     // A shown error follows the inputs, since the context per request is bounded by the total.
-    if (errors.total || errors.perRequest)
-      setErrors(shownErrors(followContextInputs(next, input), errors));
+    if (errors.parallel || errors.perRequest || errors.total) setErrors(shownErrors(next, errors));
   };
   // Leaving an input applies its value before the menu can close or the chip go, so no later write
   // lands after the menu unmounts.
   const blur = (input: ScenarioInput) => {
     if (pending) onChange(pending);
-    setInputs(followed);
     if (dirtyFields.isDirty(input))
-      setErrors((current) => ({ ...current, [input]: scenarioInputErrors(followed)[input] }));
+      setErrors((current) => ({ ...current, [input]: scenarioInputErrors(inputs)[input] }));
   };
-  const totalId = `${id}-total`;
-  const perRequestId = `${id}-per-request`;
-  const total = /^\d+$/.test(inputs.total.trim()) ? Number(inputs.total.trim()) : undefined;
-  // Both sliders share one scale, so the context per request lines up under the total context.
+  const fieldId = (input: ScenarioInput) => `${id}-${input}`;
+  const errorId = (input: ScenarioInput) => (errors[input] ? `${fieldId(input)}-error` : undefined);
+  const error = (input: ScenarioInput) =>
+    errors[input] ? <FieldError id={`${fieldId(input)}-error`}>{errors[input]}</FieldError> : null;
+  const label = (input: ScenarioInput, text: string) => (
+    <label className="text-xs font-medium text-muted-foreground" htmlFor={fieldId(input)}>
+      {text}
+    </label>
+  );
+  const whole = (input: string) => (/^\d+$/.test(input.trim()) ? Number(input.trim()) : undefined);
+  const perRequest = whole(inputs.perRequest);
+  const parallel = whole(inputs.parallel);
+  // Both sliders share one scale, so the total context lines up under the context per request.
   const sliderRange = { maximum: Math.max(ends.perRequest, ends.total), minimum: ends.minimum };
 
   return (
@@ -128,43 +127,53 @@ export function CatalogSizedFor({
       </DropdownMenuRadioGroup>
       {custom ? (
         <div className="mx-1.5 grid gap-2 border-l border-border pt-1 pb-2 pl-3">
-          <label className="text-xs font-medium text-muted-foreground" htmlFor={totalId}>
-            Total context
-          </label>
+          {label("perRequest", "Context per request")}
           <SizeInput
-            describedBy={errors.total ? `${totalId}-error` : undefined}
-            id={totalId}
-            invalid={Boolean(errors.total)}
-            label="Total context"
-            range={{ maximum: ends.total, minimum: ends.minimum }}
-            onBlur={() => blur("total")}
-            onChange={(value, settled) => change("total", value, settled)}
-            onKeyDown={keepKeys}
-            sliderRange={sliderRange}
-            unit="tokens"
-            value={inputs.total}
-          />
-          {errors.total ? <FieldError id={`${totalId}-error`}>{errors.total}</FieldError> : null}
-          <label className="text-xs font-medium text-muted-foreground" htmlFor={perRequestId}>
-            Context per request
-          </label>
-          <SizeInput
-            describedBy={errors.perRequest ? `${perRequestId}-error` : undefined}
-            emptyValue={total}
-            id={perRequestId}
+            describedBy={errorId("perRequest")}
+            id={fieldId("perRequest")}
             invalid={Boolean(errors.perRequest)}
             label="Context per request"
             range={{ maximum: ends.perRequest, minimum: ends.minimum }}
             onBlur={() => blur("perRequest")}
-            onChange={(value, settled) => change("perRequest", value, settled)}
+            onChange={(value) => change("perRequest", value)}
             onKeyDown={keepKeys}
             sliderRange={sliderRange}
             unit="tokens"
             value={inputs.perRequest}
           />
-          {errors.perRequest ? (
-            <FieldError id={`${perRequestId}-error`}>{errors.perRequest}</FieldError>
-          ) : null}
+          {error("perRequest")}
+          {label("parallel", "Parallel requests")}
+          <Input
+            aria-describedby={errorId("parallel")}
+            aria-invalid={Boolean(errors.parallel) || undefined}
+            className="w-28"
+            id={fieldId("parallel")}
+            inputMode="numeric"
+            onBlur={() => blur("parallel")}
+            onChange={(event) => change("parallel", event.target.value)}
+            onKeyDown={keepKeys}
+            placeholder="Profile default"
+            value={inputs.parallel}
+          />
+          {error("parallel")}
+          {label("total", "Total context")}
+          <SizeInput
+            describedBy={errorId("total")}
+            emptyValue={
+              perRequest !== undefined && parallel !== undefined ? perRequest * parallel : undefined
+            }
+            id={fieldId("total")}
+            invalid={Boolean(errors.total)}
+            label="Total context"
+            range={{ maximum: ends.total, minimum: ends.minimum }}
+            onBlur={() => blur("total")}
+            onChange={(value) => change("total", value)}
+            onKeyDown={keepKeys}
+            sliderRange={sliderRange}
+            unit="tokens"
+            value={inputs.total}
+          />
+          {error("total")}
         </div>
       ) : null}
     </DropdownMenuGroup>
@@ -200,7 +209,7 @@ const defaultsChoice = "defaults";
 const customChoice = "custom";
 
 // The scenario Custom starts from when none is set.
-const initialCustomScenario: SizingScenario = { totalContextTokens: 131072 };
+const initialCustomScenario: SizingScenario = { contextTokensPerRequest: 32768 };
 
 // The inputs take their own keys, so typing and arrow keys don't move the menu's highlight; Escape
 // still closes the menu.
@@ -215,7 +224,8 @@ function shownErrors(
 ): Partial<Record<ScenarioInput, string>> {
   const errors = scenarioInputErrors(inputs);
   return {
-    ...(shown.total ? { total: errors.total } : {}),
+    ...(shown.parallel ? { parallel: errors.parallel } : {}),
     ...(shown.perRequest ? { perRequest: errors.perRequest } : {}),
+    ...(shown.total ? { total: errors.total } : {}),
   };
 }

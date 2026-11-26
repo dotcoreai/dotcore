@@ -53,8 +53,8 @@ pub(crate) const API_KEY_PARAMETER_ID: &str = "api-key";
 /// Length of a generated [`API_KEY_PARAMETER_ID`] value.
 pub(crate) const API_KEY_GENERATED_LENGTH: u32 = 32;
 
-/// Resolved engine parameter values of the profile: the engine's default total context, the
-/// context per request filled from it, one parallel request and the expert cap from sizing. A
+/// Resolved engine parameter values of the profile: the engine's default context per request, the
+/// total context derived from it for one parallel request, and the expert cap from sizing. A
 /// snapshot keeps those its configuration doesn't exclude.
 const PROFILE_PARAMETERS: [(&str, u64); 4] = [
     (TOTAL_CONTEXT_PARAMETER_ID, 32_768),
@@ -204,7 +204,7 @@ pub(crate) fn release() -> EngineRelease {
                     512,
                     None,
                     "tokens",
-                    Some(32_768),
+                    None,
                 ),
                 (
                     CONTEXT_PER_REQUEST_PARAMETER_ID,
@@ -212,7 +212,7 @@ pub(crate) fn release() -> EngineRelease {
                     512,
                     Some(2_147_483_639),
                     "tokens",
-                    None,
+                    Some(32_768),
                 ),
                 (
                     PARALLEL_REQUESTS_PARAMETER_ID,
@@ -255,7 +255,9 @@ pub(crate) fn release() -> EngineRelease {
                             },
                         )),
                         visibility: match parameter_id {
-                            "total-context" | "context-per-request" => ParameterVisibility::Basic,
+                            "total-context" | "context-per-request" | "parallel-requests" => {
+                                ParameterVisibility::Basic
+                            }
                             _ => ParameterVisibility::Advanced,
                         } as i32,
                         description: parameter_id.to_owned(),
@@ -563,9 +565,9 @@ version: "1"
 parameterSchema:
   schemaId: "fixture-strata-v1"
   parameters:
-    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", description: "total-context", unsignedInteger: { minimum: "512", unit: "tokens", defaultValue: "32768" } }
-    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", description: "context-per-request", unsignedInteger: { minimum: "512", maximum: "2147483639", unit: "tokens" } }
-    - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "parallel-requests", unsignedInteger: { minimum: "1", maximum: "8", unit: "requests", defaultValue: "1" } }
+    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", description: "total-context", unsignedInteger: { minimum: "512", unit: "tokens" } }
+    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", description: "context-per-request", unsignedInteger: { minimum: "512", maximum: "2147483639", unit: "tokens", defaultValue: "32768" } }
+    - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_BASIC", description: "parallel-requests", unsignedInteger: { minimum: "1", maximum: "8", unit: "requests", defaultValue: "1" } }
     - { parameterId: "expert-vram-mib", displayName: "Expert accelerator memory", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "expert-vram-mib", unsignedInteger: { minimum: "1", unit: "MiB" } }
     - { parameterId: "expert-host-memory-mib", displayName: "Expert host memory", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "expert-host-memory-mib", unsignedInteger: { minimum: "0", unit: "MiB" } }
 storageBindings:

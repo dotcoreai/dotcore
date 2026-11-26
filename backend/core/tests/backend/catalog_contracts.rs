@@ -30,8 +30,8 @@ use dotcore_proto::dotcore::{
         EngineArtifactReference, EngineRelease, HardwareSupport, HuggingFaceSnapshotArtifact,
         HuggingFaceSnapshotFile, IntelligenceScore, License, ListEngineReleasesRequest,
         ListModelsRequest, ListUpstreamModelTemplatesRequest, Model, NixSystemStorePath,
-        OciPlatform, ParameterVisibility, Selector, UpstreamModelTemplate, UpstreamWireProtocol,
-        engine_artifact::Kind as EngineArtifactKind,
+        OciPlatform, ParameterValue, ParameterVisibility, Selector, UpstreamModelTemplate,
+        UpstreamWireProtocol, engine_artifact::Kind as EngineArtifactKind,
         hugging_face_artifact_source::Content as HuggingFaceContent, parameter_value,
     },
     deployment::v1::ArtifactPreparationPolicy,
@@ -361,8 +361,9 @@ fn repository_largest_fits_fill_free_memory_on_every_simulated_choice() {
                 let (lowest, context_per_request) =
                     lowest_total_context(&catalog, &models[0], &entry.profile_id);
                 let verdict = |total_context: u64| {
-                    let scenario = SizingScenario::new(total_context, context_per_request)
-                        .unwrap_or_else(|error| panic!("{label}: scenario: {error}"));
+                    let scenario =
+                        SizingScenario::new(Some(total_context), context_per_request, None)
+                            .unwrap_or_else(|error| panic!("{label}: scenario: {error}"));
                     let response = read(Some(&scenario));
                     let sizing = response
                         .profiles
@@ -680,13 +681,15 @@ fn catalog_sizing_resolves_estimates_into_the_deployment_snapshot() {
         let (binding_id, mut defaults) = catalog
             .local_defaults_for(&model_id, "balanced")
             .expect("profile defaults");
+        // Resolution derives the context values the defaults leave out, so a given one is added.
         for (parameter_id, value) in parameters {
             defaults
                 .values
-                .iter_mut()
-                .find(|default| default.parameter_id == *parameter_id)
-                .unwrap_or_else(|| panic!("{parameter_id} default"))
-                .value = Some(parameter_value::Value::UnsignedInteger(*value));
+                .retain(|default| default.parameter_id != *parameter_id);
+            defaults.values.push(ParameterValue {
+                parameter_id: (*parameter_id).to_owned(),
+                value: Some(parameter_value::Value::UnsignedInteger(*value)),
+            });
         }
         resolve_local_launch_with_placeholder_identity(
             &catalog,
@@ -3364,7 +3367,6 @@ parameterSchema:
         minimum: "512"
         maximum: "16777216"
         unit: "tokens"
-        defaultValue: "32768"
     - parameterId: "context-per-request"
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
@@ -3372,9 +3374,10 @@ parameterSchema:
         minimum: "512"
         maximum: "16777216"
         unit: "tokens"
+        defaultValue: "8192"
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
-      visibility: "PARAMETER_VISIBILITY_ADVANCED"
+      visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger:
         minimum: "1"
         maximum: "64"

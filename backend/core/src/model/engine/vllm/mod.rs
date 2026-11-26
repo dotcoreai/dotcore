@@ -29,8 +29,10 @@ use dotcore_proto::dotcore::{
 use dotcore_runtime::{ExecutionTarget, LoopbackEndpoint, WorkloadSpec};
 
 use super::{
-    definition::EngineDefinition, realization::ResolvedEngineSelection,
-    startup_facts::StartupFactExtractor, startup_refusal::StartupRefusal,
+    definition::{CustomArgumentConflict, EngineDefinition},
+    realization::ResolvedEngineSelection,
+    startup_facts::StartupFactExtractor,
+    startup_refusal::StartupRefusal,
 };
 use crate::{
     inference::{EngineBindingError, EngineReadinessProbe, EngineTransportFactory},
@@ -109,7 +111,12 @@ impl EngineDefinition for Vllm {
         &self,
         snapshot: &ResolvedLocalModelDeploymentSnapshot,
     ) -> anyhow::Result<PortableModelLaunchPlan> {
-        Ok(plan::translate(snapshot)?)
+        plan::translate(snapshot).map_err(|error| match error {
+            plan::VllmPlanError::ConflictingCustomArgument(token) => {
+                CustomArgumentConflict::new("vLLM", &token).into()
+            }
+            error => error.into(),
+        })
     }
 
     fn enables_host_kv_offload(

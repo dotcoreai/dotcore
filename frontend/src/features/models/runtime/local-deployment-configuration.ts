@@ -9,7 +9,6 @@ import {
   engineParameterError,
   engineParameterInputs,
   engineParameterValues,
-  PARALLEL_REQUESTS_PARAMETER_ID,
   profileStartingValues,
 } from "./engine-parameter-values";
 
@@ -24,7 +23,6 @@ export interface LocalDeploymentConfigurationValues {
 
 /** The edits layered over a profile's defaults. */
 export interface LocalDeploymentConfigurationEdits {
-  bindingId: string;
   customArgumentTokens?: string[];
   /** Engine parameter values replacing the profile's defaults, such as those of a sizing scenario. */
   declaredValues?: ParameterValues;
@@ -36,8 +34,9 @@ export interface LocalDeploymentConfigurationEdits {
 
 /**
  * Builds the configuration a deployment of `profile` carries for the given edits, or `undefined`
- * when an exposed engine parameter has no valid value. The deploy dialog and the Catalog table's
- * estimate loader share it, so an untouched profile produces one request everywhere.
+ * when an exposed engine parameter has no valid value. It leaves the model artifact unset, so
+ * resolution takes the profile's weights. The deploy dialog and the Catalog table's estimate
+ * loader share it, so an untouched profile produces one request everywhere.
  */
 export function localDeploymentConfiguration(
   profile: ModelProfile,
@@ -50,19 +49,19 @@ export function localDeploymentConfiguration(
     edits.inputs,
     edits.derivedParameterIds,
   );
-  if (!values || !edits.bindingId) return undefined;
+  if (!values) return undefined;
 
   return {
     customArgumentTokens: edits.customArgumentTokens ?? [],
     engineParameterValues: values,
-    modelArtifactBindingId: edits.bindingId,
+    modelArtifactBindingId: "",
     optionOverrides: edits.optionOverrides ?? [],
   };
 }
 
 /**
- * Builds the configuration of an untouched profile: its default binding, its default engine
- * parameter inputs, and no custom arguments or option overrides.
+ * Builds the configuration of an untouched profile: its default engine parameter inputs, and no
+ * custom arguments or option overrides.
  */
 export function defaultLocalDeploymentConfiguration(
   model: Model,
@@ -71,28 +70,23 @@ export function defaultLocalDeploymentConfiguration(
 ): LocalDeploymentConfigurationValues | undefined {
   const engineRelease = profileEngineRelease(model, profile, engineReleases);
   return localDeploymentConfiguration(profile, engineRelease, {
-    bindingId: profile.defaultModelArtifactBindingId,
     inputs: engineParameterInputs(profileStartingValues(engineRelease, profile)),
   });
 }
 
 /**
  * Describes the settings of a deployment draft that a profile change resets: edited engine
- * parameters in schema order, then a changed model artifact. The context sizes, parallel requests
- * and custom arguments belong to the launch rather than the profile, so a profile change keeps them.
+ * parameters in schema order. The context parameters and custom arguments belong to the launch
+ * rather than the profile, so a profile change keeps them.
  */
 export function runtimeCustomizations(
-  model: Model,
   profile: ModelProfile | undefined,
   engineRelease: EngineRelease | undefined,
   edits: LocalDeploymentConfigurationEdits,
 ): string[] {
-  return [
-    ...changedEngineParameters(profile, engineRelease, edits)
-      .filter(({ parameter }) => parameter.parameterId !== PARALLEL_REQUESTS_PARAMETER_ID)
-      .map(({ parameter, value }) => `${parameter.displayName} ${value}`),
-    ...artifactCustomization(model, profile, edits.bindingId),
-  ];
+  return changedEngineParameters(profile, engineRelease, edits).map(
+    ({ parameter, value }) => `${parameter.displayName} ${value}`,
+  );
 }
 
 /** One engine parameter whose input differs from its profile's default, with the input as text. */
@@ -103,7 +97,7 @@ export interface ChangedEngineParameter {
 
 /**
  * The engine parameters of a deployment draft whose input differs from the profile's default, in
- * schema order, leaving out the context sizes, which a launch describes on their own.
+ * schema order, leaving out the context parameters, which a launch describes on their own.
  */
 export function changedEngineParameters(
   profile: ModelProfile | undefined,
@@ -122,20 +116,6 @@ export function changedEngineParameters(
       ? []
       : [{ parameter, value: engineParameterInputLabel(parameter, edits.inputs) }];
   });
-}
-
-/** Describes a model artifact other than the profile's default, or nothing. */
-export function artifactCustomization(
-  model: Model,
-  profile: ModelProfile | undefined,
-  bindingId: string,
-): string[] {
-  if (!profile || bindingId === profile.defaultModelArtifactBindingId) return [];
-
-  const binding = model.configurations
-    .find((candidate) => candidate.configurationId === profile.configurationId)
-    ?.artifactBindings.find((candidate) => candidate.bindingId === bindingId);
-  return [`Artifact ${binding?.modelArtifactId ?? "not selected"}`];
 }
 
 /**
@@ -171,40 +151,6 @@ export function profileEngineRelease(
       parameters,
     },
   };
-}
-
-/**
- * The distinct engine releases a profile's configuration approves artifacts from, in declaration
- * order. A release missing from `engineReleases` keeps its id with an empty version.
- */
-export function approvedEngineReleases(
-  model: Model,
-  profile: ModelProfile | undefined,
-  engineReleases: readonly EngineRelease[],
-): EngineReleaseRef[] {
-  const configuration = model.configurations.find(
-    (candidate) => candidate.configurationId === profile?.configurationId,
-  );
-  const ids = [
-    ...new Set(configuration?.engineArtifacts.map((artifact) => artifact.engineReleaseId) ?? []),
-  ];
-  return ids.map((engineReleaseId) => ({
-    engineReleaseId,
-    version:
-      engineReleases.find((candidate) => candidate.engineReleaseId === engineReleaseId)?.version ??
-      "",
-  }));
-}
-
-/** An engine release as "id / version", or its id alone without a version. */
-export function engineReleaseLabel({ engineReleaseId, version }: EngineReleaseRef): string {
-  return version ? `${engineReleaseId} / ${version}` : engineReleaseId;
-}
-
-/** An engine release's identity and version. */
-export interface EngineReleaseRef {
-  engineReleaseId: string;
-  version: string;
 }
 
 // Formats valid values and keeps an invalid input as typed, so a summary never rounds a value the

@@ -1,20 +1,21 @@
-//! Sizes catalog model profiles for an operator's sizing scenario, a total context with an
-//! optional context per request, and judges the advisory memory fit of each profile on a target.
+//! Sizes catalog model profiles for an operator's sizing scenario, a context per request,
+//! parallel requests and a total context, each optional, and judges the advisory memory fit of
+//! each profile on a target.
 //!
-//! The scenario sets the shared context values over each profile's defaults, and the usual
-//! resolution then fills the context per request and evaluates sizing, so estimates match what a
-//! launch with those values would get. Each estimate is judged against the target's total memory
-//! and against its free memory less a headroom, and each running target also gets the largest
-//! total context that fits that same free-memory line. A scenario a profile can't serve reads as
-//! unsupported with a reason instead of failing, and nothing here admits, reserves, or places a
-//! deployment.
+//! The scenario sets its values over each profile's defaults, and the usual resolution then
+//! derives the context values left out and evaluates sizing, so estimates match what a launch with
+//! those values would get. Each estimate is judged against the target's total memory and against
+//! its free memory less a headroom, and each running target also gets the largest total context
+//! and context per request that fit that same free-memory line, and the context values a
+//! deployment starts from there. A scenario a profile can't serve reads as unsupported with a
+//! reason instead of failing, and nothing here admits, reserves, or places a deployment.
 
 use dotcore_catalog::{
     ACCELERATOR_MEMORY_RESOURCE, Catalog, CatalogLocalModelDeclarations, CatalogModelId,
     HOST_MEMORY_RESOURCE,
     shared_parameters::{
-        CONTEXT_PER_REQUEST_PARAMETER_ID, TOTAL_CONTEXT_PARAMETER_ID, is_shared_parameter,
-        maximum_context_tokens,
+        CONTEXT_PER_REQUEST_PARAMETER_ID, PARALLEL_REQUESTS_PARAMETER_ID,
+        TOTAL_CONTEXT_PARAMETER_ID, is_shared_parameter, maximum_context_tokens,
     },
     typed_parameters::unsigned_range_contains,
 };
@@ -34,8 +35,8 @@ use tracing::debug;
 use crate::{
     hardware::{
         capacity::{
-            Estimate, LargestTotalContext, Policy, combined_minimums, demand, fit,
-            largest_total_context, steps_within,
+            Estimate, LargestTotalContext, Policy, StartingContext, StartingContextRequest,
+            combined_minimums, demand, fit, largest_total_context, starting_context, steps_within,
         },
         selection::SelectedTargetCapabilities,
     },
@@ -48,12 +49,18 @@ use crate::{
     },
 };
 
-/// A validated sizing scenario: a total context its requests share, optionally with a cap on each
-/// request's context. Parallel requests keep each profile's defaults.
+/// A validated sizing scenario: a context per request, the requests generated at once, and a total
+/// context they share, each optional. Resolution derives the context values left out, and parallel
+/// requests left out keep each profile's defaults.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SizingScenario {
-    total_context_tokens: u64,
+    total_context_tokens: Option<u64>,
     context_tokens_per_request: Option<u64>,
+    parallel_requests: Option<u64>,
+
+    /// Whether a starting deployment's total context follows its context per request rather than
+    /// the scenario's total, which then only sizes the estimate.
+    starting_total_follows: bool,
 }
 
 impl SizingScenario {
@@ -61,10 +68,12 @@ impl SizingScenario {
     /// profile checks the values against its engine's ranges, so a value one engine refuses stays a
     /// valid scenario for the others.
     pub fn new(
-        total_context_tokens: u64,
+        total_context_tokens: Option<u64>,
         context_tokens_per_request: Option<u64>,
+        parallel_requests: Option<u64>,
     ) -> Result<Self, InvalidSizingScenario> {
-        if let Some(context_tokens_per_request) = context_tokens_per_request
+        if let (Some(total_context_tokens), Some(context_tokens_per_request)) =
+            (total_context_tokens, context_tokens_per_request)
             && context_tokens_per_request > total_context_tokens
         {
             return Err(InvalidSizingScenario::ContextPerRequestAboveTotal {
@@ -75,17 +84,42 @@ impl SizingScenario {
         Ok(Self {
             total_context_tokens,
             context_tokens_per_request,
+            parallel_requests,
+            starting_total_follows: false,
         })
     }
 
-    /// Context every request shares, in tokens.
-    pub fn total_context_tokens(&self) -> u64 {
+    /// A scenario sized at the smallest total context one request of `context_tokens_per_request`
+    /// starts from, at each profile's parallel requests, whose starting deployment still takes the
+    /// total context following its context per request. Its memory fits tell whether a new
+    /// deployment would start at that context per request.
+    pub(crate) fn one_request(
+        total_context_tokens: u64,
+        context_tokens_per_request: u64,
+    ) -> Result<Self, InvalidSizingScenario> {
+        Ok(Self {
+            starting_total_follows: true,
+            ..Self::new(
+                Some(total_context_tokens),
+                Some(context_tokens_per_request),
+                None,
+            )?
+        })
+    }
+
+    /// Context every request shares, in tokens; none leaves it to resolution to derive.
+    pub fn total_context_tokens(&self) -> Option<u64> {
         self.total_context_tokens
     }
 
     /// Context one request may use, in tokens; none leaves it to resolution to fill.
     pub fn context_tokens_per_request(&self) -> Option<u64> {
         self.context_tokens_per_request
+    }
+
+    /// Requests generated at once; none keeps the profile's.
+    pub fn parallel_requests(&self) -> Option<u64> {
+        self.parallel_requests
     }
 }
 
@@ -135,6 +169,14 @@ pub(crate) struct TargetMemoryFit {
     /// Largest total context whose estimate fits the target's free memory less a headroom, in
     /// tokens; none when free memory or the estimate is unknown, or nothing fits.
     pub(crate) largest_total_context_tokens: Option<u64>,
+
+    /// Largest context per request at the scenario's parallel requests whose total, by the
+    /// engine's rule, fits the same line, in tokens; none under the same conditions.
+    pub(crate) largest_context_tokens_per_request: Option<u64>,
+
+    /// Context values a deployment of the scenario starts from there; none when the scenario is
+    /// unsupported or the profile isn't sized.
+    pub(crate) starting_context: Option<StartingContext>,
 }
 
 /// One estimate's memory fits on a target, against its total and against its free memory.
@@ -226,7 +268,7 @@ pub(crate) fn size_profile(
     if scenario.is_some() && sized_classes > 0 && out_of_range_classes.len() == sized_classes {
         sizing.set_unsupported_reason(SizingScenarioUnsupportedReason::DerivedParameterOutOfRange);
     } else {
-        sizing.engine_parameter_values = Some(with_filled_context_per_request(
+        sizing.engine_parameter_values = Some(with_derived_context_values(
             &declarations,
             configuration
                 .engine_parameter_values
@@ -245,25 +287,82 @@ pub(crate) fn size_profile(
     }
 }
 
-/// Context per request a profile's defaults resolve to: the engine's default total context, capped
-/// at the configuration's maximum context. Returns none when the defaults don't resolve or hold no
-/// total context.
+/// Context per request a profile's defaults resolve to: the engine default, capped at the
+/// configuration's maximum context. Returns none when the defaults don't resolve or the engine
+/// declares no default.
 pub(crate) fn default_context_per_request(
     catalog: &Catalog,
     model: &Model,
     profile: &ModelProfile,
 ) -> Option<u64> {
     let (defaults, declarations) = profile_defaults(catalog, model, profile)?;
-    let values = with_filled_context_per_request(
+    let values = with_derived_context_values(
         &declarations,
         defaults.engine_parameter_values.unwrap_or_default(),
     );
     unsigned_parameter_value(&values, CONTEXT_PER_REQUEST_PARAMETER_ID)
 }
 
+/// Smallest total context at which one request of `context_tokens_per_request` can start under the
+/// profile's defaults: the smallest total the engine's rule fills that context per request from at
+/// the profile's parallel requests. A deployment starts at the parallel requests times the context
+/// per request capped at the largest fit, so its context per request stands exactly when this
+/// total fits. Returns none when the defaults don't resolve or no such total exists.
+pub(crate) fn smallest_total_serving(
+    catalog: &Catalog,
+    model: &Model,
+    profile: &ModelProfile,
+    context_tokens_per_request: u64,
+) -> Option<u64> {
+    let (defaults, declarations) = profile_defaults(catalog, model, profile)?;
+    smallest_serving_total(
+        &declarations,
+        &defaults.engine_parameter_values.unwrap_or_default(),
+        context_tokens_per_request,
+    )
+}
+
+/// Smallest total context at which one request of `context_tokens_per_request` can start at the
+/// values' parallel requests, by the engine's rule; none when no total serves it.
+fn smallest_serving_total(
+    declarations: &CatalogLocalModelDeclarations,
+    values: &ParameterValues,
+    context_tokens_per_request: u64,
+) -> Option<u64> {
+    let schema = engine_parameter_schema(declarations)?;
+    let rule =
+        crate::model::engine::context_rule(declarations.engine_kind, &declarations.configuration);
+    let parallel_requests = parallel_requests(schema, values);
+    let maximum = u64::from(maximum_context_tokens(
+        &declarations.model,
+        &declarations.configuration,
+    ));
+    let serves = |total_context| {
+        rule.filled_context_per_request(total_context, parallel_requests, maximum)
+            >= context_tokens_per_request
+    };
+    let (mut rejected, mut accepted) = (
+        context_tokens_per_request.saturating_sub(1),
+        context_tokens_per_request.saturating_mul(parallel_requests),
+    );
+    if !serves(accepted) {
+        return None;
+    }
+    // The fill grows with the total context, so the totals that serve form one interval.
+    while accepted - rejected > 1 {
+        let middle = rejected + (accepted - rejected) / 2;
+        if serves(middle) {
+            accepted = middle;
+        } else {
+            rejected = middle;
+        }
+    }
+    Some(accepted)
+}
+
 /// Judges the memory fit of a profile that runs with its defaults, resolved as `snapshot`, on the
-/// target capabilities `selected_target` the compatibility read selected, and the largest total
-/// context that fits there. Both fits compare one estimate, of the profile's sizing scenario on the
+/// target capabilities `selected_target` the compatibility read selected, the largest context
+/// values that fit there, and the context values a deployment of the scenario starts from. Both fits compare one estimate, of the profile's sizing scenario on the
 /// target's hardware class or the snapshot's own without a scenario: one with the target's total
 /// memory, the other with its free memory less a headroom. The minimums judged are the resolved
 /// hardware support's, raised by `extra_minimums` when a caller adds its own.
@@ -285,28 +384,39 @@ pub(crate) fn target_memory_fit(
     // An unsupported scenario is not evaluated, but the totals that fit still guide the operator.
     let evaluated_or_unsupported = matches!(fits.on_total, MemoryFit::Fits | MemoryFit::Exceeds)
         || unsupported_reason != SizingScenarioUnsupportedReason::Unspecified;
-    let largest_total_context_tokens = evaluated_or_unsupported
-        .then(|| {
-            let configuration = profile_sizing.configuration.as_ref()?;
-            let declarations = profile_sizing.declarations.as_ref()?;
-            largest_fitting_total_context(
-                catalog,
-                &ContextFitBase {
-                    model_id: &CatalogModelId(profile_sizing.sizing.model_id.clone()),
-                    profile_id: &profile_sizing.sizing.profile_id,
-                    configuration,
-                    declarations,
-                },
-                selected_target,
-                minimums.as_ref(),
+    let model_id = CatalogModelId(profile_sizing.sizing.model_id.clone());
+    let base = profile_sizing
+        .configuration
+        .as_ref()
+        .zip(profile_sizing.declarations.as_ref())
+        .map(|(configuration, declarations)| ContextFitBase {
+            model_id: &model_id,
+            profile_id: &profile_sizing.sizing.profile_id,
+            configuration,
+            declarations,
+        });
+    let largest = base
+        .filter(|_| evaluated_or_unsupported)
+        .map(|base| largest_contexts(catalog, &base, selected_target, minimums.as_ref()))
+        .unwrap_or_default();
+    let starting_context = base
+        .filter(|_| unsupported_reason == SizingScenarioUnsupportedReason::Unspecified)
+        .and_then(|base| {
+            starting_context_on_target(
+                &base,
+                largest.floating_total_context_tokens,
+                profile_sizing
+                    .scenario
+                    .is_some_and(|scenario| scenario.starting_total_follows),
             )
-        })
-        .flatten();
+        });
     TargetMemoryFit {
         memory_fit: fits.on_total,
         free_memory_fit: fits.on_free,
         unsupported_reason,
-        largest_total_context_tokens,
+        largest_total_context_tokens: largest.total_context_tokens,
+        largest_context_tokens_per_request: largest.context_tokens_per_request,
+        starting_context,
     }
 }
 
@@ -349,12 +459,21 @@ fn scenario_memory_fit(
         };
     };
 
+    // A scenario that leaves the total out fits where a deployment would start at its context per
+    // request, its total capped at the largest fit: one request needs the smallest total serving
+    // it. A total the scenario sets is judged as set.
+    let one_request = profile_sizing
+        .scenario
+        .filter(|scenario| scenario.total_context_tokens().is_none())
+        .and_then(|_| {
+            one_request_configuration(profile_sizing.declarations.as_ref()?, configuration)
+        });
     let model_id = CatalogModelId(profile_sizing.sizing.model_id.clone());
     match resolve_local_values_for_target(
         catalog,
         &model_id,
         &profile_sizing.sizing.profile_id,
-        configuration,
+        one_request.as_ref().unwrap_or(configuration),
         selected_target,
     ) {
         Ok(resolved) => supported(judge(
@@ -382,20 +501,45 @@ fn scenario_memory_fit(
     }
 }
 
-/// Returns the largest total context of a complete configuration, with every other value as given,
-/// whose estimate fits the target `selected_target`'s free memory less a headroom, as
-/// `largest_fitting_total_context` judges it for a profile's defaults. The minimums judged are
-/// the hardware support's the configuration selects on the target. Returns none when the
-/// configuration's declarations don't resolve or the fit has no answer.
-pub(crate) fn configuration_largest_total_context(
+/// The configuration with its context per request, as resolution derives it, and the smallest
+/// total context one request of it starts from at its parallel requests. Returns none when the
+/// configuration resolves no context per request or no total serves it.
+fn one_request_configuration(
+    declarations: &CatalogLocalModelDeclarations,
+    configuration: &LocalModelDeploymentConfiguration,
+) -> Option<LocalModelDeploymentConfiguration> {
+    let values = with_derived_context_values(
+        declarations,
+        configuration
+            .engine_parameter_values
+            .clone()
+            .unwrap_or_default(),
+    );
+    let context_tokens = unsigned_parameter_value(&values, CONTEXT_PER_REQUEST_PARAMETER_ID)?;
+    let total_context = smallest_serving_total(declarations, &values, context_tokens)?;
+    let mut configuration = configuration.clone();
+    let values = configuration
+        .engine_parameter_values
+        .get_or_insert_with(ParameterValues::default);
+    set_unsigned_value(values, CONTEXT_PER_REQUEST_PARAMETER_ID, context_tokens);
+    set_unsigned_value(values, TOTAL_CONTEXT_PARAMETER_ID, total_context);
+    Some(configuration)
+}
+
+/// Returns the largest context values of a complete configuration, with every other value as
+/// given, whose estimate fits the target `selected_target`'s free memory less a headroom, as
+/// `largest_contexts` judges them for a profile's scenario. The minimums judged are the hardware
+/// support's the configuration selects on the target. Returns no values when the configuration's
+/// declarations don't resolve or the fit has no answer.
+pub(crate) fn configuration_largest_contexts(
     catalog: &Catalog,
     model_id: &CatalogModelId,
     profile_id: &str,
     configuration: &LocalModelDeploymentConfiguration,
     selected_target: &SelectedTargetCapabilities,
     minimums: Option<&HardwareRequirements>,
-) -> Option<u64> {
-    let declarations = catalog
+) -> LargestContexts {
+    let Some(declarations) = catalog
         .local_model_declarations(
             model_id,
             profile_id,
@@ -409,8 +553,11 @@ pub(crate) fn configuration_largest_total_context(
                 "configuration declarations don't resolve for the context's largest fit"
             );
         })
-        .ok()?;
-    largest_fitting_total_context(
+        .ok()
+    else {
+        return LargestContexts::default();
+    };
+    largest_contexts(
         catalog,
         &ContextFitBase {
             model_id,
@@ -421,6 +568,207 @@ pub(crate) fn configuration_largest_total_context(
         selected_target,
         minimums,
     )
+}
+
+/// The largest context values whose estimate fits a target's free memory less a headroom.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct LargestContexts {
+    /// Largest total context at the configuration's context per request, in tokens.
+    pub(crate) total_context_tokens: Option<u64>,
+
+    /// Largest context per request at the configuration's parallel requests whose total, by the
+    /// engine's rule, fits, in tokens.
+    pub(crate) context_tokens_per_request: Option<u64>,
+
+    /// Largest total context with the context per request following it, the cap a starting
+    /// deployment takes; the same as `total_context_tokens` when the configuration leaves the
+    /// context per request out.
+    floating_total_context_tokens: Option<u64>,
+}
+
+/// Finds the base's largest context values. The largest context per request comes from the
+/// largest total with the context per request following it, by the engine's rule: the largest
+/// value whose derived total stays within it, stepped down to one the engine accepts, then
+/// confirmed by its own estimate. Sizing reads the context per request only through the total
+/// context it derives, so the search needs no estimate of its own.
+fn largest_contexts(
+    catalog: &Catalog,
+    base: &ContextFitBase<'_>,
+    selected_target: &SelectedTargetCapabilities,
+    minimums: Option<&HardwareRequirements>,
+) -> LargestContexts {
+    let total_context_tokens =
+        largest_fitting_total_context(catalog, base, selected_target, minimums);
+    let supplied_context_per_request = base
+        .configuration
+        .engine_parameter_values
+        .as_ref()
+        .and_then(|values| unsigned_parameter_value(values, CONTEXT_PER_REQUEST_PARAMETER_ID));
+    let floating = without_context_values(base.configuration);
+    let floating_base = ContextFitBase {
+        configuration: &floating,
+        ..*base
+    };
+    let floating_total_context_tokens = match supplied_context_per_request {
+        Some(_) => {
+            largest_fitting_total_context(catalog, &floating_base, selected_target, minimums)
+        }
+        None => total_context_tokens,
+    };
+    let context_tokens_per_request = floating_total_context_tokens.and_then(|largest_total| {
+        largest_context_per_request(
+            catalog,
+            &floating_base,
+            selected_target,
+            minimums,
+            largest_total,
+        )
+    });
+    LargestContexts {
+        total_context_tokens,
+        context_tokens_per_request,
+        floating_total_context_tokens,
+    }
+}
+
+/// Returns the largest context per request whose total, by the engine's rule at the base's
+/// parallel requests, stays within `largest_total` and that the engine accepts, once its own
+/// estimate is confirmed to fit. Returns none when even the smallest accepted context per request
+/// derives more, or the confirmation doesn't fit.
+fn largest_context_per_request(
+    catalog: &Catalog,
+    base: &ContextFitBase<'_>,
+    selected_target: &SelectedTargetCapabilities,
+    minimums: Option<&HardwareRequirements>,
+    largest_total: u64,
+) -> Option<u64> {
+    let declarations = base.declarations;
+    let schema = engine_parameter_schema(declarations)?;
+    let range = unsigned_parameter_range(schema, CONTEXT_PER_REQUEST_PARAMETER_ID)?;
+    let rule =
+        crate::model::engine::context_rule(declarations.engine_kind, &declarations.configuration);
+    let maximum = u64::from(maximum_context_tokens(
+        &declarations.model,
+        &declarations.configuration,
+    ));
+    let values = base
+        .configuration
+        .engine_parameter_values
+        .clone()
+        .unwrap_or_default();
+    let parallel_requests = parallel_requests(schema, &values);
+    let within = |context_tokens| {
+        rule.derived_total_context(context_tokens, parallel_requests, maximum) <= largest_total
+    };
+
+    let lowest = range.minimum.max(1);
+    let highest = range.maximum.unwrap_or(u64::MAX).min(maximum);
+    if lowest > highest || !within(lowest) {
+        return None;
+    }
+    let (mut accepted, mut rejected) = (lowest, highest.saturating_add(1));
+    while rejected - accepted > 1 {
+        let middle = accepted + (rejected - accepted) / 2;
+        if within(middle) {
+            accepted = middle;
+        } else {
+            rejected = middle;
+        }
+    }
+    let with_context = |context_tokens: u64| {
+        let mut configuration = base.configuration.clone();
+        set_unsigned_value(
+            configuration
+                .engine_parameter_values
+                .get_or_insert_with(ParameterValues::default),
+            CONTEXT_PER_REQUEST_PARAMETER_ID,
+            context_tokens,
+        );
+        configuration
+    };
+    // An engine may refuse some contexts per request below the bound, as it may refuse totals.
+    let largest = (lowest..=accepted).rev().find(|context_tokens| {
+        let values = with_context(*context_tokens)
+            .engine_parameter_values
+            .unwrap_or_default();
+        accepts_context_values(
+            declarations,
+            schema,
+            &with_derived_context_values(declarations, values),
+        ) == Some(true)
+    })?;
+
+    let capacity = &selected_target.capacity;
+    let fits = resolve_local_values_for_target(
+        catalog,
+        base.model_id,
+        base.profile_id,
+        &with_context(largest),
+        selected_target,
+    )
+    .is_ok_and(|resolved| {
+        let demand = demand(
+            &Estimate {
+                accelerator_bytes: estimate(&resolved, ACCELERATOR_MEMORY_RESOURCE),
+                host_bytes: estimate(&resolved, HOST_MEMORY_RESOURCE),
+            },
+            capacity,
+        );
+        fit(demand.as_ref(), capacity, minimums, Policy::FREE_NOW) == MemoryFit::Fits
+    });
+    if !fits {
+        debug!(
+            model_id = %base.model_id.0,
+            profile_id = base.profile_id,
+            context_tokens_per_request = largest,
+            "the largest context per request doesn't fit on its own estimate"
+        );
+        return None;
+    }
+    Some(largest)
+}
+
+/// Returns the context values a deployment of the base starts from on the target: its own context
+/// per request, as resolution derives it, at its parallel requests, and its total context when it
+/// sets one and `total_follows` doesn't ask for the derived one, capped by
+/// `floating_total_context`, the largest total that fits with the context per request following
+/// it. Returns none when the base resolves no context per request.
+fn starting_context_on_target(
+    base: &ContextFitBase<'_>,
+    floating_total_context: Option<u64>,
+    total_follows: bool,
+) -> Option<StartingContext> {
+    let declarations = base.declarations;
+    let schema = engine_parameter_schema(declarations)?;
+    let values = with_derived_context_values(
+        declarations,
+        base.configuration
+            .engine_parameter_values
+            .clone()
+            .unwrap_or_default(),
+    );
+    let requested = StartingContextRequest {
+        context_tokens_per_request: unsigned_parameter_value(
+            &values,
+            CONTEXT_PER_REQUEST_PARAMETER_ID,
+        )?,
+        parallel_requests: parallel_requests(schema, &values),
+        total_context_tokens: base
+            .configuration
+            .engine_parameter_values
+            .as_ref()
+            .and_then(|values| unsigned_parameter_value(values, TOTAL_CONTEXT_PARAMETER_ID))
+            .filter(|_| !total_follows),
+        maximum_context_tokens: u64::from(maximum_context_tokens(
+            &declarations.model,
+            &declarations.configuration,
+        )),
+    };
+    Some(starting_context(
+        requested,
+        floating_total_context,
+        crate::model::engine::context_rule(declarations.engine_kind, &declarations.configuration),
+    ))
 }
 
 /// Returns the largest total context whose estimate fits the target's free memory less a headroom,
@@ -473,12 +821,18 @@ fn largest_fitting_total_context(
         accepts_context_values(
             declarations,
             schema,
-            &with_filled_context_per_request(declarations, values),
+            &with_derived_context_values(declarations, values),
         ) == Some(true)
     };
-    let lowest = supplied_context_per_request.map_or(total_range.minimum, |context_tokens| {
-        context_tokens.max(total_range.minimum)
-    });
+    let lowest = match supplied_context_per_request {
+        Some(context_tokens) => context_tokens.max(total_range.minimum),
+        // An engine that splits the total among the parallel requests, such as Strata, accepts
+        // nothing below what its smallest context per request derives for them.
+        None if !accepts(total_range.minimum) => {
+            smallest_floating_total(declarations, schema, configuration)?.max(total_range.minimum)
+        }
+        None => total_range.minimum,
+    };
     if !accepts(lowest) {
         return None;
     }
@@ -621,7 +975,7 @@ fn profile_defaults(
     Some((defaults, declarations))
 }
 
-/// Sets the scenario's total context and context per request over the configuration, after
+/// Sets the scenario's context values and parallel requests it holds over the configuration, after
 /// checking the context per request against the maximum context, then every value the scenario
 /// sets or fills against its parameter range and the engine's rules for values used together.
 /// Returns none when a shared context parameter the scenario sets has no unsigned definition to
@@ -644,49 +998,55 @@ fn with_scenario_values(
     let values = configuration
         .engine_parameter_values
         .get_or_insert_with(ParameterValues::default);
-    set_unsigned_value(
-        values,
-        TOTAL_CONTEXT_PARAMETER_ID,
-        scenario.total_context_tokens(),
-    );
+    if let Some(total_context_tokens) = scenario.total_context_tokens() {
+        set_unsigned_value(values, TOTAL_CONTEXT_PARAMETER_ID, total_context_tokens);
+    }
     if let Some(context_tokens) = scenario.context_tokens_per_request() {
         set_unsigned_value(values, CONTEXT_PER_REQUEST_PARAMETER_ID, context_tokens);
     }
-    let complete = with_filled_context_per_request(declarations, values.clone());
+    if let Some(parallel_requests) = scenario.parallel_requests() {
+        set_unsigned_value(values, PARALLEL_REQUESTS_PARAMETER_ID, parallel_requests);
+    }
+    let complete = with_derived_context_values(declarations, values.clone());
     if !accepts_context_values(declarations, schema, &complete)? {
         return Some(Err(SizingScenarioUnsupportedReason::ParameterOutOfRange));
     }
     Some(Ok(configuration))
 }
 
-/// Adds the context per request resolution fills when the values leave it out, so the reported
+/// Adds the context values resolution derives when the values leave them out, so the reported
 /// values are the ones a launch would resolve before sizing derivations.
-fn with_filled_context_per_request(
+fn with_derived_context_values(
     declarations: &CatalogLocalModelDeclarations,
     mut values: ParameterValues,
 ) -> ParameterValues {
     if let Some(schema) = engine_parameter_schema(declarations) {
-        let filled = crate::model::engine::filled_context_per_request(
+        let derived = crate::model::engine::derived_context_values(
             declarations.engine_kind,
+            &declarations.model,
+            &declarations.configuration,
             schema,
             &values,
-            maximum_context_tokens(&declarations.model, &declarations.configuration),
         );
-        values.values.extend(filled);
+        values.values.extend(derived);
     }
     values
 }
 
-/// Whether complete values hold a total context and a context per request within their ranges
-/// that the engine accepts together with the other values. Returns none when either is set
-/// without an unsigned definition to check it against.
+/// Whether complete values hold a total context, a context per request and parallel requests within
+/// their ranges that the engine accepts together with the other values. Returns none when one is
+/// set without an unsigned definition to check it against.
 fn accepts_context_values(
     declarations: &CatalogLocalModelDeclarations,
     schema: &EngineParameterSchema,
     complete: &ParameterValues,
 ) -> Option<bool> {
     let mut in_range = true;
-    for parameter_id in [TOTAL_CONTEXT_PARAMETER_ID, CONTEXT_PER_REQUEST_PARAMETER_ID] {
+    for parameter_id in [
+        TOTAL_CONTEXT_PARAMETER_ID,
+        CONTEXT_PER_REQUEST_PARAMETER_ID,
+        PARALLEL_REQUESTS_PARAMETER_ID,
+    ] {
         let Some(value) = complete
             .values
             .iter()
@@ -745,6 +1105,57 @@ fn engine_parameter_schema(
         .engine_release
         .parameter_schema
         .as_ref()
+}
+
+/// The configuration with its total context and context per request left out, so resolution
+/// derives the context per request as the total context varies.
+fn without_context_values(
+    configuration: &LocalModelDeploymentConfiguration,
+) -> LocalModelDeploymentConfiguration {
+    let mut configuration = configuration.clone();
+    if let Some(values) = configuration.engine_parameter_values.as_mut() {
+        values.values.retain(|value| {
+            value.parameter_id != TOTAL_CONTEXT_PARAMETER_ID
+                && value.parameter_id != CONTEXT_PER_REQUEST_PARAMETER_ID
+        });
+    }
+    configuration
+}
+
+/// Total context the engine's rule derives for its smallest context per request at the
+/// configuration's parallel requests.
+fn smallest_floating_total(
+    declarations: &CatalogLocalModelDeclarations,
+    schema: &EngineParameterSchema,
+    configuration: &LocalModelDeploymentConfiguration,
+) -> Option<u64> {
+    let minimum = unsigned_parameter_range(schema, CONTEXT_PER_REQUEST_PARAMETER_ID)?.minimum;
+    let values = configuration
+        .engine_parameter_values
+        .clone()
+        .unwrap_or_default();
+    Some(
+        crate::model::engine::context_rule(declarations.engine_kind, &declarations.configuration)
+            .derived_total_context(
+                minimum,
+                parallel_requests(schema, &values),
+                u64::from(maximum_context_tokens(
+                    &declarations.model,
+                    &declarations.configuration,
+                )),
+            ),
+    )
+}
+
+/// The values' parallel requests, or the engine default without one, and at least one.
+fn parallel_requests(schema: &EngineParameterSchema, values: &ParameterValues) -> u64 {
+    unsigned_parameter_value(values, PARALLEL_REQUESTS_PARAMETER_ID)
+        .or_else(|| {
+            unsigned_parameter_range(schema, PARALLEL_REQUESTS_PARAMETER_ID)
+                .and_then(|range| range.default_value)
+        })
+        .unwrap_or(1)
+        .max(1)
 }
 
 /// Replaces the value of one parameter, or adds it when the values leave it out.

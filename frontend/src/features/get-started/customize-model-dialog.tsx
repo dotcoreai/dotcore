@@ -23,6 +23,7 @@ import { launchScenario } from "./get-started-launch";
  * anything.
  */
 export function CustomizeModelDialog({
+  customized,
   deployments,
   launch,
   model,
@@ -32,6 +33,8 @@ export function CustomizeModelDialog({
   routeConflict,
   siteClient,
 }: {
+  /** Whether the launch is one the operator applied before, rather than the proposal's own. */
+  customized: boolean;
   /** The site's model deployments, which name what occupies the target's memory. */
   deployments: readonly ModelDeployment[];
   launch: LocalDeploymentValues;
@@ -105,7 +108,7 @@ export function CustomizeModelDialog({
       open
       pending={false}
       routeConflict={routeConflict}
-      scenario={launchScenario(launch)}
+      scenario={launchScenario(launch, customized)}
     />
   );
 }

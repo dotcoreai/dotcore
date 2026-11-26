@@ -8,7 +8,6 @@ import {
 } from "@/domain/execution-target";
 import { profileLaunchTargets } from "@/features/models/profiles/profile-availability";
 import {
-  fitStartingTotalContext,
   type MemoryBasis,
   type ProfileCompatibility,
   profileTargetVerdict,
@@ -23,10 +22,12 @@ import {
 } from "@/gen/dotcore/deployment/v1/placement_pb";
 import type { ConfiguredExecutionTarget } from "@/gen/dotcore/site/v1/service_pb";
 
+import type { ContextStart } from "./model-deploy-launch";
+
 /**
  * The deploy dialog's execution target: the targets that can launch the selected profile in the
- * Runs on scope, the one the launch uses, and the total context its largest fit starts from,
- * which stays put for the dialog's life once read.
+ * Runs on scope, the one the launch uses, and the context the launch starts from there, which
+ * stays put for the dialog's life once read.
  */
 export function useModelDeployTarget({
   basis,
@@ -89,32 +90,29 @@ export function useModelDeployTarget({
       : pickedPlacement === undefined
         ? defaultExecutionTarget(executionTargets)
         : undefined;
-  // The total context the selected target's largest fit starts the launch from, from the dialog's
-  // read.
-  const readFitStart =
-    compatibility && selectedExecutionTarget
-      ? fitStartingTotalContext(
-          profileTargetVerdict(compatibility, model.modelId, profileId, selectedExecutionTarget),
-        )
+  // The context the selected target starts the launch from, from the dialog's read of the current
+  // scenario; a read of another scenario doesn't count, since its starting values answer another
+  // context.
+  const targetVerdict =
+    sizingRead && selectedExecutionTarget
+      ? profileTargetVerdict(sizingRead, model.modelId, profileId, selectedExecutionTarget)
       : undefined;
-  // Free memory moves with every read, so the first starting value a read of the profile, target
-  // and scenario gives, from a fit or none, stays for the dialog's life, and the total never moves
-  // under the operator. A read of another scenario doesn't count: it's only shown until the
-  // requested one lands.
-  const [frozenStarts, setFrozenStarts] = useState<ReadonlyMap<string, number | undefined>>(
+  const readStart: ContextStart | undefined = targetVerdict && {
+    contextTokensPerRequest: targetVerdict.startingContextTokensPerRequest,
+    totalContextTokens: targetVerdict.startingTotalContextTokens,
+  };
+  // Free memory moves with every read, so the first starting values a read of the profile, target
+  // and scenario gives stay for the dialog's life, and the context never moves under the operator.
+  const [frozenStarts, setFrozenStarts] = useState<ReadonlyMap<string, ContextStart | undefined>>(
     new Map(),
   );
-  const startKey = (startScenario: SizingScenario | undefined) =>
+  const startKey =
     profile && selectedExecutionTarget
-      ? `${profile.profileId}\0${sizingScenarioKey(startScenario)}\0${selectedExecutionTarget.siteNodeId}\0${selectedExecutionTarget.executionTargetId}`
+      ? `${profile.profileId}\0${sizingScenarioKey(scenario)}\0${selectedExecutionTarget.siteNodeId}\0${selectedExecutionTarget.executionTargetId}`
       : undefined;
-  const frozenStartKey = startKey(scenario);
-  if (frozenStartKey && compatibility && sizingRead && !frozenStarts.has(frozenStartKey))
-    setFrozenStarts(new Map(frozenStarts).set(frozenStartKey, readFitStart));
-  const fitStart =
-    frozenStartKey && frozenStarts.has(frozenStartKey)
-      ? frozenStarts.get(frozenStartKey)
-      : readFitStart;
+  if (startKey && compatibility && sizingRead && !frozenStarts.has(startKey))
+    setFrozenStarts(new Map(frozenStarts).set(startKey, readStart));
+  const start = startKey && frozenStarts.has(startKey) ? frozenStarts.get(startKey) : readStart;
   const placementNodeId = selectedExecutionTarget?.siteNodeId;
   const placementTargetId = selectedExecutionTarget?.executionTargetId;
   const placement = useMemo(
@@ -129,12 +127,13 @@ export function useModelDeployTarget({
   );
 
   return {
-    fitStart,
     launchesOn,
     pickedTarget,
     placement,
     profileLaunchCandidates,
     selectedExecutionTarget,
+    start,
+    targetVerdict,
   };
 }
 

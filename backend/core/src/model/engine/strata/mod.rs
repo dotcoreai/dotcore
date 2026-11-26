@@ -18,12 +18,13 @@ mod workload;
 use std::sync::Arc;
 
 use dotcore_artifact::PreparedModelArtifacts;
+use dotcore_catalog::shared_parameters::ContextRule;
 use dotcore_domain::WorkloadArtifactKind;
 use dotcore_proto::dotcore::{
     catalog::v1::{
-        EngineParameterSchema, EngineRelease, HardwareClass, InferenceRequestKind, Model,
-        ModelArtifactBinding, ModelEngineConfiguration, ModelOptionValues, ParameterValue,
-        ParameterValues, hugging_face_artifact_source::Content as HuggingFaceContent,
+        EngineRelease, HardwareClass, InferenceRequestKind, Model, ModelArtifactBinding,
+        ModelEngineConfiguration, ModelOptionValues, ParameterValues,
+        hugging_face_artifact_source::Content as HuggingFaceContent,
     },
     engine::{
         strata::v1::{
@@ -36,7 +37,10 @@ use dotcore_proto::dotcore::{
 };
 use dotcore_runtime::{ExecutionTarget, LoopbackEndpoint, WorkloadSpec};
 
-use super::{definition::EngineDefinition, realization::ResolvedEngineSelection};
+use super::{
+    definition::{CustomArgumentConflict, EngineDefinition},
+    realization::ResolvedEngineSelection,
+};
 use crate::{
     inference::{EngineReadinessProbe, EngineTransportFactory},
     model::resolved::ResolvedModelLaunch,
@@ -95,13 +99,8 @@ impl EngineDefinition for Strata {
         declaration::validate_hardware_support(configuration, hardware_classes)
     }
 
-    fn filled_context_per_request(
-        &self,
-        schema: &EngineParameterSchema,
-        values: &ParameterValues,
-        maximum_context_tokens: u32,
-    ) -> Option<ParameterValue> {
-        declaration::filled_context_per_request(schema, values, maximum_context_tokens)
+    fn context_rule(&self, _configuration: &ModelEngineConfiguration) -> &'static dyn ContextRule {
+        &declaration::StrataContextRule
     }
 
     fn validate_parameter_values(
@@ -140,7 +139,12 @@ impl EngineDefinition for Strata {
         &self,
         snapshot: &ResolvedLocalModelDeploymentSnapshot,
     ) -> anyhow::Result<PortableModelLaunchPlan> {
-        Ok(plan::translate(snapshot)?)
+        plan::translate(snapshot).map_err(|error| match error {
+            plan::StrataPlanError::CustomArgument(flag) => {
+                CustomArgumentConflict::unsupported("Strata", &flag).into()
+            }
+            error => error.into(),
+        })
     }
 
     /// Strata keeps every request's context on the accelerator.

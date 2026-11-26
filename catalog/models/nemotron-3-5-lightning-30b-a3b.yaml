@@ -15,6 +15,8 @@ options:
   - optionId: "mtp"
     displayName: "MTP"
     speculativeDecoding: { method: "SPECULATIVE_DECODING_METHOD_MTP" }
+    visibility: "PARAMETER_VISIBILITY_ADVANCED"
+    description: "Drafts several tokens ahead and has the model check them together, which makes generation faster. Loads the extra prediction layers, which use more memory."
 artifacts:
   - artifactId: "q3-xl"
     weightQuantization: "Q3_K_XL"

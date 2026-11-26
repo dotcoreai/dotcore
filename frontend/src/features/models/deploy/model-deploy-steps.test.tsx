@@ -15,21 +15,20 @@ import {
 import {
   modelWithKvCachePrecision,
   modelWithStrata,
+  modelWithVision,
   runtimeSchemaModel,
   runtimeSchemaReleases,
   strataRelease,
   unsignedValue,
 } from "@/features/models/runtime/runtime-schema-test-support";
 import {
-  ModelArtifactBindingSchema,
-  ModelArtifactSchema,
   ModelConfigurationOptionSchema,
   ModelOptionSchema,
   ModelOptionValuesSchema,
   ModelSchema,
   SpeculativeDecodingMethod,
 } from "@/gen/dotcore/catalog/v1/model_pb";
-import { ParameterVisibility } from "@/gen/dotcore/catalog/v1/parameter_pb";
+import { ParameterValuesSchema, ParameterVisibility } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import { AcceleratorMemoryArchitecture } from "@/gen/dotcore/observation/v1/observation_pb";
 import {
   ConfiguredExecutionTargetSchema,
@@ -41,54 +40,44 @@ import { setupUser } from "@/test/user";
 
 import { ModelDeployDialog } from "./model-deploy-dialog";
 import type { LocalDeploymentValues } from "./model-deploy-launch";
+import { goToStep, openAdvancedStep } from "./model-deploy-test-steps";
 import { sharedContextEstimate } from "./resource-estimate-test-support";
 
 const poolPlacement = { executionTargetId: "pool", siteNodeId: "node" };
 
 describe("ModelDeployDialog Settings step", () => {
-  it("shows total context and context per request in both modes, with short help", async () => {
+  it("asks context per request, parallel requests and total context in order, in both modes, with short help", async () => {
     const user = setupUser();
     renderDialog({ initialProfileId: "q4-xl" });
 
-    await screen.findByText("Step 1 of 3 — Profile");
+    await screen.findByText("Step 1 of 3 — Model & machine");
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByText("Step 2 of 3 — Settings")).toBeVisible();
-    expect(
-      screen.getAllByRole("textbox").map((input) => [input.id, input.getAttribute("value")]),
-    ).toEqual([
-      ["engine-parameter-total-context", "32k"],
-      ["engine-parameter-context-per-request", ""],
+    expect(screen.getByText("Step 2 of 3 — Context")).toBeVisible();
+    // The total context starts at the context per request times the parallel requests.
+    expect(textboxValues()).toEqual([
+      ["engine-parameter-context-per-request", "32k"],
+      ["engine-parameter-parallel-requests", "4"],
+      ["engine-parameter-total-context", "128k"],
     ]);
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveAccessibleDescription(
-      "Context memory the server holds from the start and shares among the requests it generates at once. Each active request stores its own tokens in it, even when requests start with the same prompt. When it fills, the server frees idle requests first, then fails the active ones.",
-    );
-    const perRequest = screen.getByRole("textbox", { name: "Context per request" });
-    expect(perRequest).toHaveAccessibleDescription(
+    expect(
+      screen.getByRole("textbox", { name: "Context per request" }),
+    ).toHaveAccessibleDescription(
       "Largest context one request may use from the total context. It reserves nothing: requests take memory from the total context as they grow. A new request reuses the start of an earlier prompt from an idle request or the prompt cache, but not from requests running at the same time.",
     );
-    await user.click(screen.getByRole("button", { name: "About Context per request" }));
-    expect(
-      await screen.findByRole("dialog", { name: "About Context per request" }),
-    ).toHaveTextContent("Left empty, it follows the total context.");
-    await user.keyboard("{Escape}");
-
-    // A set context per request offers to follow the total again.
-    await user.type(perRequest, "8192");
-    await user.tab();
-    await user.click(screen.getByRole("button", { name: "Follow the total" }));
-    expect(perRequest).toHaveValue("");
-    expect(await readFieldHelpFacts("Context per request")).toContain(
-      "Left empty, it follows the total context.",
+    expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveAccessibleDescription(
+      "Requests the server generates at the same time; further requests wait in a queue. All of them share the total context, so each added request only adds its own small state.",
     );
+    expect(await readFieldHelpFacts("Context per request")).toContain("Up to 256k (model maximum)");
+    expect(screen.queryByRole("button", { name: /^Follow/ })).not.toBeInTheDocument();
 
-    await user.click(preset("64k"));
+    await user.click(preset("64k", "Context per request"));
+    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("256k");
     await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
-    expect(screen.getByText("Step 3 of 5 — Settings")).toBeVisible();
-    expect(
-      screen.getAllByRole("textbox").map((input) => [input.id, input.getAttribute("value")]),
-    ).toEqual([
-      ["engine-parameter-total-context", "64k"],
-      ["engine-parameter-context-per-request", ""],
+    expect(screen.getByText("Step 2 of 5 — Context")).toBeVisible();
+    expect(textboxValues()).toEqual([
+      ["engine-parameter-context-per-request", "64k"],
+      ["engine-parameter-parallel-requests", "4"],
+      ["engine-parameter-total-context", "256k"],
     ]);
   });
 
@@ -99,24 +88,24 @@ describe("ModelDeployDialog Settings step", () => {
     await openAdvancedSettings(user);
     const slider = screen.getByRole("slider", { name: "Total context" });
     const input = screen.getByRole("textbox", { name: "Total context" });
-    expect(input).toHaveValue("32k");
-    // The total ends at the 256k model maximum for each of the 4 parallel requests, so 32768 tokens
-    // sits six elevenths along the log scale from the declared 512 tokens to 1048576 tokens.
-    expect(slider).toHaveValue("545");
-    expect(slider).toHaveAttribute("aria-valuetext", "32,768 tokens");
+    expect(input).toHaveValue("128k");
+    // The total ends at the 256k model maximum for each of the 4 parallel requests, so 131072 tokens
+    // sits eight elevenths along the log scale from the declared 512 tokens to 1048576 tokens.
+    expect(slider).toHaveValue("727");
+    expect(slider).toHaveAttribute("aria-valuetext", "131,072 tokens");
     expect(presetLabels()).toEqual(["8k", "32k", "64k", "128k", "256k", "1M"]);
     // A chip is pressed only right after it is clicked, not for a value that equals it.
-    expect(preset("32k")).toHaveAttribute("aria-pressed", "false");
+    expect(preset("128k")).toHaveAttribute("aria-pressed", "false");
 
-    await user.click(preset("128k"));
-    expect(input).toHaveValue("128k");
-    expect(slider).toHaveValue("727");
-    expect(preset("128k")).toHaveAttribute("aria-pressed", "true");
+    await user.click(preset("64k"));
+    expect(input).toHaveValue("64k");
+    expect(slider).toHaveValue("636");
+    expect(preset("64k")).toHaveAttribute("aria-pressed", "true");
     // A drag releases the chip, even back onto its own size.
     fireEvent.change(slider, { target: { value: "700" } });
-    fireEvent.change(slider, { target: { value: "727" } });
-    expect(input).toHaveValue("128k");
-    expect(preset("128k")).toHaveAttribute("aria-pressed", "false");
+    fireEvent.change(slider, { target: { value: "636" } });
+    expect(input).toHaveValue("64k");
+    expect(preset("64k")).toHaveAttribute("aria-pressed", "false");
 
     fireEvent.change(slider, { target: { value: "1000" } });
     expect(input).toHaveValue("1M");
@@ -173,17 +162,17 @@ describe("ModelDeployDialog Settings step", () => {
     await user.clear(kvOffload);
     await user.type(kvOffload, "2t");
     expect(within(hostMemory).queryByText(/must be/)).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Next" }));
+    await deployFromAdvanced(user);
     await user.click(screen.getByRole("button", { name: "Deploy" }));
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
-    // The empty context per request is left out for resolution to fill.
     expect(submittedValues(onSubmit)).toEqual([
       ["maximum-batched-tokens", 4096n],
       ["maximum-cudagraph-capture-size", 32n],
       ["kv-offloading-size-gib", 2048n],
-      ["total-context", 65536n],
+      ["context-per-request", 32768n],
       ["parallel-requests", 4n],
+      ["total-context", 65536n],
     ]);
   });
 
@@ -193,7 +182,7 @@ describe("ModelDeployDialog Settings step", () => {
       profileId: "q4-xl",
       defaults: [
         ["prompt-cache-memory-mib", 8192n],
-        ["total-context", 32768n],
+        ["context-per-request", 32768n],
         ["parallel-requests", 4n],
       ],
     },
@@ -204,7 +193,7 @@ describe("ModelDeployDialog Settings step", () => {
         ["maximum-batched-tokens", 4096n],
         ["maximum-cudagraph-capture-size", 32n],
         ["kv-offloading-size-gib", 0n],
-        ["total-context", 32768n],
+        ["context-per-request", 32768n],
         ["parallel-requests", 4n],
       ],
     },
@@ -214,25 +203,21 @@ describe("ModelDeployDialog Settings step", () => {
       defaults: [
         ["parallel-requests", 4n],
         ["host-context-mib", 20480n],
-        ["total-context", 32768n],
+        ["context-per-request", 32768n],
       ],
     },
   ])("$engine context group", ({ defaults, profileId }) => {
-    it("shows the shared context inputs at the engine defaults and submits them", async () => {
+    it("shows the context inputs at the engine defaults and submits them with the following total", async () => {
       const user = setupUser();
       const onSubmit = vi.fn();
       renderDialog({ initialProfileId: profileId, onSubmit });
 
       await openAdvancedSettings(user);
-      expect(
-        screen.getAllByRole("textbox").map((input) => [input.id, input.getAttribute("value")]),
-      ).toEqual([
-        ["engine-parameter-total-context", "32k"],
-        ["engine-parameter-context-per-request", ""],
+      expect(textboxValues()).toEqual([
+        ["engine-parameter-context-per-request", "32k"],
+        ["engine-parameter-parallel-requests", "4"],
+        ["engine-parameter-total-context", "128k"],
       ]);
-      // An empty context per request stands for the total context, capped by the maximum.
-      const perRequest = screen.getByRole("textbox", { name: "Context per request" });
-      expect(perRequest).toHaveAttribute("placeholder", "32k");
       expect(screen.getByRole("slider", { name: "Context per request" })).toHaveAttribute(
         "aria-valuetext",
         "32,768 tokens",
@@ -243,11 +228,10 @@ describe("ModelDeployDialog Settings step", () => {
       await user.click(screen.getByRole("button", { name: "Deploy" }));
 
       await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
-      // The empty context per request is left out for resolution to fill.
-      expect(submittedValues(onSubmit)).toEqual(defaults);
+      expect(submittedValues(onSubmit)).toEqual([...defaults, ["total-context", 131072n]]);
     });
 
-    it("moves the total context and the context per request together so the total covers it", async () => {
+    it("follows the context per request and parallel requests with the total until it is edited, and relinks it", async () => {
       const user = setupUser();
       const onSubmit = vi.fn();
       renderDialog({ initialProfileId: profileId, onSubmit });
@@ -255,31 +239,42 @@ describe("ModelDeployDialog Settings step", () => {
       await openAdvancedSettings(user);
       const total = screen.getByRole("textbox", { name: "Total context" });
       const perRequest = screen.getByRole("textbox", { name: "Context per request" });
+      const parallel = screen.getByRole("textbox", { name: "Parallel requests" });
 
-      // A typed context per request above the total raises the total once left.
+      // A typed context per request moves the total.
+      await user.clear(perRequest);
       await user.type(perRequest, "64k");
-      expect(total).toHaveValue("32k");
       await user.tab();
-      expect(total).toHaveValue("64k");
+      expect(total).toHaveValue("256k");
+      await user.clear(parallel);
+      await user.type(parallel, "2");
+      await user.tab();
+      expect(total).toHaveValue("128k");
 
-      // A total preset below the context per request lowers it at once.
-      await user.click(
-        within(screen.getByRole("group", { name: "Total context presets" })).getByRole("button", {
-          name: "8k",
-        }),
-      );
-      expect(perRequest).toHaveValue("8k");
-      expect(screen.queryByText(/must be at most the total context/)).not.toBeInTheDocument();
+      // An edited total stays put, and the link makes it follow again.
+      await user.click(preset("32k"));
+      expect(screen.getByRole("button", { name: "Follow per request × parallel" })).toBeVisible();
+      await user.clear(parallel);
+      await user.type(parallel, "4");
+      await user.tab();
+      expect(total).toHaveValue("32k");
+      // Above the edited total, the context per request can't start.
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      expect(
+        screen.getByText("Context per request must be at most the total context."),
+      ).toBeVisible();
+      await user.click(screen.getByRole("button", { name: "Follow per request × parallel" }));
+      expect(total).toHaveValue("256k");
+      expect(screen.queryByRole("button", { name: /^Follow/ })).not.toBeInTheDocument();
 
       await deployFromSettings(user);
       await user.click(screen.getByRole("button", { name: "Deploy" }));
       await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
-      expect(submittedValues(onSubmit)).toEqual([
-        ...defaults.map(([parameterId, value]) =>
-          parameterId === "total-context" ? [parameterId, 8192n] : [parameterId, value],
-        ),
-        ["context-per-request", 8192n],
-      ]);
+      expect(Object.fromEntries(submittedValues(onSubmit))).toMatchObject({
+        "context-per-request": 65536n,
+        "parallel-requests": 4n,
+        "total-context": 262144n,
+      });
     });
   });
 
@@ -291,17 +286,17 @@ describe("ModelDeployDialog Settings step", () => {
     const totalSlider = screen.getByRole("slider", { name: "Total context" });
     const perRequestSlider = screen.getByRole("slider", { name: "Context per request" });
     // The scale runs from 512 tokens to the total's end, the 256k model maximum for each of the 4
-    // parallel requests: 32768 tokens sits six elevenths along on both.
-    expect(totalSlider).toHaveValue("545");
+    // parallel requests: 32768 tokens sits six elevenths along, and 131072 tokens eight.
     expect(perRequestSlider).toHaveValue("545");
+    expect(totalSlider).toHaveValue("727");
 
     // The end of the shared scale clamps context per request to the 262144 model maximum, below
-    // ninfer's own, nine elevenths along, and the total follows it there.
+    // ninfer's own, nine elevenths along, and the total follows it for 4 parallel requests.
     fireEvent.change(perRequestSlider, { target: { value: "1000" } });
     expect(screen.getByRole("textbox", { name: "Context per request" })).toHaveValue("256k");
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("256k");
+    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("1M");
     expect(perRequestSlider).toHaveValue("818");
-    expect(totalSlider).toHaveValue("818");
+    expect(totalSlider).toHaveValue("1000");
     expect(presetLabels("Context per request")).toEqual(["8k", "32k", "64k", "128k", "256k"]);
   });
 
@@ -317,7 +312,6 @@ describe("ModelDeployDialog Settings step", () => {
     });
     expect(screen.getByRole("textbox", { name: "Context per request" })).toHaveValue("2147483647");
     // The total's end, 4 requests at that context, stops at llama.cpp's total maximum too.
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("2147483647");
     expect(screen.getByRole("slider", { name: "Total context" })).toHaveValue("1000");
   });
 
@@ -332,28 +326,23 @@ describe("ModelDeployDialog Settings step", () => {
     expect(await readFieldHelpFacts("Total context")).toContain("Range 512 or more tokens");
     // Without an engine maximum, context per request ends at the 256k model maximum and the total
     // at that for each of the 4 parallel requests.
-    expect(totalSlider).toHaveValue("545");
+    expect(totalSlider).toHaveValue("727");
     expect(presetLabels()).toEqual(["8k", "32k", "64k", "128k", "256k", "1M"]);
     expect(presetLabels("Context per request")).toEqual(["8k", "32k", "64k", "128k", "256k"]);
     fireEvent.change(perRequestSlider, { target: { value: "1000" } });
     expect(screen.getByRole("textbox", { name: "Context per request" })).toHaveValue("256k");
-    await user.click(screen.getByRole("button", { name: "Follow the total" }));
 
     // One parallel request brings the total's end down to the context per request's.
-    await user.click(screen.getByRole("button", { name: "Next" }));
     const parallel = screen.getByRole("textbox", { name: "Parallel requests" });
     await user.clear(parallel);
     await user.type(parallel, "1");
-    await user.click(screen.getByRole("button", { name: "Back" }));
-    expect(screen.getByRole("slider", { name: "Total context" })).toHaveValue("1000");
-    fireEvent.change(screen.getByRole("slider", { name: "Total context" }), {
-      target: { value: "1000" },
-    });
+    await user.tab();
     expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("256k");
+    expect(totalSlider).toHaveValue("1000");
     expect(presetLabels()).toEqual(["8k", "32k", "64k", "128k", "256k"]);
   });
 
-  it("stands an empty context per request for the maximum context when below the total", async () => {
+  it("caps the context per request at the configuration's maximum context", async () => {
     const user = setupUser();
     const model = clone(ModelSchema, runtimeSchemaModel);
     model.maximumContextTokens = 262144;
@@ -361,30 +350,45 @@ describe("ModelDeployDialog Settings step", () => {
     renderDialog({ initialProfileId: "q4-xl", model });
 
     await openAdvancedSettings(user);
-    const perRequest = screen.getByRole("textbox", { name: "Context per request" });
-    expect(perRequest).toHaveAttribute("placeholder", "16k");
-    await user.click(screen.getByRole("button", { name: "About Context per request" }));
-    expect(
-      await screen.findByRole("dialog", { name: "About Context per request" }),
-    ).toHaveTextContent("Up to 16k (model maximum)");
-    await user.keyboard("{Escape}");
-    await user.click(preset("8k"));
-    expect(perRequest).toHaveAttribute("placeholder", "8k");
+    expect(await readFieldHelpFacts("Context per request")).toContain("Up to 16k (model maximum)");
+    expect(presetLabels("Context per request")).toEqual(["8k"]);
+  });
+
+  it("shows no total context on a profile that hides it, and submits none for resolution to derive", async () => {
+    const user = setupUser();
+    const onSubmit = vi.fn();
+    renderStrataDialog(
+      {},
+      {
+        engineParameterVisibilityOverrides: [
+          { parameterId: "total-context", visibility: ParameterVisibility.HIDDEN },
+        ],
+      },
+      onSubmit,
+    );
+
+    await openAdvancedSettings(user);
+    expect(textboxValues()).toEqual([
+      ["engine-parameter-context-per-request", "32k"],
+      ["engine-parameter-parallel-requests", "1"],
+    ]);
+    expect(screen.queryByRole("textbox", { name: "Total context" })).not.toBeInTheDocument();
+
+    await deployFromSettings(user);
+    await user.click(screen.getByRole("button", { name: "Deploy" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(submittedValues(onSubmit).map(([parameterId]) => parameterId)).not.toContain(
+      "total-context",
+    );
   });
 });
 
 describe("ModelDeployDialog Advanced step", () => {
-  it("leads with parallel requests, then the ninfer host context in its host memory group", async () => {
+  it("shows the ninfer host context in its host memory group", async () => {
     const user = setupUser();
     renderDialog({ initialProfileId: "ninfer-nvfp4" });
 
     await openAdvancedStep(user);
-    const parallel = screen.getAllByRole("textbox")[0];
-    expect(parallel).toHaveAccessibleName("Parallel requests");
-    expect(parallel).toHaveValue("4");
-    expect(parallel).toHaveAccessibleDescription(
-      "Requests the server generates at the same time; further requests wait in a queue.",
-    );
     const hostMemory = screen.getByRole("group", { name: "Host memory" });
     const hostContext = within(hostMemory).getByRole("textbox", { name: "Host context memory" });
     expect(hostContext).toHaveValue("20 GiB");
@@ -392,51 +396,36 @@ describe("ModelDeployDialog Advanced step", () => {
       "Host memory where idle conversations and paused requests are kept, so they resume without processing their prompt again. 0 turns it off.",
     );
 
-    // The context sizes sit on the Settings step.
-    for (const name of ["Total context", "Context per request"])
+    // The context parameters sit on the Settings step.
+    for (const name of ["Total context", "Context per request", "Parallel requests"])
       expect(screen.queryByRole("textbox", { name })).not.toBeInTheDocument();
   });
 
-  it("keeps the llama.cpp prompt cache at the top level, and the artifact and custom arguments in collapsed sections", async () => {
+  it("keeps the llama.cpp prompt cache at the top level, ahead of the speculative decoding choice", async () => {
     const user = setupUser();
     renderDialog({ initialProfileId: "q4-xl" });
 
     await openAdvancedStep(user);
-    // llama.cpp declares no parameter group, so its prompt cache follows parallel requests, ahead
-    // of the speculative decoding choice.
+    // llama.cpp declares no parameter group, so its prompt cache leads.
     expect(screen.getAllByRole("textbox").map((input) => input.id)).toEqual([
-      "engine-parameter-parallel-requests",
       "engine-parameter-prompt-cache-memory-mib",
       "speculative-decoding-count",
     ]);
-    expect(screen.getAllByRole("group").map((group) => group.getAttribute("aria-label"))).toEqual([
-      "Engine and artifact",
-      "Custom arguments and command",
-    ]);
-    expect(sectionToggle("Engine and artifact")).toHaveAttribute("aria-expanded", "false");
-    expect(sectionToggle("Custom arguments and command")).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryAllByRole("group")).toEqual([]);
+    // The profile decides the weights, so no step offers them.
     expect(screen.queryByRole("combobox", { name: "Model artifact" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Add token" })).not.toBeInTheDocument();
-
-    await user.click(sectionToggle("Engine and artifact"));
-    expect(screen.getByRole("combobox", { name: "Model artifact" })).toHaveValue("Q4_K_XL");
-    await user.click(sectionToggle("Custom arguments and command"));
-    expect(screen.getByRole("button", { name: "Add token" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Preview resolved command" })).toBeVisible();
   });
 
-  it("shows the Strata expert memory group open, after parallel requests, with its help", async () => {
+  it("shows the Strata expert memory group open, with its help", async () => {
     const user = setupUser();
     renderStrataDialog();
 
     await openAdvancedStep(user);
     expect(screen.getAllByRole("textbox").map((input) => input.id)).toEqual([
-      "engine-parameter-parallel-requests",
       "engine-parameter-expert-vram-mib",
       "engine-parameter-expert-host-memory-mib",
     ]);
     const group = screen.getByRole("group", { name: "Expert memory" });
-    expect(group).not.toContainElement(screen.getByRole("textbox", { name: "Parallel requests" }));
     const toggle = within(group).getByRole("button", { name: "Expert memory" });
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(toggle).toHaveAccessibleDescription("Where Strata keeps the model's expert weights.");
@@ -495,7 +484,7 @@ describe("ModelDeployDialog Advanced step", () => {
     await user.type(box, "6g");
     await user.tab();
     expect(box).toHaveValue("6 GiB");
-    await user.click(screen.getByRole("button", { name: "Next" }));
+    await deployFromAdvanced(user);
     await user.click(screen.getByRole("button", { name: "Deploy" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
     expect(submittedValues(onSubmit)).toContainEqual(["expert-vram-mib", 6144n]);
@@ -535,11 +524,11 @@ describe("ModelDeployDialog Advanced step", () => {
       excludedEngineParameterIds: ["expert-vram-mib", "expert-host-memory-mib"],
     });
 
-    await openAdvancedStep(user);
+    await openAdvancedStep(user, "Context");
     expect(screen.queryByRole("group", { name: "Expert memory" })).not.toBeInTheDocument();
-    expect(screen.getAllByRole("textbox").map((input) => input.id)).toEqual([
-      "engine-parameter-parallel-requests",
-    ]);
+    // With no advanced input left, Performance & memory doesn't show.
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText("Step 3 of 4 — Engine")).toBeVisible();
   });
 
   it("previews once per configuration when the configuration excludes parameters", async () => {
@@ -559,9 +548,9 @@ describe("ModelDeployDialog Advanced step", () => {
 
     await openAdvancedStep(user);
     await waitFor(() => expect(onPreviewMemory).toHaveBeenCalledOnce());
-    const parallelRequests = screen.getByRole("textbox", { name: "Parallel requests" });
-    await user.clear(parallelRequests);
-    await user.type(parallelRequests, "3");
+    const expertMemory = screen.getByRole("textbox", { name: "Expert accelerator memory" });
+    await user.clear(expertMemory);
+    await user.type(expertMemory, "8");
     await user.tab();
     await waitFor(() => expect(onPreviewMemory).toHaveBeenCalledTimes(2));
     // Settled: the predicted memory shows the last estimate, and no preview follows it.
@@ -584,31 +573,13 @@ describe("ModelDeployDialog Advanced step", () => {
       expect(screen.queryByRole("textbox", { name: "Expert host memory" })).not.toBeInTheDocument(),
     );
 
-    // Leaving Advanced re-opens the group and focuses the field.
+    // Next re-opens the group and focuses the field.
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByText("Step 4 of 5 — Advanced")).toBeVisible();
+    expect(screen.getByText("Step 3 of 5 — Performance & memory")).toBeVisible();
     expect(sectionToggle("Expert memory")).toHaveAttribute("aria-expanded", "true");
     await waitFor(() =>
       expect(screen.getByRole("textbox", { name: "Expert host memory" })).toHaveFocus(),
     );
-    expect(screen.getByText(error)).toBeVisible();
-
-    // With Advanced off, Deploy turns it back on and reveals the same field.
-    await user.click(sectionToggle("Expert memory"));
-    await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
-    expect(screen.getByText("Step 3 of 3 — Deploy")).toBeVisible();
-    // The new step takes focus in an effect after it renders; acting earlier loses that move.
-    await waitFor(() =>
-      expect(document.activeElement).toHaveAttribute("data-deployment-step-heading"),
-    );
-    await user.click(screen.getByRole("button", { name: "Deploy" }));
-
-    expect(await screen.findByText("Step 4 of 5 — Advanced")).toBeVisible();
-    expect(screen.getByRole("checkbox", { name: "Advanced" })).toBeChecked();
-    expect(sectionToggle("Expert memory")).toHaveAttribute("aria-expanded", "true");
-    const revealed = screen.getByRole("textbox", { name: "Expert host memory" });
-    await waitFor(() => expect(revealed).toHaveFocus());
-    expect(revealed).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByText(error)).toBeVisible();
     expect(onSubmit).not.toHaveBeenCalled();
   });
@@ -692,8 +663,8 @@ describe("ModelDeployDialog Advanced step", () => {
 
       await openAdvancedStep(user);
       await user.selectOptions(kvCachePrecision(), "q8_0");
-      await user.click(screen.getByRole("button", { name: "Custom arguments and command" }));
-      await user.click(screen.getByRole("button", { name: "Preview resolved command" }));
+      // The Engine step previews the command as it opens.
+      await user.click(screen.getByRole("button", { name: "Next" }));
 
       await waitFor(() => expect(onPreview).toHaveBeenCalledOnce());
       expect(estimatedOverrides(onPreview as unknown as ReturnType<typeof vi.fn>, 0)).toEqual([
@@ -897,7 +868,7 @@ describe("ModelDeployDialog Advanced step", () => {
       expect(speculativeCount()).toHaveAttribute("aria-invalid", "true");
 
       await user.click(screen.getByRole("button", { name: "Next" }));
-      expect(screen.getByText("Step 4 of 5 — Advanced")).toBeVisible();
+      expect(screen.getByText("Step 3 of 5 — Performance & memory")).toBeVisible();
       expect(speculativeCount()).toHaveFocus();
 
       await user.clear(speculativeCount());
@@ -905,27 +876,142 @@ describe("ModelDeployDialog Advanced step", () => {
       expect(screen.queryByText(error)).not.toBeInTheDocument();
 
       // The vLLM configuration declares no speculative option.
-      await user.click(screen.getByRole("button", { name: /Profile/ }));
+      await user.click(screen.getByRole("button", { name: /Model & machine/ }));
       await user.click(screen.getByRole("radio", { name: /NVFP4 text/ }));
-      await user.click(screen.getByRole("button", { name: "Next" }));
-      await user.click(screen.getByRole("button", { name: "Next" }));
-      await user.click(screen.getByRole("button", { name: "Next" }));
-      expect(screen.getByText("Step 4 of 5 — Advanced")).toBeVisible();
+      await goToStep(user, "Performance & memory");
       expect(screen.queryByRole("combobox", { name: "Speculative decoding" })).toBeNull();
       expect(onSubmit).not.toHaveBeenCalled();
     });
   });
 });
 
+describe("ModelDeployDialog model options by visibility", () => {
+  it("asks a basic option on Capabilities, and skips the step for a profile without one", async () => {
+    const user = setupUser();
+    renderDialog({ initialProfileId: "q4-xl", model: modelWithVision() });
+
+    await screen.findByText("Step 1 of 4 — Model & machine");
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText("Step 2 of 4 — Capabilities")).toBeVisible();
+    const vision = screen.getByRole("switch", { name: "Vision" });
+    expect(vision).not.toBeChecked();
+    expect(vision).toHaveAccessibleDescription("Lets requests include images.");
+
+    // The vLLM configuration declares no vision option, so there is nothing to ask.
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    await user.click(screen.getByRole("radio", { name: /NVFP4 text/ }));
+    expect(screen.getByText("Step 1 of 3 — Model & machine")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText("Step 2 of 3 — Context")).toBeVisible();
+  });
+
+  it.each([
+    { label: "advanced", visibility: ParameterVisibility.ADVANCED },
+    { label: "without a declared visibility", visibility: ParameterVisibility.UNSPECIFIED },
+  ])("places an option $label on Performance & memory only", async ({ visibility }) => {
+    const user = setupUser();
+    renderDialog({ initialProfileId: "q4-xl", model: modelWithVision(visibility) });
+
+    await screen.findByText("Step 1 of 3 — Model & machine");
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText("Step 2 of 3 — Context")).toBeVisible();
+    expect(screen.queryByRole("switch", { name: "Vision" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
+    await goToStep(user, "Performance & memory");
+    expect(screen.getByRole("switch", { name: "Vision" })).toBeVisible();
+  });
+
+  it("shows a hidden option on no step and sends the profile's value", async () => {
+    const user = setupUser();
+    const onSubmit = vi.fn();
+    renderDialog({
+      initialProfileId: "q4-xl",
+      model: modelWithVision(ParameterVisibility.HIDDEN),
+      onSubmit,
+    });
+
+    await openAdvancedStep(user, "Context");
+    for (const step of ["Context", "Performance & memory", "Engine"] as const) {
+      await goToStep(user, step);
+      expect(screen.queryByRole("switch", { name: "Vision" })).not.toBeInTheDocument();
+    }
+    await deployFromAdvanced(user);
+    await user.click(screen.getByRole("button", { name: "Deploy" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(submittedOverrides(onSubmit)).toEqual([]);
+  });
+
+  it("starts a hidden speculative option from the profile default when an invalid value is restored", async () => {
+    const user = setupUser();
+    const onSubmit = vi.fn();
+    const model = clone(ModelSchema, runtimeSchemaModel);
+    const mtp = model.options.find((option) => option.optionId === "mtp");
+    if (mtp) mtp.visibility = ParameterVisibility.HIDDEN;
+    renderDialog({
+      initialConfiguration: {
+        customArgumentTokens: [],
+        engineParameterValues: create(ParameterValuesSchema, {}),
+        modelArtifactBindingId: "",
+        // Above the option's maximum of 5.
+        optionOverrides: [
+          create(ModelOptionValuesSchema, {
+            optionId: "mtp",
+            values: [unsignedValue("token-count", 9n)],
+          }),
+        ],
+      },
+      initialProfileId: "q4-xl",
+      model,
+      onSubmit,
+    });
+
+    await screen.findByText("Step 1 of 3 — Model & machine");
+    await goToStep(user, "Review & deploy");
+    await user.click(screen.getByRole("button", { name: "Deploy" }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(submittedOverrides(onSubmit)).toEqual([]);
+  });
+
+  it("sends a changed vision choice, summarizes it and restores it from the launch", async () => {
+    const user = setupUser();
+    const model = modelWithVision();
+    const first = vi.fn();
+    const { unmount } = renderDialog({ initialProfileId: "q4-xl", model, onSubmit: first });
+
+    await screen.findByText("Step 1 of 4 — Model & machine");
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("switch", { name: "Vision" }));
+    await deployFromSettings(user);
+    expect(screen.getByText("Vision").nextElementSibling).toHaveTextContent("On");
+    await user.click(screen.getByRole("button", { name: "Deploy" }));
+    await waitFor(() => expect(first).toHaveBeenCalledOnce());
+    expect(submittedOverrides(first)).toEqual([["vision", "enabled", true]]);
+    const applied = first.mock.calls[0][0] as LocalDeploymentValues;
+    unmount();
+
+    const onSubmit = vi.fn();
+    renderDialog({ ...reopenedOn(applied), model, onSubmit });
+    await screen.findByText("Step 1 of 4 — Model & machine");
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByRole("switch", { name: "Vision" })).toBeChecked();
+    await deployFromSettings(user);
+    await user.click(screen.getByRole("button", { name: "Deploy" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(onSubmit.mock.calls[0][0]).toEqual(applied);
+  });
+});
+
 describe("ModelDeployDialog reopened on an applied launch", () => {
   it("shows every applied value and submits the same launch again", async () => {
     const user = setupUser();
-    const model = modelWithArtifactChoice();
+    const model = modelWithKvCachePrecision();
     const applied = await applyEveryRuntimeEdit(user, model);
     expect(applied).toMatchObject({
       configuration: {
         customArgumentTokens: ["--foo", "bar"],
-        modelArtifactBindingId: "q5-xl",
+        modelArtifactBindingId: "",
       },
       exposure: { kind: { case: "direct", value: { routeName: "team-route" } } },
       name: "Team model",
@@ -944,17 +1030,15 @@ describe("ModelDeployDialog reopened on an applied launch", () => {
         /^Q4_K_XL(?! without)/,
       ),
     );
-    await openAdvancedStep(user);
+    await openAdvancedSettings(user);
     expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveValue("2");
+    await user.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByRole("textbox", { name: "Prompt cache memory" })).toHaveValue("4 GiB");
-    await user.click(sectionToggle("Engine and artifact"));
-    expect(screen.getByRole("combobox", { name: "Model artifact" })).toHaveValue("q5-xl");
     expect(kvCachePrecision()).toHaveValue("q8_0");
     expect(speculativeMethod()).toHaveValue("mtp");
     expect(speculativeCount()).toHaveValue("5");
-    await user.click(sectionToggle("Custom arguments and command"));
-    expect(screen.getByRole("textbox", { name: "Custom token 1" })).toHaveValue("--foo");
-    expect(screen.getByRole("textbox", { name: "Custom token 2" })).toHaveValue("bar");
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByRole("textbox", { name: "Custom arguments" })).toHaveValue("--foo\nbar");
 
     await deployFromAdvanced(user);
     expect(screen.getByRole("textbox", { name: "Deployment name" })).toHaveValue("Team model");
@@ -966,7 +1050,7 @@ describe("ModelDeployDialog reopened on an applied launch", () => {
 
   it("resets the profile's runtime values on a profile change and keeps the launch's own", async () => {
     const user = setupUser();
-    const model = modelWithArtifactChoice();
+    const model = modelWithKvCachePrecision();
     const applied = await applyEveryRuntimeEdit(user, model);
 
     const onSubmit = vi.fn();
@@ -978,16 +1062,14 @@ describe("ModelDeployDialog reopened on an applied launch", () => {
       ),
     );
     await user.click(screen.getByRole("radio", { name: /Q4_K_XL without MTP/ }));
-    await openAdvancedStep(user);
+    await openAdvancedSettings(user);
     expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveValue("2");
+    await user.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByRole("textbox", { name: "Prompt cache memory" })).toHaveValue("8 GiB");
-    await user.click(sectionToggle("Engine and artifact"));
-    expect(screen.getByRole("combobox", { name: "Model artifact" })).toHaveValue("Q4_K_XL");
     expect(kvCachePrecision()).toHaveValue("f16");
     expect(speculativeMethod()).toHaveValue("");
-    await user.click(sectionToggle("Custom arguments and command"));
-    expect(screen.getByRole("textbox", { name: "Custom token 1" })).toHaveValue("--foo");
-    expect(screen.getByRole("textbox", { name: "Custom token 2" })).toHaveValue("bar");
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByRole("textbox", { name: "Custom arguments" })).toHaveValue("--foo\nbar");
 
     await deployFromAdvanced(user);
     expect(screen.getByRole("textbox", { name: "Deployment name" })).toHaveValue("Team model");
@@ -995,7 +1077,7 @@ describe("ModelDeployDialog reopened on an applied launch", () => {
     await user.click(screen.getByRole("button", { name: "Deploy" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
     expect(onSubmit.mock.calls[0][0]).toMatchObject({
-      configuration: { customArgumentTokens: ["--foo", "bar"], modelArtifactBindingId: "q4-xl" },
+      configuration: { customArgumentTokens: ["--foo", "bar"], modelArtifactBindingId: "" },
       exposure: { kind: { case: "direct", value: { routeName: "team-route" } } },
       name: "Team model",
       profileId: "q4-xl-no-mtp",
@@ -1003,14 +1085,15 @@ describe("ModelDeployDialog reopened on an applied launch", () => {
     expect(submittedOverrides(onSubmit)).toEqual([]);
     expect(submittedValues(onSubmit)).toEqual([
       ["prompt-cache-memory-mib", 8192n],
-      ["total-context", 32768n],
+      ["context-per-request", 32768n],
       ["parallel-requests", 2n],
+      ["total-context", 65536n],
     ]);
   });
 
   it("reads an applied hidden exposure and speculative decoding off back", async () => {
     const user = setupUser();
-    const model = modelWithArtifactChoice();
+    const model = modelWithKvCachePrecision();
     const first = vi.fn();
     const { unmount } = renderDialog({ initialProfileId: "q4-xl", model, onSubmit: first });
 
@@ -1094,25 +1177,12 @@ function modelWithDflash() {
 }
 
 /**
- * The fixture model with the KV cache precision option and a second llama.cpp artifact, "q5-xl",
- * that no profile defaults to.
- */
-function modelWithArtifactChoice() {
-  const model = modelWithKvCachePrecision();
-  model.artifacts.push(clone(ModelArtifactSchema, { ...model.artifacts[0], artifactId: "q5-xl" }));
-  model.configurations[0].artifactBindings.push(
-    create(ModelArtifactBindingSchema, { bindingId: "q5-xl", modelArtifactId: "q5-xl" }),
-  );
-  return model;
-}
-
-/**
  * Deploys "q4-xl" with every runtime field, the name and the route edited, the way Customize
  * applies a launch, and returns the submitted launch.
  */
 async function applyEveryRuntimeEdit(
   user: UserEvent,
-  model: ReturnType<typeof modelWithArtifactChoice>,
+  model: ReturnType<typeof modelWithKvCachePrecision>,
 ): Promise<LocalDeploymentValues> {
   const onSubmit = vi.fn();
   const { unmount } = renderDialog({
@@ -1124,24 +1194,19 @@ async function applyEveryRuntimeEdit(
     onSubmit,
   });
 
-  await openAdvancedStep(user);
+  await openAdvancedSettings(user);
   const parallel = screen.getByRole("textbox", { name: "Parallel requests" });
   await user.clear(parallel);
   await user.type(parallel, "2");
+  await user.click(screen.getByRole("button", { name: "Next" }));
   const promptCache = screen.getByRole("textbox", { name: "Prompt cache memory" });
   await user.clear(promptCache);
   await user.type(promptCache, "4096");
-  await user.click(sectionToggle("Engine and artifact"));
-  await user.click(screen.getByRole("combobox", { name: "Model artifact" }));
-  await user.click((await screen.findAllByText("q5-xl"))[0]);
   await user.selectOptions(kvCachePrecision(), "q8_0");
   await user.clear(speculativeCount());
   await user.type(speculativeCount(), "5");
-  await user.click(sectionToggle("Custom arguments and command"));
-  await user.click(screen.getByRole("button", { name: "Add token" }));
-  await user.type(screen.getByRole("textbox", { name: "Custom token 1" }), "--foo");
-  await user.click(screen.getByRole("button", { name: "Add token" }));
-  await user.type(screen.getByRole("textbox", { name: "Custom token 2" }), "bar");
+  await user.click(screen.getByRole("button", { name: "Next" }));
+  await user.type(screen.getByRole("textbox", { name: "Custom arguments" }), "--foo bar");
 
   await deployFromAdvanced(user);
   const name = screen.getByRole("textbox", { name: "Deployment name" });
@@ -1158,7 +1223,18 @@ async function applyEveryRuntimeEdit(
 
 /** The dialog props that start it from a launch it submitted, as Customize reopens it. */
 function reopenedOn(launch: LocalDeploymentValues) {
+  const value = (parameterId: string) => {
+    const found = launch.configuration.engineParameterValues.values.find(
+      (candidate) => candidate.parameterId === parameterId,
+    )?.value;
+    return found?.case === "unsignedInteger" ? Number(found.value) : undefined;
+  };
   return {
+    scenario: {
+      contextTokensPerRequest: value("context-per-request") ?? 0,
+      parallelRequests: value("parallel-requests"),
+      totalContextTokens: value("total-context"),
+    },
     initialConfiguration: launch.configuration,
     initialExposure: launch.exposure,
     initialName: launch.name,
@@ -1196,19 +1272,9 @@ function poolTarget() {
   });
 }
 
+/** Turns Advanced on and moves to the Context step. */
 async function openAdvancedSettings(user: UserEvent) {
-  await screen.findByText("Step 1 of 3 — Profile");
-  await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
-  await user.click(screen.getByRole("button", { name: "Next" }));
-  expect(screen.getByText("Step 2 of 5 — Target")).toBeVisible();
-  await user.click(screen.getByRole("button", { name: "Next" }));
-  expect(screen.getByText("Step 3 of 5 — Settings")).toBeVisible();
-}
-
-async function openAdvancedStep(user: UserEvent) {
-  await openAdvancedSettings(user);
-  await user.click(screen.getByRole("button", { name: "Next" }));
-  expect(screen.getByText("Step 4 of 5 — Advanced")).toBeVisible();
+  await openAdvancedStep(user, "Context");
 }
 
 /** The engine parameter values of the first submitted deployment, as `[parameterId, value]`. */
@@ -1228,10 +1294,15 @@ function presetLabels(label = "Total context") {
     .map((button) => button.textContent);
 }
 
-function preset(label: string) {
-  return within(screen.getByRole("group", { name: "Total context presets" })).getByRole("button", {
+function preset(label: string, field = "Total context") {
+  return within(screen.getByRole("group", { name: `${field} presets` })).getByRole("button", {
     name: label,
   });
+}
+
+// Each textbox of the step, as `[id, value]`.
+function textboxValues() {
+  return screen.getAllByRole("textbox").map((input) => [input.id, input.getAttribute("value")]);
 }
 
 function sectionToggle(name: string) {
@@ -1239,13 +1310,11 @@ function sectionToggle(name: string) {
 }
 
 async function deployFromSettings(user: UserEvent) {
-  await user.click(screen.getByRole("button", { name: "Next" }));
-  await deployFromAdvanced(user);
+  await goToStep(user, "Review & deploy");
 }
 
 async function deployFromAdvanced(user: UserEvent) {
-  await user.click(screen.getByRole("button", { name: "Next" }));
-  expect(screen.getByText("Step 5 of 5 — Deploy")).toBeVisible();
+  await goToStep(user, "Review & deploy");
 }
 
 /** The option overrides of the first submitted deployment, as `[optionId, parameterId, value]`. */

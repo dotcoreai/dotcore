@@ -1,4 +1,4 @@
-import type { ReactNode, RefObject } from "react";
+import type { RefObject } from "react";
 
 import { Combobox } from "@/components/ui/combobox";
 import { FieldError } from "@/components/ui/field-error";
@@ -8,11 +8,10 @@ import {
   executionTargetName,
   executionTargetPresentation,
 } from "@/domain/execution-target";
-import { DeploymentStepHeading } from "@/features/deployments/deployment-form-layout";
 import type { ExactPlacement } from "@/gen/dotcore/deployment/v1/placement_pb";
 import type { ConfiguredExecutionTarget } from "@/gen/dotcore/site/v1/service_pb";
 
-interface ModelDeployTargetStepProps {
+interface ModelDeployTargetPickerProps {
   disabled: boolean;
   error?: string;
   executionTargets: readonly ConfiguredExecutionTarget[];
@@ -22,8 +21,6 @@ interface ModelDeployTargetStepProps {
   /** Whether the picker presents loading, which outlasts the read for a minimum visible time. */
   loadingPresentation: boolean;
   loadingMessageVisible: boolean;
-  /** Site-level notices shown above the picker. */
-  notices?: ReactNode;
   onBlur: () => void;
   onSelect: (target: ConfiguredExecutionTarget | undefined) => void;
   placement: ExactPlacement | null;
@@ -34,11 +31,11 @@ interface ModelDeployTargetStepProps {
 }
 
 /**
- * The Target step of the model deploy dialog: a picker of the configured model execution targets,
+ * The deploy dialog's execution target choice: a picker of the configured model execution targets,
  * named by host, with targets that can't deploy or can't run the profile disabled with their
  * reason. A single listed target is shown as a line.
  */
-export function ModelDeployTargetStep({
+export function ModelDeployTargetPicker({
   disabled,
   error,
   executionTargets,
@@ -46,13 +43,12 @@ export function ModelDeployTargetStep({
   loading,
   loadingPresentation,
   loadingMessageVisible,
-  notices,
   onBlur,
   onSelect,
   placement,
   targetsCurrent,
   unavailableReason,
-}: ModelDeployTargetStepProps) {
+}: ModelDeployTargetPickerProps) {
   const selectable = (target: ConfiguredExecutionTarget) =>
     executionTargetPresentation(target).deployable && !unavailableReason?.(target);
   const deployableCount = executionTargets.filter(
@@ -67,9 +63,7 @@ export function ModelDeployTargetStep({
     !loadingPresentation && executionTargets.length === 1 ? executionTargets[0] : undefined;
 
   return (
-    <div className="grid gap-4">
-      <DeploymentStepHeading>Target</DeploymentStepHeading>
-      {notices}
+    <div className="min-w-0 flex-1">
       {onlyTarget ? (
         <div className="grid gap-1">
           <OnlyTargetLine target={onlyTarget} />

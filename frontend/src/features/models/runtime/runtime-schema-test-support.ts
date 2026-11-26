@@ -32,7 +32,7 @@ export const llamaCppRelease = create(EngineReleaseSchema, {
     schemaId: "llama-cpp-v2",
     parameters: [
       unsignedParameter("total-context", "Total context", true, 512n, 2147483647n, "tokens", {
-        defaultValue: 32768n,
+        basic: true,
         description:
           "Context memory the server holds from the start and shares among the requests it generates at once. Each active request stores its own tokens in it, even when requests start with the same prompt. When it fills, the server frees idle requests first, then fails the active ones.",
       }),
@@ -44,11 +44,14 @@ export const llamaCppRelease = create(EngineReleaseSchema, {
         2147483647n,
         "tokens",
         {
+          basic: true,
+          defaultValue: 32768n,
           description:
             "Largest context one request may use from the total context. It reserves nothing: requests take memory from the total context as they grow. A new request reuses the start of an earlier prompt from an idle request or the prompt cache, but not from requests running at the same time.",
         },
       ),
       unsignedParameter("parallel-requests", "Parallel requests", true, 1n, 256n, "requests", {
+        basic: true,
         defaultValue: 4n,
         description:
           "Requests the server generates at the same time; further requests wait in a queue. All of them share the total context, so each added request only adds its own small state.",
@@ -78,7 +81,7 @@ export const vllmRelease = create(EngineReleaseSchema, {
     schemaId: "vllm-v2",
     parameters: [
       unsignedParameter("total-context", "Total context", true, 512n, undefined, "tokens", {
-        defaultValue: 32768n,
+        basic: true,
         description:
           "Context memory the server holds from the start and shares among the requests it generates at once.",
       }),
@@ -89,9 +92,14 @@ export const vllmRelease = create(EngineReleaseSchema, {
         512n,
         undefined,
         "tokens",
-        { description: "Largest context one request may use from the total context." },
+        {
+          basic: true,
+          defaultValue: 32768n,
+          description: "Largest context one request may use from the total context.",
+        },
       ),
       unsignedParameter("parallel-requests", "Parallel requests", true, 1n, undefined, "requests", {
+        basic: true,
         defaultValue: 4n,
         description:
           "Requests the server generates at the same time; further requests wait in a queue.",
@@ -139,7 +147,7 @@ export const ninferRelease = create(EngineReleaseSchema, {
     schemaId: "ninfer-v3",
     parameters: [
       unsignedParameter("total-context", "Total context", true, 512n, undefined, "tokens", {
-        defaultValue: 32768n,
+        basic: true,
         description:
           "Context memory the server holds from the start and shares among the requests it generates at once.",
       }),
@@ -150,9 +158,14 @@ export const ninferRelease = create(EngineReleaseSchema, {
         512n,
         4294967295n,
         "tokens",
-        { description: "Largest context one request may use from the total context." },
+        {
+          basic: true,
+          defaultValue: 32768n,
+          description: "Largest context one request may use from the total context.",
+        },
       ),
       unsignedParameter("parallel-requests", "Parallel requests", true, 1n, 8n, "requests", {
+        basic: true,
         defaultValue: 4n,
         description:
           "Requests the server generates at the same time; further requests wait in a queue.",
@@ -187,7 +200,7 @@ export const strataRelease = create(EngineReleaseSchema, {
     schemaId: "strata-v2",
     parameters: [
       unsignedParameter("total-context", "Total context", true, 512n, undefined, "tokens", {
-        defaultValue: 32768n,
+        basic: true,
       }),
       unsignedParameter(
         "context-per-request",
@@ -196,8 +209,10 @@ export const strataRelease = create(EngineReleaseSchema, {
         512n,
         undefined,
         "tokens",
+        { basic: true, defaultValue: 32768n },
       ),
       unsignedParameter("parallel-requests", "Parallel requests", true, 1n, undefined, "requests", {
+        basic: true,
         defaultValue: 1n,
       }),
       unsignedParameter(
@@ -250,6 +265,8 @@ export const runtimeSchemaModel = create(ModelSchema, {
     {
       optionId: "mtp",
       displayName: "MTP",
+      description: "Draft tokens per step.",
+      visibility: ParameterVisibility.ADVANCED,
       kind: { case: "speculativeDecoding", value: { method: SpeculativeDecodingMethod.MTP } },
     },
   ],
@@ -384,6 +401,8 @@ export function modelWithKvCachePrecision(profileDefault?: string) {
     create(ModelOptionSchema, {
       optionId: "kv-cache",
       displayName: "KV cache precision",
+      description: "Lower precision fits more context.",
+      visibility: ParameterVisibility.ADVANCED,
       kind: { case: "kvCachePrecision", value: {} },
     }),
   );
@@ -410,6 +429,40 @@ export function modelWithKvCachePrecision(profileDefault?: string) {
   return model;
 }
 
+/**
+ * The fixture model whose llama.cpp configuration declares a vision option, off by default, at the
+ * given catalog visibility; the other configurations declare none.
+ */
+export function modelWithVision(visibility = ParameterVisibility.BASIC) {
+  const model = clone(ModelSchema, runtimeSchemaModel);
+  model.options.push(
+    create(ModelOptionSchema, {
+      optionId: "vision",
+      displayName: "Vision",
+      description: "Lets requests include images.",
+      visibility,
+      kind: { case: "vision", value: {} },
+    }),
+  );
+  model.configurations[0].options.push(
+    create(ModelConfigurationOptionSchema, {
+      optionId: "vision",
+      parameters: [
+        {
+          parameterId: "enabled",
+          displayName: "Enabled",
+          parameterType: { case: "boolean", value: {} },
+        },
+      ],
+      defaultValues: {
+        optionId: "vision",
+        values: [{ parameterId: "enabled", value: { case: "boolean", value: false } }],
+      },
+    }),
+  );
+  return model;
+}
+
 /** An unsigned-integer engine parameter value, as profile defaults and requests carry it. */
 export function unsignedValue(parameterId: string, value: bigint) {
   return { parameterId, value: { case: "unsignedInteger" as const, value } };
@@ -423,11 +476,14 @@ function unsignedParameter(
   maximum: bigint | undefined,
   unit: string,
   {
+    basic = false,
     defaultValue,
     description = "",
     groupId,
     memoryPool,
   }: {
+    /** Whether the parameter is basic rather than advanced, as the context parameters are. */
+    basic?: boolean;
     defaultValue?: bigint;
     description?: string;
     groupId?: string;
@@ -439,7 +495,11 @@ function unsignedParameter(
     parameterId,
     displayName,
     groupId,
-    visibility: exposed ? ParameterVisibility.ADVANCED : ParameterVisibility.HIDDEN,
+    visibility: !exposed
+      ? ParameterVisibility.HIDDEN
+      : basic
+        ? ParameterVisibility.BASIC
+        : ParameterVisibility.ADVANCED,
     description,
     parameterType: {
       case: "unsignedInteger" as const,

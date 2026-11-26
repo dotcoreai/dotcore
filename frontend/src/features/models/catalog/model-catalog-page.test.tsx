@@ -202,7 +202,7 @@ describe("ModelCatalogPage deploy", () => {
       }),
     );
     const dialog = await screen.findByRole("dialog");
-    await within(dialog).findByText("Step 1 of 3 — Profile");
+    await within(dialog).findByText("Step 1 of 3 — Model & machine");
     await user.click(within(dialog).getByRole("button", { name: "Next" }));
     await user.click(within(dialog).getByRole("button", { name: "Next" }));
     await waitFor(() =>
@@ -273,7 +273,7 @@ describe("ModelCatalogPage deploy", () => {
       }),
     );
     const dialog = await screen.findByRole("dialog");
-    await within(dialog).findByText("Step 1 of 3 — Profile");
+    await within(dialog).findByText("Step 1 of 3 — Model & machine");
     await user.click(within(dialog).getByRole("button", { name: "Next" }));
     await user.click(within(dialog).getByRole("button", { name: "Next" }));
     await waitFor(() =>
@@ -346,7 +346,7 @@ describe("ModelCatalogPage deploy", () => {
       }),
     );
     const dialog = await screen.findByRole("dialog");
-    await within(dialog).findByText("Step 1 of 3 — Profile");
+    await within(dialog).findByText("Step 1 of 3 — Model & machine");
     await user.click(within(dialog).getByRole("button", { name: "Next" }));
     await user.click(within(dialog).getByRole("button", { name: "Next" }));
     await waitFor(() =>
@@ -382,7 +382,7 @@ describe("ModelCatalogPage deploy", () => {
       }),
     );
     const dialog = await screen.findByRole("dialog");
-    await within(dialog).findByText("Step 1 of 3 — Profile");
+    await within(dialog).findByText("Step 1 of 3 — Model & machine");
     await user.click(within(dialog).getByRole("button", { name: "Next" }));
     const total = within(dialog).getByRole("textbox", { name: "Total context" });
     await user.clear(total);
@@ -401,7 +401,7 @@ describe("ModelCatalogPage deploy", () => {
     expect(
       submitted?.find((parameter) => parameter.parameterId === "total-context")?.value,
     ).toEqual({ case: "unsignedInteger", value: 16385n });
-    expect(within(dialog).getByText("Step 3 of 3 — Deploy")).toBeVisible();
+    expect(within(dialog).getByText("Step 3 of 3 — Review & deploy")).toBeVisible();
   });
 
   it("stays where the operator went when a local deploy is accepted after leaving the Catalog", async () => {
@@ -422,7 +422,7 @@ describe("ModelCatalogPage deploy", () => {
       }),
     );
     const dialog = await screen.findByRole("dialog");
-    await within(dialog).findByText("Step 1 of 3 — Profile");
+    await within(dialog).findByText("Step 1 of 3 — Model & machine");
     await user.click(within(dialog).getByRole("button", { name: "Next" }));
     await user.click(within(dialog).getByRole("button", { name: "Next" }));
     await waitFor(() =>
@@ -497,7 +497,7 @@ describe("ModelCatalogPage deploy", () => {
         }),
       );
       const dialog = await screen.findByRole("dialog");
-      await within(dialog).findByText("Step 1 of 3 — Profile");
+      await within(dialog).findByText("Step 1 of 3 — Model & machine");
       await user.click(within(dialog).getByRole("button", { name: "Next" }));
       await user.click(within(dialog).getByRole("button", { name: "Next" }));
       await waitFor(() =>
@@ -545,7 +545,7 @@ describe("ModelCatalogPage deploy", () => {
           within(dialog).getByRole("textbox", { name: "Route name" }),
         ).toHaveAccessibleDescription(takenLocal),
       );
-      expect(within(dialog).getByText("Step 3 of 3 — Deploy")).toBeVisible();
+      expect(within(dialog).getByText("Step 3 of 3 — Review & deploy")).toBeVisible();
       expect(within(dialog).getByRole("button", { name: "Deploy" })).toBeDisabled();
     });
 

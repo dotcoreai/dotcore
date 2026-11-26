@@ -4847,8 +4847,9 @@ async fn profile_compatibility_sizes_a_scenario_against_the_simulated_target_mem
                 model_id: Some("fixture-model".to_owned()),
                 target: None,
                 scenario: Some(SizingScenario {
-                    total_context_tokens,
+                    total_context_tokens: Some(total_context_tokens),
                     context_tokens_per_request,
+                    parallel_requests: None,
                 }),
             }),
         )
@@ -4929,8 +4930,8 @@ async fn profile_compatibility_sizes_a_scenario_against_the_simulated_target_mem
                 Some(ParameterValues {
                     values: [
                         ("prompt-cache-memory-mib", 0),
-                        ("total-context", total_context),
                         ("parallel-requests", 4),
+                        ("total-context", total_context),
                         ("context-per-request", context_per_request),
                     ]
                     .into_iter()
@@ -5153,13 +5154,14 @@ async fn model_recommendations_rank_the_simulated_site_through_the_model_service
         rows: vec![RecommendedModelProfile {
             model_id: "fixture-model".to_owned(),
             profile_id: "fixture-profile".to_owned(),
-            // The entry sets none, so the row reads the profile's default.
-            context_tokens_per_request: 32_768,
+            // The entry sets none, so the row reads the engine default.
+            context_tokens_per_request: 8192,
             targets: vec![RecommendedProfileTarget {
                 target: Some(support::exact_placement("fixture-node", "fixture-target")),
                 fit: ModelRecommendationFit::FitsNow as i32,
                 model_deployment_id: None,
                 starting_total_context_tokens: Some(starting_total_context_tokens),
+                starting_context_tokens_per_request: None,
             }],
         }],
     }];
@@ -5271,7 +5273,7 @@ async fn rejected_local_configurations_return_their_reason_through_the_model_ser
     let service = model_service_for(&support::configuration(&root))
         .await
         .expect("model service");
-    let configuration = |values: &[(&str, u64)]| {
+    let configuration = |values: &[(&str, u64)], custom_arguments: &[&str]| {
         let mut configuration = support::local_model_configuration("fixture-artifact", 16_384);
         let parameters = &mut configuration
             .engine_parameter_values
@@ -5285,6 +5287,10 @@ async fn rejected_local_configurations_return_their_reason_through_the_model_ser
                 value: Some(parameter_value::Value::UnsignedInteger(*value)),
             });
         }
+        configuration.custom_argument_tokens = custom_arguments
+            .iter()
+            .map(|token| (*token).to_owned())
+            .collect();
         CreateLocalModelDeploymentRequest {
             model_id: "fixture-model".to_owned(),
             profile_id: "fixture-profile".to_owned(),
@@ -5293,24 +5299,33 @@ async fn rejected_local_configurations_return_their_reason_through_the_model_ser
         }
     };
 
-    for (values, message) in [
+    for (values, custom_arguments, message) in [
         (
             [("total-context", 16_385)].as_slice(),
+            [].as_slice(),
             "invalid engine parameter values: total context of 16385 tokens is above the maximum context of 16384 tokens of configuration \"fixture-configuration\", which processes prompts in a single llama.cpp micro-batch; lower the total context",
         ),
         (
             [("context-per-request", 16_385)].as_slice(),
+            [].as_slice(),
             "engine parameter values give each request 16385 tokens of context, above the maximum context of 16384 tokens of configuration \"fixture-configuration\" of catalog model \"fixture-model\"; reduce the context per request",
         ),
         (
             [("parallel-requests", 65)].as_slice(),
+            [].as_slice(),
             "invalid engine parameter values: profile \"fixture-profile\" engine parameter \"parallel-requests\" value 65 is outside its range 1..=64",
+        ),
+        // Only the flag is named: the value after `=` may be sensitive.
+        (
+            [].as_slice(),
+            ["--ctx-size=4096"].as_slice(),
+            "llama.cpp custom argument \"--ctx-size\" conflicts with resolved settings",
         ),
     ] {
         let preview = ModelServiceContract::preview_local_model_deployment(
             &service,
             Request::new(PreviewLocalModelDeploymentRequest {
-                local: Some(configuration(values)),
+                local: Some(configuration(values, custom_arguments)),
             }),
         )
         .await
@@ -5324,7 +5339,7 @@ async fn rejected_local_configurations_return_their_reason_through_the_model_ser
             &service,
             Request::new(CreateModelDeploymentRequest {
                 source: Some(create_model_deployment_request::Source::Local(
-                    configuration(values),
+                    configuration(values, custom_arguments),
                 )),
                 exposure: Some(support::hidden_model_exposure()),
                 model_deployment_name: None,
@@ -5347,7 +5362,7 @@ async fn rejected_local_configurations_return_their_reason_through_the_model_ser
     ModelServiceContract::preview_local_model_deployment(
         &service,
         Request::new(PreviewLocalModelDeploymentRequest {
-            local: Some(configuration(&[])),
+            local: Some(configuration(&[], &[])),
         }),
     )
     .await
