@@ -77,14 +77,14 @@ describe("OverviewInferenceSection", () => {
     const { metrics } = renderSection(metricsClientWith(watchMetrics));
     await waitFor(() => expect(metrics.current.cards[0].reading).toBeDefined());
 
-    // Eight inference queries for six cards, three app queries for three cards and seventeen
+    // Ten inference queries for six cards, three app queries for three cards and seventeen
     // machine queries for seven cards (a mean and an extreme per gauge), plus each inference card
-    // regrouped for the model and route splits; the app and machine cards chart their split from
-    // their own answers.
+    // regrouped for the model and route splits, token generation with its divisor; the app and
+    // machine cards chart their split from their own answers.
     expect(watchMetrics).toHaveBeenCalledTimes(1);
     const queries = watchMetrics.mock.calls[0][0].queries ?? [];
-    expect(queries.length).toBe(8 + 3 + 17 + inferenceCardIds.length * 2);
-    expect(overviewCardSpecs().reduce((count, spec) => count + spec.queries.length, 0)).toBe(28);
+    expect(queries.length).toBe(10 + 3 + 17 + (inferenceCardIds.length + 1) * 2);
+    expect(overviewCardSpecs().reduce((count, spec) => count + spec.queries.length, 0)).toBe(30);
 
     await user.click(screen.getByRole("button", { name: /^Requests/ }));
     await user.click(screen.getByRole("radio", { name: "Total" }));
@@ -246,6 +246,10 @@ function busyAnswer(query: MessageInitShape<typeof MetricQuerySchema> | undefine
             distributionPoint(lastStep, { 0.95: 400 }, true, { count: 1, sum: 400 }),
           ]),
         ];
+      case "router.attempt.decode_tokens":
+        return [counter(200)];
+      case "router.attempt.decode_time":
+        return [counter(4)];
       case "router.attempt.decode_rate":
         return [
           metricSeries({}, [distributionPoint(0, { 0.95: 90 }, false, { count: 4, sum: 200 })]),

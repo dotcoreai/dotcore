@@ -66,8 +66,9 @@ export function routeRequestCards(routeId: string): MetricCardSpec[] {
  * The six request cards of a subject over the range, in `requestCardOrder`: requests ended, prompt
  * tokens with the share served from cache, generated tokens with the average per successful
  * request, then the mean prompt processing speed, time to first token and token generation speed.
- * Counts total their steps and read zero when idle; speeds weigh every sample alike and read no
- * data when none was taken.
+ * Counts total their steps and read zero when idle. Prompt processing and time to first token
+ * weigh every sample alike, token generation weighs every generated token alike, and all three
+ * read no data when none was taken.
  */
 export function requestCardSpecs(subject: RequestCardSubject): MetricCardSpec[] {
   return [
@@ -144,12 +145,55 @@ function promptProcessingCard(matchers: Readonly<Record<string, string>>): Metri
   });
 }
 
-/** The mean token generation speed. */
+/**
+ * The token generation speed: the tokens generated over the range divided by the time spent
+ * generating them, so a long response weighs more than a short one. Charted per step the same
+ * way, with the p95 of per-attempt speeds above.
+ */
 function tokenGenerationCard(matchers: Readonly<Record<string, string>>): MetricCardSpec {
-  return speedCard(requestCardIds.tokenGeneration, "Token generation", "tokensPerSecond", {
-    matchers,
-    metric: metricNames.routerAttemptDecodeRate,
-  });
+  const seconds = counterQuery(metricNames.routerAttemptDecodeTime, { ...matchers });
+
+  return {
+    chart: ([tokens, time, rates]) => {
+      const p95 = rates?.grid?.series.find((series) => series.quantile === chartQuantile);
+      return [
+        {
+          color: "chart-1",
+          id: "mean",
+          label: "Mean",
+          mark: "line",
+          provisional: tokens?.stats?.series[0]?.provisional,
+          values: stepRatios(stepValues(tokens?.stats), stepValues(time?.stats)),
+        },
+        {
+          color: "chart-4",
+          id: "p95",
+          label: "p95",
+          mark: "line",
+          provisional: p95?.provisional,
+          values: p95?.values ?? emptySteps(tokens?.stats),
+        },
+      ];
+    },
+    groupValue: (series, _grid, divisor) =>
+      ratio(counterTotal(series.steps) ?? 0, counterTotal(divisor?.steps ?? []) ?? 0),
+    id: requestCardIds.tokenGeneration,
+    label: "Token generation",
+    mark: "line",
+    queries: [
+      counterQuery(metricNames.routerAttemptDecodeTokens, { ...matchers }),
+      seconds,
+      distributionQuery(metricNames.routerAttemptDecodeRate, matchers),
+    ],
+    read: ([tokens, time]) => ({
+      sparkline: stepRatios(stepValues(tokens?.stats), stepValues(time?.stats)),
+      value: ratio(total(tokens), total(time)),
+    }),
+    splitDivisor: seconds,
+    splitValues: (series, _stepMs, divisor) =>
+      stepRatios(perStepValues(series.steps), perStepValues(divisor?.steps ?? [])),
+    unit: "tokensPerSecond",
+  };
 }
 
 /** The mean time to first token. */
@@ -239,7 +283,20 @@ function countFigures(answer: MetricAnswer | undefined) {
 
 /** `numerator ÷ denominator` as a line below; no value without a denominator. */
 function ratioLine(label: string, unit: MetricCardUnit, numerator: number, denominator: number) {
-  return { label, unit, value: denominator ? numerator / denominator : null };
+  return { label, unit, value: ratio(numerator, denominator) };
+}
+
+/** `numerator ÷ denominator`; no value without a denominator. */
+function ratio(numerator: number, denominator: number): number | null {
+  return denominator ? numerator / denominator : null;
+}
+
+/** Each step's numerator divided by its denominator; a step without a denominator stays absent. */
+function stepRatios(
+  numerators: readonly (number | null)[],
+  denominators: readonly (number | null)[],
+): (number | null)[] {
+  return numerators.map((numerator, index) => ratio(numerator ?? 0, denominators[index] ?? 0));
 }
 
 /** The counter total across every series of an answer; an idle or absent counter totals zero. */

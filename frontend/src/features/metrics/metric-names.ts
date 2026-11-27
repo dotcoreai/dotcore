@@ -16,6 +16,8 @@ export const metricNames = {
   nodeHostMemoryAvailable: "node.host.memory.available",
   nodeHostMemoryTotal: "node.host.memory.total",
   routerAttemptDecodeRate: "router.attempt.decode_rate",
+  routerAttemptDecodeTime: "router.attempt.decode_time",
+  routerAttemptDecodeTokens: "router.attempt.decode_tokens",
   routerAttemptPrefillRate: "router.attempt.prefill_rate",
   routerAttemptTtft: "router.attempt.ttft",
   routerAttempts: "router.attempts",
