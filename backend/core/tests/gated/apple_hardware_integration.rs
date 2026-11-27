@@ -1,12 +1,13 @@
 //! Explicitly gated Apple Silicon tests for macOS hosts: Apple GPU observation, and llama.cpp
-//! on Metal served end to end by the native runtime.
+//! and oMLX on the Apple GPU served end to end by the native runtime.
 //!
 //! The observation test collects real node snapshots through Metal and checks the host's one
 //! Apple GPU. The end-to-end test deploys the smallest Gemma on a site with an persistent native
 //! target in a separate backend process, chats through its route, and proves the engine survives
 //! a backend restart. The decision test deploys clef-flash and sends decision requests through
 //! the router. The largest-fit test loads a model at the largest context the Mac's unified memory
-//! fits. All are ignored without the explicit hardware gate.
+//! fits. The oMLX test deploys the Qwen3.5 9B oMLX profile and checks a streamed chat completion.
+//! All are ignored without the explicit hardware gate.
 
 #![cfg(target_os = "macos")]
 
@@ -25,7 +26,7 @@ use dotcore_node_hardware::{
     hardware::{SystemHardwareSnapshotCollector, SystemNvidiaAcceleratorAdapter},
 };
 use dotcore_proto::dotcore::{
-    catalog::v1::parameter_value,
+    catalog::v1::{ParameterValue, ParameterValues, parameter_value},
     deployment::v1::accelerator_memory_observation,
     model::v1::{
         CreateLocalModelDeploymentRequest, CreateModelDeploymentRequest, DirectRouteExposure,
@@ -80,6 +81,14 @@ const PROCESS_EXIT_TIMEOUT: Duration = Duration::from_secs(60);
 const COMPLETION_TIMEOUT: Duration = Duration::from_secs(120);
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 const PROGRESS_INTERVAL: Duration = Duration::from_secs(15);
+
+const OMLX_MODEL_ID: &str = "qwen3-5-9b";
+const OMLX_PROFILE_ID: &str = "omlx-4bit";
+const OMLX_ROUTE_NAME: &str = "qwen3-5-9b-omlx";
+const OMLX_BINDING_ID: &str = "mlx-4bit";
+const OMLX_PARALLEL_REQUESTS: u64 = 2;
+const OMLX_CONTEXT_PER_REQUEST: u64 = 4_096;
+const OMLX_STREAM_MAX_TOKENS: u64 = 64;
 
 /// Lowest plausible footprint of the engine holding the Q4 weights in the shared pool.
 const MINIMUM_ENGINE_FOOTPRINT_BYTES: u64 = 1024 * 1024 * 1024;
@@ -401,6 +410,62 @@ async fn hw_apple_clef_flash_serves_decisions_and_rejects_oversized_requests() {
     backend.shutdown();
 }
 
+/// Deploys the Qwen3.5 9B oMLX profile through the native launcher at a small size, waits for it
+/// to be ready and checks one streamed chat completion through its route.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "hardware: just backend::test-apple"]
+async fn hw_apple_omlx_serves_a_streamed_chat_completion() {
+    // Drop order matters: the backend stops first, then leftover engines, then the site files.
+    let site = AppleSite::initialize().await;
+    let _leftovers = NativeProcessGuard {
+        state_root: site.native_state_root(),
+    };
+    let mut backend = ExternalBackendProcess::start(
+        site.root.clone(),
+        ProcessTestControls {
+            native_host: true,
+            shared_artifact_cache: true,
+            ..Default::default()
+        },
+    );
+
+    let mut models = model_client(&backend).await;
+    let deployment_id = create_deployment(
+        &mut models,
+        &site,
+        OMLX_MODEL_ID,
+        OMLX_PROFILE_ID,
+        OMLX_ROUTE_NAME,
+        omlx_configuration(),
+    )
+    .await;
+    wait_for_status(
+        &mut models,
+        &deployment_id,
+        ModelDeploymentStatus::Ready,
+        DEPLOYMENT_TIMEOUT,
+    )
+    .await;
+    NativeWorkload::find(&site.native_state_root()).assert_running();
+    assert_route_stream_chat(inference_address(&backend), OMLX_ROUTE_NAME).await;
+
+    let workload = NativeWorkload::find(&site.native_state_root());
+    models
+        .remove_model_deployment(RemoveModelDeploymentRequest {
+            model_deployment_id: deployment_id.clone(),
+        })
+        .await
+        .expect("remove the deployment");
+    wait_for_absence(&mut models, &deployment_id).await;
+    workload.wait_for_exit().await;
+    assert_eq!(
+        workload_directories(&site.native_state_root()),
+        Vec::<PathBuf>::new(),
+        "teardown must remove every native workload directory"
+    );
+    backend.shutdown();
+}
+
 /// Temporary site with one persistent native Apple inference target, initialized the way site
 /// initialization does it on this host.
 struct AppleSite {
@@ -651,6 +716,31 @@ fn model_configuration() -> LocalModelDeploymentConfiguration {
     configuration
 }
 
+/// oMLX deployment configuration for a small load: its total context is always the parallel
+/// requests times the context per request, and the prompt cache is off.
+fn omlx_configuration() -> LocalModelDeploymentConfiguration {
+    let values = [
+        (
+            "total-context",
+            OMLX_PARALLEL_REQUESTS * OMLX_CONTEXT_PER_REQUEST,
+        ),
+        ("context-per-request", OMLX_CONTEXT_PER_REQUEST),
+        ("parallel-requests", OMLX_PARALLEL_REQUESTS),
+        ("prompt-cache-memory-mib", 0),
+    ];
+    let mut configuration = support::local_model_configuration(OMLX_BINDING_ID, 0);
+    configuration.engine_parameter_values = Some(ParameterValues {
+        values: values
+            .into_iter()
+            .map(|(parameter_id, value)| ParameterValue {
+                parameter_id: parameter_id.to_owned(),
+                value: Some(parameter_value::Value::UnsignedInteger(value)),
+            })
+            .collect(),
+    });
+    configuration
+}
+
 async fn deployment(
     models: &mut ModelDeploymentServiceClient<Channel>,
     deployment_id: &str,
@@ -886,6 +976,90 @@ async fn assert_route_chat(inference_address: SocketAddr) {
         .unwrap_or_else(|| panic!("chat response has no generated text: {value}"));
     eprintln!(
         "[apple-metal] route chat answered {text:?} in {:?}",
+        started.elapsed()
+    );
+}
+
+/// Sends one streamed Chat Completions request through the route and checks the frames: generated
+/// text, a stop or length finish, the usage frame and the terminating marker.
+async fn assert_route_stream_chat(inference_address: SocketAddr, route_name: &str) {
+    let started = Instant::now();
+    let body = serde_json::to_vec(&serde_json::json!({
+        "model": route_name,
+        "messages": [{"role": "user", "content": "Reply with exactly READY."}],
+        "max_completion_tokens": OMLX_STREAM_MAX_TOKENS,
+        "temperature": 0,
+        "stream": true,
+        "stream_options": {"include_usage": true},
+    }))
+    .expect("stream payload");
+    let mut request = format!(
+        "POST /v1/chat/completions HTTP/1.1\r\nHost: test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    )
+    .into_bytes();
+    request.extend_from_slice(&body);
+    let response = tokio::time::timeout(
+        COMPLETION_TIMEOUT,
+        route_request(inference_address, &request),
+    )
+    .await
+    .expect("stream completion deadline");
+    assert!(
+        response.starts_with(b"HTTP/1.1 200"),
+        "stream failed: {}",
+        String::from_utf8_lossy(&response)
+    );
+    let text = String::from_utf8_lossy(&response);
+    let data: Vec<&str> = text
+        .lines()
+        .filter_map(|line| line.trim_end().strip_prefix("data: "))
+        .collect();
+    assert_eq!(
+        data.last().copied(),
+        Some("[DONE]"),
+        "the stream must end with the done marker: {text}"
+    );
+    let frames: Vec<Value> = data[..data.len() - 1]
+        .iter()
+        .map(|frame| serde_json::from_str(frame).expect("stream JSON frame"))
+        .collect();
+
+    // A reasoning model may spend a bounded completion on reasoning text only.
+    let generated: String = frames
+        .iter()
+        .flat_map(|frame| {
+            ["content", "reasoning_content", "reasoning"]
+                .into_iter()
+                .filter_map(|field| frame.pointer(&format!("/choices/0/delta/{field}")))
+                .filter_map(Value::as_str)
+        })
+        .collect();
+    assert!(
+        !generated.trim().is_empty(),
+        "stream has no generated text: {text}"
+    );
+    let finish_reasons: Vec<&str> = frames
+        .iter()
+        .filter_map(|frame| frame.pointer("/choices/0/finish_reason"))
+        .filter_map(Value::as_str)
+        .collect();
+    assert!(
+        matches!(finish_reasons.as_slice(), ["stop"] | ["length"]),
+        "stream must finish exactly once with stop or length: {finish_reasons:?}"
+    );
+    let completion_tokens = frames
+        .iter()
+        .find_map(|frame| frame.pointer("/usage/completion_tokens"))
+        .and_then(Value::as_u64)
+        .unwrap_or_else(|| panic!("stream has no usage frame: {text}"));
+    assert!(
+        (1..=OMLX_STREAM_MAX_TOKENS).contains(&completion_tokens),
+        "completion tokens {completion_tokens} outside 1..={OMLX_STREAM_MAX_TOKENS}"
+    );
+    eprintln!(
+        "[apple-omlx] streamed chat answered {generated:?} ({completion_tokens} tokens, {}) in {:?}",
+        finish_reasons[0],
         started.elapsed()
     );
 }
