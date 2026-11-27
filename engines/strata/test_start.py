@@ -218,6 +218,30 @@ class StartWrapperTest(unittest.TestCase):
         self.run_wrapper("--model", model, "--inkling-pack", "SQ-10.strata")
         self.assertEqual(len((self.data / "tokenizer-runs").read_text().splitlines()), 2)
 
+    def test_inkling_pack_takes_the_kv_cache_type_and_a_vision_file(self):
+        model = self.files("model", ["SQ-10.strata", "tokenizer.json", "chat_template.jinja"])
+        vision = self.files("vision", ["Vision.strata"]) / "Vision.strata"
+
+        config = self.run_wrapper("--model", model, "--inkling-pack", "SQ-10.strata", "--kv", "fp8", "--vision", vision)
+
+        self.assertEqual(config["args"], [
+            "--native", str(model / "SQ-10.strata"), "--max-context", "4096", "--kv", "fp8", "--kv-offload", "off",
+            "--vision", str(vision),
+        ])
+
+    def test_kv_cache_type_and_vision_are_checked(self):
+        model = self.files("model", ["SQ-10.strata", "tokenizer.json", "chat_template.jinja"])
+
+        for args in (["--kv", "k8v4"], ["--vision", model / "missing.strata"]):
+            with self.subTest(args=args), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as stopped:
+                self.run_wrapper("--model", model, "--inkling-pack", "SQ-10.strata", *args)
+            self.assertEqual(stopped.exception.code, 2)
+
+        gguf = self.files("gguf", ["m.gguf"]) / "m.gguf"
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as stopped:
+            self.run_wrapper("--model", gguf, "--arch", "qwen35moe", "--mtp", "2", "--kv", "fp8")
+        self.assertEqual(stopped.exception.code, 2)
+
     def test_the_image_builds_an_inkling_tokenizer_from_its_files(self):
         model = self.files("model", ["SQ-10.strata"])
         (model / "tokenizer.json").write_text(INKLING_TOKENIZER_JSON)

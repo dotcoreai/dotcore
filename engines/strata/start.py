@@ -31,6 +31,8 @@ FIRST_SHARD = re.compile(r".+-00001-of-\d{5}\.gguf")
 READY_PACK_OPTIONS = ("pack", "dense_gguf", "lookup_table_gguf", "token_embedding_gguf")
 MAIN_ENGINE_OPTIONS = ("draft_layer", "arch", "mtp", "expert_vram_mib", "expert_host_memory_mib", "unified_memory", *READY_PACK_OPTIONS)
 INKLING_TOKENIZER_FILES = ("tokenizer.json", "chat_template.jinja")
+# KV cache types of the Inkling engine Dotcore offers; the engine's others switch its attention backend.
+INKLING_KV_TYPES = ("fp16", "fp8")
 
 
 def main() -> None:
@@ -83,6 +85,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--parallel", type=int, default=1, help=f"requests served at once, 1 to {MAX_PARALLEL}")
     parser.add_argument("--expert-vram-mib", type=int, help="MiB of GPU memory for the model's experts; the rest stay in host memory")
     parser.add_argument("--expert-host-memory-mib", type=int, help="with --draft-layer, MiB of host memory pinned for the experts the GPU doesn't hold; the rest are read from the model's files, all of them with 0")
+    parser.add_argument("--kv", choices=INKLING_KV_TYPES, help=f"with --inkling-pack, the KV cache type; {INKLING_KV_TYPES[0]} when unset")
+    parser.add_argument("--vision", type=Path, help="with --inkling-pack, the vision file that lets requests include images")
     parser.add_argument("--port", type=int, default=8080, help="the port the server listens on")
     args = parser.parse_args()
 
@@ -95,6 +99,10 @@ def parse_args() -> argparse.Namespace:
         pack = Path(args.inkling_pack)
         if pack.is_absolute() or ".." in pack.parts or pack.suffix != ".strata":
             parser.error(f"--inkling-pack {args.inkling_pack} is not a .strata file within --model")
+        if args.vision is not None and not args.vision.is_file():
+            parser.error(f"--vision {args.vision} is not a file")
+    elif args.kv is not None or args.vision is not None:
+        parser.error("--kv and --vision need --inkling-pack")
     elif args.arch is None or args.mtp is None:
         parser.error("--arch and --mtp are needed without --inkling-pack")
     elif args.draft_layer is None:
@@ -187,11 +195,14 @@ def inkling_pack_files(args: argparse.Namespace) -> tuple[Path, Path]:
 def inkling_engine_args(args: argparse.Namespace, pack: Path) -> list[str]:
     """Returns the engine arguments of the Inkling path, which reads the pack in place.
 
-    The server adds the parallel requests and the pack's drafter itself. The cache stays FP16, which
-    the engine's automatic choice also picks below 16 parallel requests on a large GPU, and stays in
-    GPU memory: Dotcore sizes GPU memory only and relies on the engine lowering its context at start.
+    The server adds the parallel requests and the pack's drafter itself. The cache takes the chosen
+    type, FP16 when unset, which the engine's automatic choice also picks below 16 parallel requests
+    on a large GPU. It stays in GPU memory: Dotcore sizes GPU memory only and relies on the engine
+    lowering its context at start. The vision file, when given, lets requests include images.
     """
-    return ["--native", str(pack), "--max-context", str(args.context), "--kv", "fp16", "--kv-offload", "off"]
+    kv = args.kv or INKLING_KV_TYPES[0]
+    vision = ["--vision", str(args.vision)] if args.vision is not None else []
+    return ["--native", str(pack), "--max-context", str(args.context), "--kv", kv, "--kv-offload", "off", *vision]
 
 
 def ready_pack_files(args: argparse.Namespace) -> tuple[Path, list[str]]:
