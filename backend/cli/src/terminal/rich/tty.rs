@@ -104,6 +104,24 @@ impl TtyBackend {
         self.tty.write_all(b"\r\n\x1b[J")?;
         self.tty.flush()
     }
+
+    /// Moves to the start of `row` and erases everything from there, so the next output starts on
+    /// that row.
+    pub(super) fn erase_from(&mut self, row: u16) -> io::Result<()> {
+        self.inner.set_cursor_position(Position::new(0, row))?;
+        Backend::flush(&mut self.inner)?;
+        self.tty.write_all(b"\x1b[J")?;
+        self.tty.flush()
+    }
+
+    /// Starts or ends a frame the terminal shows at once, so a redraw never shows half drawn.
+    pub(super) fn synchronize(&mut self, begin: bool) -> io::Result<()> {
+        if begin {
+            crossterm::execute!(self.inner, crossterm::terminal::BeginSynchronizedUpdate)
+        } else {
+            crossterm::execute!(self.inner, crossterm::terminal::EndSynchronizedUpdate)
+        }
+    }
 }
 
 impl Backend for TtyBackend {

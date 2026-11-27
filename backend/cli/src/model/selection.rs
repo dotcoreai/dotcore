@@ -16,9 +16,9 @@ use dotcore_proto::dotcore::{
     },
 };
 
-use super::{catalog::SiteCatalog, payload::ParameterSchema};
+use super::{catalog::SiteCatalog, payload::ParameterSchema, site::DeploySite};
 use crate::{
-    management::{DeploymentGroup, Manager, call_failed},
+    management::{DeploymentGroup, call_failed},
     reference::{Referable, ReferenceKind, resolve},
 };
 
@@ -38,6 +38,7 @@ pub(super) struct Choices<'a> {
 }
 
 /// The model, target and profile of one deployment, with the server's preview of it.
+#[derive(Clone, Debug)]
 pub(super) struct Selection {
     /// The catalog model.
     pub(super) model: Model,
@@ -90,31 +91,39 @@ impl Selection {
 }
 
 /// Resolves the operator's choices on the site and previews the deployment they select.
-pub(super) async fn select(manager: &Manager, choices: &Choices<'_>) -> anyhow::Result<Selection> {
-    let catalog = SiteCatalog::read(manager, Some(choices.model)).await?;
+pub(super) async fn select(
+    site: &dyn DeploySite,
+    choices: &Choices<'_>,
+) -> anyhow::Result<Selection> {
+    let catalog = SiteCatalog::read(site, Some(choices.model)).await?;
     let Some(model) = catalog.models.first() else {
         bail!("no catalog model matches {:?}", choices.model);
     };
 
-    let targets = targets(&catalog, choices)?;
-    let profile = match choices.profile {
-        Some(reference) => resolve(ReferenceKind::Profile, reference, &model.profiles)?,
-        None => default_profile(&catalog, model, &targets)?,
+    let targets = targets(&catalog, choices.node, choices.target)?;
+    let named = choices
+        .profile
+        .map(|reference| resolve(ReferenceKind::Profile, reference, &model.profiles))
+        .transpose()?;
+    let target = default_target(&catalog, model, named, &targets);
+    let profile = match named {
+        Some(profile) => profile,
+        None => default_profile(&catalog, model, std::slice::from_ref(target))?,
     };
-    let entry = |target: &Target| entry(&catalog, model, profile, target);
-    let target = targets
-        .iter()
-        .find(|target| entry(target).is_some_and(fits_now))
-        .or_else(|| {
-            targets
-                .iter()
-                .find(|target| entry(target).is_some_and(runs))
-        })
-        .unwrap_or(&targets[0]);
+    preview(site, &catalog, model, profile, target).await
+}
 
-    let preview = manager
-        .models()
-        .preview_local_model_deployment(PreviewLocalModelDeploymentRequest {
+/// Has the server preview an untouched deployment of the profile on the target, and returns the
+/// selection it makes.
+pub(super) async fn preview(
+    site: &dyn DeploySite,
+    catalog: &SiteCatalog,
+    model: &Model,
+    profile: &ModelProfile,
+    target: &Target,
+) -> anyhow::Result<Selection> {
+    let preview = site
+        .preview(PreviewLocalModelDeploymentRequest {
             local: Some(CreateLocalModelDeploymentRequest {
                 model_id: model.model_id.clone(),
                 profile_id: profile.profile_id.clone(),
@@ -126,8 +135,7 @@ pub(super) async fn select(manager: &Manager, choices: &Choices<'_>) -> anyhow::
         .map_err(call_failed(
             DeploymentGroup::Model,
             format!("preview {} on {}", model.display_name, target.node_name),
-        ))?
-        .into_inner();
+        ))?;
 
     let shared_node = catalog
         .compatibility
@@ -138,7 +146,7 @@ pub(super) async fn select(manager: &Manager, choices: &Choices<'_>) -> anyhow::
         .count()
         > 1;
     Ok(Selection {
-        compatibility: entry(target).cloned(),
+        compatibility: entry(catalog, model, profile, target).cloned(),
         model: model.clone(),
         profile: profile.clone(),
         placement: target.placement.clone(),
@@ -150,16 +158,48 @@ pub(super) async fn select(manager: &Manager, choices: &Choices<'_>) -> anyhow::
     })
 }
 
-/// One model target the deployment may use.
-struct Target {
-    placement: ExactPlacement,
-    node_name: String,
-    target_name: String,
+/// The target a deployment defaults to: for a named profile, the first target where it fits now,
+/// else the first where it runs; without one, the first where any profile does. Else the first.
+pub(super) fn default_target<'a>(
+    catalog: &SiteCatalog,
+    model: &Model,
+    profile: Option<&ModelProfile>,
+    targets: &'a [Target],
+) -> &'a Target {
+    let accepted = |target: &Target, accepts: fn(&ModelProfileCompatibility) -> bool| {
+        model
+            .profiles
+            .iter()
+            .filter(|candidate| profile.is_none_or(|profile| profile == *candidate))
+            .any(|candidate| entry(catalog, model, candidate, target).is_some_and(accepts))
+    };
+    targets
+        .iter()
+        .find(|target| accepted(target, fits_now))
+        .or_else(|| targets.iter().find(|target| accepted(target, runs)))
+        .unwrap_or(&targets[0])
 }
 
-/// The targets the choices allow, in node then target order: the named target of the named node,
-/// every target of the named node, or every model target.
-fn targets(catalog: &SiteCatalog, choices: &Choices<'_>) -> anyhow::Result<Vec<Target>> {
+/// One model target a deployment may use.
+#[derive(Clone, Debug)]
+pub(super) struct Target {
+    /// Where the target is.
+    pub(super) placement: ExactPlacement,
+
+    /// The node's name, or its ID when unnamed.
+    pub(super) node_name: String,
+
+    /// The target's name, or its ID when unnamed.
+    pub(super) target_name: String,
+}
+
+/// The targets the references allow, in node then target order: the named target of the named
+/// node, every target of the named node, or every model target.
+pub(super) fn targets(
+    catalog: &SiteCatalog,
+    node: Option<&str>,
+    target: Option<&str>,
+) -> anyhow::Result<Vec<Target>> {
     let mut targets: Vec<Target> = catalog
         .compatibility
         .targets
@@ -178,7 +218,7 @@ fn targets(catalog: &SiteCatalog, choices: &Choices<'_>) -> anyhow::Result<Vec<T
         bail!("the site has no model target");
     }
 
-    if let Some(reference) = choices.node {
+    if let Some(reference) = node {
         let mut nodes: Vec<Node> = Vec::new();
         for target in &targets {
             if !nodes
@@ -194,7 +234,7 @@ fn targets(catalog: &SiteCatalog, choices: &Choices<'_>) -> anyhow::Result<Vec<T
         let node = resolve(ReferenceKind::Node, reference, &nodes)?.id.clone();
         targets.retain(|target| target.placement.site_node_id == node);
     }
-    if let Some(reference) = choices.target {
+    if let Some(reference) = target {
         let target = resolve(ReferenceKind::ExecutionTarget, reference, &targets)?
             .placement
             .clone();
@@ -204,7 +244,7 @@ fn targets(catalog: &SiteCatalog, choices: &Choices<'_>) -> anyhow::Result<Vec<T
 }
 
 /// The first profile that fits now on one of the targets, else the first that runs on one.
-fn default_profile<'a>(
+pub(super) fn default_profile<'a>(
     catalog: &SiteCatalog,
     model: &'a Model,
     targets: &[Target],
@@ -237,7 +277,8 @@ fn default_profile<'a>(
         })
 }
 
-fn entry<'a>(
+/// The profile's compatibility on the target, when the site reported one.
+pub(super) fn entry<'a>(
     catalog: &'a SiteCatalog,
     model: &Model,
     profile: &ModelProfile,
@@ -248,11 +289,13 @@ fn entry<'a>(
         .find(|entry| entry.target.as_ref() == Some(&target.placement))
 }
 
-fn runs(entry: &ModelProfileCompatibility) -> bool {
+/// Whether the profile runs on the entry's target.
+pub(super) fn runs(entry: &ModelProfileCompatibility) -> bool {
     entry.status() == ModelCompatibilityStatus::Runs
 }
 
-fn fits_now(entry: &ModelProfileCompatibility) -> bool {
+/// Whether the profile runs and fits the free memory of the entry's target now.
+pub(super) fn fits_now(entry: &ModelProfileCompatibility) -> bool {
     runs(entry) && entry.free_memory_fit() == MemoryFit::Fits
 }
 

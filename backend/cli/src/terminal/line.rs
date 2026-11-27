@@ -15,8 +15,8 @@ use std::{
 };
 
 use super::{
-    ConfirmPrompt, CountdownPrompt, InputPrompt, Message, MultiSelectPrompt, PromptError,
-    SelectItem, SelectPrompt, Terminal, TerminalCondition,
+    ConfirmPrompt, CountdownPrompt, FormAnswer, FormPrompt, FormSession, InputPrompt, Message,
+    MultiSelectPrompt, PromptError, SelectItem, SelectPrompt, Terminal, TerminalCondition, form,
     output::Output,
     render::{LastOutput, Symbols, plain_text},
 };
@@ -150,19 +150,30 @@ impl Terminal for LineTerminal {
     fn select(&mut self, prompt: &SelectPrompt) -> Result<usize, PromptError> {
         self.answered(|terminal| {
             terminal.write_line(prompt.title())?;
-            for (index, item) in prompt.items().iter().enumerate() {
-                terminal.write_line(&item_line(index, "", item))?;
-            }
-
-            let question = format!("Choice [{}]", prompt.default() + 1);
+            // The items listed, by index; part of a label lists only the items it matches.
+            let mut listed = (0..prompt.items().len()).collect::<Vec<_>>();
             loop {
-                let answer = terminal.ask(&question)?;
-                match parse_select_answer(prompt, &answer) {
-                    Some(index) => return Ok(index),
-                    None => terminal.write_line(&format!(
-                        "Choice must be a number from 1 to {} or a listed label.",
-                        prompt.items().len()
-                    ))?,
+                for (number, index) in listed.iter().enumerate() {
+                    terminal.write_line(&item_line(number, "", &prompt.items()[*index]))?;
+                }
+                let default = listed
+                    .iter()
+                    .position(|index| *index == prompt.default())
+                    .unwrap_or(0);
+                let question = format!("Choice [{}]", default + 1);
+                loop {
+                    let answer = terminal.ask(&question)?;
+                    match parse_select_answer(prompt, &listed, default, &answer) {
+                        SelectAnswer::One(index) => return Ok(index),
+                        SelectAnswer::Several(matches) => {
+                            listed = matches;
+                            break;
+                        }
+                        SelectAnswer::NoMatch => terminal.write_line(&format!(
+                            "Choice must be a number from 1 to {} or part of a listed label.",
+                            listed.len()
+                        ))?,
+                    }
                 }
             }
         })
@@ -235,6 +246,18 @@ impl Terminal for LineTerminal {
             }
             answer
         })
+    }
+
+    fn form(
+        &mut self,
+        prompt: &mut FormPrompt,
+        session: &mut dyn FormSession,
+    ) -> Result<FormAnswer, PromptError> {
+        form::ask_each_field(self, prompt, session)
+    }
+
+    fn live_footer(&mut self) -> bool {
+        false
     }
 
     fn countdown(&mut self, _prompt: &CountdownPrompt) -> Result<bool, PromptError> {
@@ -329,13 +352,57 @@ fn numbers(indices: &BTreeSet<usize>) -> String {
         .join(", ")
 }
 
-/// Resolves an item number (1-based) or a case-insensitive label; empty chooses the default.
-fn parse_select_answer(prompt: &SelectPrompt, answer: &str) -> Option<usize> {
+/// What a select answer picks among the `listed` items.
+enum SelectAnswer {
+    /// The item at this index.
+    One(usize),
+
+    /// The items, by index, that part of a label or description matches; list them again.
+    Several(Vec<usize>),
+
+    /// Nothing listed matches.
+    NoMatch,
+}
+
+/// Resolves a select answer among the `listed` items: empty takes the listed `default`, a
+/// number (1-based) or a case-insensitive label picks its item, and part of a label or
+/// description picks the one item it matches or narrows the list to several.
+fn parse_select_answer(
+    prompt: &SelectPrompt,
+    listed: &[usize],
+    default: usize,
+    answer: &str,
+) -> SelectAnswer {
     let answer = answer.trim();
+    let items = prompt.items();
     if answer.is_empty() {
-        return Some(prompt.default());
+        return SelectAnswer::One(listed[default]);
     }
-    item_index(prompt.items(), answer)
+    if let Ok(number) = answer.parse::<usize>() {
+        return match number
+            .checked_sub(1)
+            .and_then(|position| listed.get(position))
+        {
+            Some(index) => SelectAnswer::One(*index),
+            None => SelectAnswer::NoMatch,
+        };
+    }
+    if let Some(index) = listed
+        .iter()
+        .find(|index| items[**index].label().eq_ignore_ascii_case(answer))
+    {
+        return SelectAnswer::One(*index);
+    }
+    let matches = listed
+        .iter()
+        .copied()
+        .filter(|index| items[*index].matches(answer))
+        .collect::<Vec<_>>();
+    match matches.as_slice() {
+        [] => SelectAnswer::NoMatch,
+        [index] => SelectAnswer::One(*index),
+        _ => SelectAnswer::Several(matches),
+    }
 }
 
 /// Resolves comma-separated item numbers or labels of available items; empty keeps the
@@ -476,8 +543,39 @@ mod tests {
         assert_eq!(
             output.text(),
             "Host\n  1) 127.0.0.1\nChoice [1]: \
-             Choice must be a number from 1 to 1 or a listed label.\nChoice [1]: \
-             Choice must be a number from 1 to 1 or a listed label.\nChoice [1]: "
+             Choice must be a number from 1 to 1 or part of a listed label.\nChoice [1]: \
+             Choice must be a number from 1 to 1 or part of a listed label.\nChoice [1]: "
+        );
+    }
+
+    #[test]
+    fn select_takes_part_of_a_label_and_lists_the_matches_when_several() {
+        let prompt = SelectPrompt::new(
+            "Model",
+            [
+                SelectItem::new("Qwen 3.8 27B").with_description("qwen3-8-27b"),
+                SelectItem::new("Gemma 4 E4B").with_description("gemma-4-e4b"),
+                SelectItem::new("Qwen 3 Coder").with_description("qwen3-coder"),
+            ],
+        )
+        .with_default(2);
+
+        let (mut terminal, output) = line_terminal("gemma\n");
+        assert_eq!(terminal.select(&prompt).expect("one match"), 1);
+        assert_eq!(
+            output.text(),
+            "Model\n  1) Qwen 3.8 27B  qwen3-8-27b\n  2) Gemma 4 E4B  gemma-4-e4b\n  \
+             3) Qwen 3 Coder  qwen3-coder\nChoice [3]: "
+        );
+
+        let (mut terminal, output) = line_terminal("QWEN\nllama\n1\n");
+        assert_eq!(terminal.select(&prompt).expect("narrowed"), 0);
+        assert_eq!(
+            output.text(),
+            "Model\n  1) Qwen 3.8 27B  qwen3-8-27b\n  2) Gemma 4 E4B  gemma-4-e4b\n  \
+             3) Qwen 3 Coder  qwen3-coder\nChoice [3]: \
+             \x20 1) Qwen 3.8 27B  qwen3-8-27b\n  2) Qwen 3 Coder  qwen3-coder\nChoice [2]: \
+             Choice must be a number from 1 to 2 or part of a listed label.\nChoice [2]: "
         );
     }
 

@@ -14,8 +14,9 @@ use anyhow::Context;
 use serde::Serialize;
 
 use crate::terminal::{
-    ConfirmPrompt, CountdownPrompt, InputPrompt, Message, MultiSelectPrompt, PromptError,
-    SelectPrompt, Terminal, TerminalCondition, controlling_terminal_condition, open_terminal,
+    ConfirmPrompt, CountdownPrompt, FormAnswer, FormPrompt, FormSession, InputPrompt, Message,
+    MultiSelectPrompt, PromptError, SelectPrompt, Terminal, TerminalCondition,
+    controlling_terminal_condition, open_terminal,
 };
 
 /// How a command presents its result on stdout.
@@ -75,6 +76,18 @@ impl Terminal for LazyTerminal {
 
     fn countdown(&mut self, prompt: &CountdownPrompt) -> Result<bool, PromptError> {
         self.terminal().countdown(prompt)
+    }
+
+    fn form(
+        &mut self,
+        prompt: &mut FormPrompt,
+        session: &mut dyn FormSession,
+    ) -> Result<FormAnswer, PromptError> {
+        self.terminal().form(prompt, session)
+    }
+
+    fn live_footer(&mut self) -> bool {
+        self.terminal().live_footer()
     }
 
     fn message(&mut self, message: &Message) -> Result<(), PromptError> {

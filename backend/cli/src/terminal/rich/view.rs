@@ -60,6 +60,12 @@ pub(super) trait View {
 
     /// Returns the text of an answer for the summary line.
     fn answer_text(&self, output: &Self::Output) -> String;
+
+    /// Whether an answer leaves its summary line; without one the view is erased and the caller
+    /// reports the outcome.
+    fn leaves_answer(&self) -> bool {
+        true
+    }
 }
 
 /// The effect of one terminal event on a view.
@@ -118,35 +124,76 @@ pub(super) fn cancelled_line(theme: &Theme, title: &str) -> Line<'static> {
     ])
 }
 
-/// A list choice moved with the arrow keys (or j/k) and chosen with Enter.
+/// A list choice narrowed by typing, moved with the arrow keys and chosen with Enter.
+///
+/// Typed characters filter the items to those whose label or description contains them,
+/// ignoring case; Backspace removes the last one. The cursor moves over the matching items only,
+/// and the chosen item keeps its index in the whole list.
 pub(super) struct SelectView<'a> {
     prompt: &'a SelectPrompt,
+
+    /// The item under the cursor, by its index in the whole list.
     cursor: usize,
+
+    /// The first shown match, by its position among the matches.
     offset: usize,
+
+    filter: String,
+
+    /// The indices of the items the filter matches, in list order.
+    matches: Vec<usize>,
 }
 
 impl<'a> SelectView<'a> {
-    /// Opens the choice with its default item under the cursor.
+    /// Opens the choice with its default item under the cursor and every item shown.
     pub(super) fn new(prompt: &'a SelectPrompt) -> Self {
         Self {
             prompt,
             cursor: prompt.default(),
             offset: 0,
+            filter: String::new(),
+            matches: (0..prompt.items().len()).collect(),
         }
     }
 
     fn visible_items(&self, rows: u16) -> usize {
-        // The question and the key hint take one row each; keep at least one item row.
+        // The question and the key hint take one row each; keep at least one item row. The
+        // rows stay the same while the filter narrows the list, since the viewport is fixed.
         let room = rows.saturating_sub(2).clamp(1, MAX_VISIBLE_ITEMS);
         usize::from(room).min(self.prompt.items().len())
     }
 
+    /// The cursor's position among the matches, none when no item matches.
+    fn position(&self) -> Option<usize> {
+        self.matches.iter().position(|index| *index == self.cursor)
+    }
+
     fn scroll_to_cursor(&mut self, visible: usize) {
-        if self.cursor < self.offset {
-            self.offset = self.cursor;
-        } else if self.cursor >= self.offset + visible {
-            self.offset = self.cursor + 1 - visible;
+        let position = self.position().unwrap_or(0);
+        if position < self.offset {
+            self.offset = position;
+        } else if position >= self.offset + visible {
+            self.offset = position + 1 - visible;
         }
+    }
+
+    /// Narrows the items to the filter, keeping the cursor on its item when it still matches,
+    /// else on the first match.
+    fn refilter(&mut self) {
+        self.matches = self
+            .prompt
+            .items()
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| item.matches(&self.filter))
+            .map(|(index, _)| index)
+            .collect();
+        if self.position().is_none()
+            && let Some(first) = self.matches.first()
+        {
+            self.cursor = *first;
+        }
+        self.offset = 0;
     }
 
     fn item_line(
@@ -187,8 +234,9 @@ impl<'a> SelectView<'a> {
         }
         Line::from(spans)
     }
-    /// Draws the question, the visible items with their `mark`, and the key hint naming
-    /// `action`.
+
+    /// Draws the question with the filter, the visible matches with their `mark`, and the key
+    /// hint naming `action`.
     fn draw(
         &mut self,
         frame: &mut Frame,
@@ -209,16 +257,33 @@ impl<'a> SelectView<'a> {
             .max()
             .unwrap_or(0);
 
-        let mut lines = vec![Line::from(vec![
+        let mut title = vec![
             Span::styled("? ", theme.accent()),
             Span::styled(self.prompt.title().to_owned(), theme.heading()),
-        ])];
+        ];
+        if !self.filter.is_empty() {
+            title.push(Span::styled("  filter: ", theme.hint()));
+            title.push(Span::styled(self.filter.clone(), theme.accent()));
+        }
+        let mut lines = vec![Line::from(title)];
+        if self.matches.is_empty() {
+            lines.push(Line::styled("  no match", theme.hint()));
+        }
         lines.extend(
-            (self.offset..self.offset + visible)
-                .map(|index| self.item_line(index, mark(index), label_width, theme)),
+            self.matches
+                .iter()
+                .skip(self.offset)
+                .take(visible)
+                .map(|index| self.item_line(*index, mark(*index), label_width, theme)),
         );
-        let position = if self.prompt.items().len() > visible {
-            format!("  ({}/{}) ", self.cursor + 1, self.prompt.items().len())
+        // Rows the filter emptied stay blank, so the hint keeps its row.
+        lines.resize(visible + 1, Line::default());
+        let position = if self.matches.len() > visible {
+            format!(
+                "  ({}/{}) ",
+                self.position().map_or(0, |position| position + 1),
+                self.matches.len()
+            )
         } else {
             "  ".to_owned()
         };
@@ -229,24 +294,21 @@ impl<'a> SelectView<'a> {
         frame.render_widget(Paragraph::new(lines), area);
     }
 
-    /// Moves the cursor for an arrow, j/k, Home or End key, wrapping at both ends.
+    /// Moves the cursor among the matches for an arrow, Home or End key, wrapping at both ends.
     fn move_cursor(&mut self, code: KeyCode) {
-        let last = self.prompt.items().len() - 1;
-        match code {
-            KeyCode::Up | KeyCode::Char('k') => {
-                self.cursor = self.cursor.checked_sub(1).unwrap_or(last);
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                self.cursor = if self.cursor >= last {
-                    0
-                } else {
-                    self.cursor + 1
-                };
-            }
-            KeyCode::Home => self.cursor = 0,
-            KeyCode::End => self.cursor = last,
-            _ => {}
-        }
+        let (Some(position), Some(last)) = (self.position(), self.matches.len().checked_sub(1))
+        else {
+            return;
+        };
+        let position = match code {
+            KeyCode::Up => position.checked_sub(1).unwrap_or(last),
+            KeyCode::Down if position >= last => 0,
+            KeyCode::Down => position + 1,
+            KeyCode::Home => 0,
+            KeyCode::End => last,
+            _ => position,
+        };
+        self.cursor = self.matches[position];
     }
 }
 
@@ -263,13 +325,25 @@ impl View for SelectView<'_> {
     }
 
     fn render(&mut self, frame: &mut Frame, theme: &Theme) {
-        self.draw(frame, theme, |_| "", "enter select");
+        self.draw(frame, theme, |_| "", "type to filter · enter select");
     }
 
     fn on_key(&mut self, key: KeyEvent) -> Step<usize> {
         match key.code {
+            KeyCode::Enter if self.matches.is_empty() => Step::Continue,
             KeyCode::Enter => Step::Done(self.cursor),
             KeyCode::Esc => Step::Cancel,
+            KeyCode::Char(character) => {
+                self.filter.push(character);
+                self.refilter();
+                Step::Continue
+            }
+            KeyCode::Backspace => {
+                if self.filter.pop().is_some() {
+                    self.refilter();
+                }
+                Step::Continue
+            }
             code => {
                 self.move_cursor(code);
                 Step::Continue
@@ -282,7 +356,8 @@ impl View for SelectView<'_> {
     }
 }
 
-/// A checklist moved like a list choice, toggled with Space and confirmed with Enter.
+/// A checklist moved with the arrow keys (or j/k), toggled with Space and confirmed with Enter;
+/// it has no filter.
 pub(super) struct MultiSelectView<'a> {
     prompt: &'a MultiSelectPrompt,
     list: SelectView<'a>,
@@ -339,6 +414,14 @@ impl View for MultiSelectView<'_> {
             }
             KeyCode::Enter => Step::Done(self.checked.clone()),
             KeyCode::Esc => Step::Cancel,
+            KeyCode::Char('k') => {
+                self.list.move_cursor(KeyCode::Up);
+                Step::Continue
+            }
+            KeyCode::Char('j') => {
+                self.list.move_cursor(KeyCode::Down);
+                Step::Continue
+            }
             code => {
                 self.list.move_cursor(code);
                 Step::Continue
@@ -563,7 +646,7 @@ impl View for CountdownView<'_> {
 }
 
 /// Returns the end of `text` that fits in `width` columns, led by `…` when the start is cut.
-fn tail(text: &str, width: usize) -> String {
+pub(super) fn tail(text: &str, width: usize) -> String {
     if Span::raw(text).width() <= width {
         return text.to_owned();
     }
@@ -614,7 +697,7 @@ mod tests {
             "❯ 127.0.0.1   lo  loopback                                  ",
             "  192.0.2.10  en0                                           ",
             "  10.0.0.1    wg0  unavailable: not reachable               ",
-            "  ↑/↓ move · enter select · esc cancel                      ",
+            "  ↑/↓ move · type to filter · enter select · esc cancel    ",
         ]);
     }
 
@@ -686,7 +769,7 @@ mod tests {
             "❯ 127.0.0.1   lo  loopback              ",
             "  192.0.2.10  en0                       ",
             "  Enter another IPv4 address…           ",
-            "  ↑/↓ move · enter select · esc cancel  ",
+            "  ↑/↓ move · type to filter · enter sele",
         ]);
     }
 
@@ -711,12 +794,85 @@ mod tests {
         assert_eq!(handle_event(&mut view, key(KeyCode::Up)), Step::Continue);
         assert_eq!(handle_event(&mut view, key(KeyCode::Enter)), Step::Done(2));
         assert_eq!(handle_event(&mut view, key(KeyCode::Down)), Step::Continue);
-        assert_eq!(
-            handle_event(&mut view, key(KeyCode::Char('j'))),
-            Step::Continue
-        );
+        assert_eq!(handle_event(&mut view, key(KeyCode::Down)), Step::Continue);
         assert_eq!(handle_event(&mut view, key(KeyCode::Enter)), Step::Done(1));
         assert_eq!(view.answer_text(&1), "192.0.2.10");
+    }
+
+    #[test]
+    fn select_filters_by_label_or_description_and_keeps_the_original_index() {
+        let prompt = host_prompt();
+        let mut view = SelectView::new(&prompt);
+
+        for character in ['W', 'g'] {
+            assert_eq!(
+                handle_event(&mut view, key(KeyCode::Char(character))),
+                Step::Continue
+            );
+        }
+        let terminal = draw(&mut view, Theme::new(false), 60, 5);
+
+        terminal.backend().assert_buffer_lines([
+            "? Site host  filter: Wg                                     ",
+            "❯ 10.0.0.1    wg0  unavailable: not reachable               ",
+            "                                                            ",
+            "                                                            ",
+            "  ↑/↓ move · type to filter · enter select · esc cancel    ",
+        ]);
+        assert_eq!(handle_event(&mut view, key(KeyCode::Down)), Step::Continue);
+        assert_eq!(handle_event(&mut view, key(KeyCode::Enter)), Step::Done(2));
+    }
+
+    #[test]
+    fn select_without_a_match_says_so_until_backspace_widens_the_filter() {
+        let prompt = host_prompt();
+        let mut view = SelectView::new(&prompt);
+
+        for character in ['1', 'j'] {
+            handle_event(&mut view, key(KeyCode::Char(character)));
+        }
+        let terminal = draw(&mut view, Theme::new(false), 60, 5);
+
+        terminal.backend().assert_buffer_lines([
+            "? Site host  filter: 1j                                     ",
+            "  no match                                                  ",
+            "                                                            ",
+            "                                                            ",
+            "  ↑/↓ move · type to filter · enter select · esc cancel    ",
+        ]);
+        assert_eq!(handle_event(&mut view, key(KeyCode::Enter)), Step::Continue);
+
+        assert_eq!(
+            handle_event(&mut view, key(KeyCode::Backspace)),
+            Step::Continue
+        );
+        let terminal = draw(&mut view, Theme::new(false), 60, 5);
+        terminal.backend().assert_buffer_lines([
+            "? Site host  filter: 1                                      ",
+            "❯ 127.0.0.1   lo  loopback                                  ",
+            "  192.0.2.10  en0                                           ",
+            "  10.0.0.1    wg0  unavailable: not reachable               ",
+            "  ↑/↓ move · type to filter · enter select · esc cancel    ",
+        ]);
+        assert_eq!(handle_event(&mut view, key(KeyCode::End)), Step::Continue);
+        assert_eq!(handle_event(&mut view, key(KeyCode::Enter)), Step::Done(2));
+    }
+
+    #[test]
+    fn multi_select_still_moves_with_j_and_k() {
+        let prompt = accelerator_prompt();
+        let mut view = MultiSelectView::new(&prompt);
+
+        handle_event(&mut view, key(KeyCode::Char('j')));
+        handle_event(&mut view, key(KeyCode::Char('j')));
+        handle_event(&mut view, key(KeyCode::Char('k')));
+        handle_event(&mut view, key(KeyCode::Char('j')));
+        handle_event(&mut view, key(KeyCode::Char(' ')));
+
+        assert_eq!(
+            handle_event(&mut view, key(KeyCode::Enter)),
+            Step::Done(BTreeSet::from([0, 2]))
+        );
     }
 
     #[test]
@@ -734,7 +890,7 @@ mod tests {
             "  10.0.0.17                                       ",
             "  10.0.0.18                                       ",
             "❯ 10.0.0.19                                       ",
-            "  (20/20) ↑/↓ move · enter select · esc cancel    ",
+            "  (20/20) ↑/↓ move · type to filter · enter select",
         ]);
     }
 

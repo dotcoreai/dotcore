@@ -167,7 +167,7 @@ fn hardware_classes(
 }
 
 /// Formats a byte count in GiB with one decimal.
-fn gib(bytes: u64) -> String {
+pub(crate) fn gib(bytes: u64) -> String {
     format!("{:.1} GiB", bytes as f64 / GIB)
 }
 

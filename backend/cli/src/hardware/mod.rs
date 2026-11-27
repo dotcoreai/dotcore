@@ -14,6 +14,7 @@ use std::path::Path;
 
 use crate::{RootPathArgs, output::OutputFormat};
 use recommend::{RecommendArgs, recommend};
+pub(crate) use show::gib;
 use show::show;
 
 /// Commands that describe the hardware of a machine, with no site involved.

@@ -10,13 +10,16 @@
 mod catalog;
 mod deploy;
 mod list;
+mod memory;
 mod parameters;
 mod payload;
 mod projection;
 mod selection;
 mod show;
+mod site;
 mod template;
 mod view;
+mod wizard;
 
 use clap::{Args, Subcommand};
 use dotcore_proto::dotcore::{
@@ -75,8 +78,9 @@ enum ModelSubcommand {
     /// value that fits the target.
     Template(ModelTemplateArgs),
 
-    /// Deploy a catalog model from a payload, or from its starting values with `--yes`
+    /// Deploy a catalog model step by step on a terminal, or from a payload or its starting values
     ///
+    /// Without a payload or `--yes`, a terminal asks for each choice and shows the memory estimate.
     /// `--dry-run` estimates the deployment and reports whether it fits, without creating it.
     Deploy(ModelDeployArgs),
 

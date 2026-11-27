@@ -245,6 +245,12 @@ impl NodeNames {
             .collect();
         Self { names, targets }
     }
+
+    /// The names the given configured targets carry.
+    #[cfg(test)]
+    pub(crate) fn of_targets(configured: &[ConfiguredExecutionTarget]) -> Self {
+        Self::from_targets(configured)
+    }
 }
 
 /// Which deployment command group a reference or request belongs to, which picks its wording and

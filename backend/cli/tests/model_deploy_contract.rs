@@ -3,7 +3,7 @@
 
 use std::{
     io::Write,
-    process::{Output, Stdio},
+    process::{Command, Output, Stdio},
 };
 
 use dotcore_proto::dotcore::{
@@ -36,8 +36,9 @@ use tonic::Status;
 mod support;
 
 use support::{
-    command::dotc_at,
+    command::{dotc_at, isolated_dotc},
     fake_manager::{FakeManager, FakeState, MODEL_TARGET_ID, NODE_ID, Rpc, Scripted},
+    pty::{Session, Step, run_in_pty},
     yaml_documents,
 };
 
@@ -355,6 +356,232 @@ fn deploy_without_a_payload_or_yes_fails_before_calling_the_manager() {
         text(&output.stderr),
         "deploying needs a payload; pass -f <payload>, or --yes to deploy the starting values\n"
     );
+    assert_eq!(manager.calls(), []);
+}
+
+#[test]
+fn deploy_without_a_model_or_a_terminal_names_what_to_pass_and_never_asks() {
+    let manager = FakeManager::start(deploy_site());
+
+    for (arguments, message) in [
+        (
+            &["deploy"][..],
+            "deploying needs a model; pass <model> with --yes, or -f <payload>, or run in a \
+             terminal to choose one\n",
+        ),
+        (
+            &["--yaml", "deploy"][..],
+            "deploying needs a model, which --yaml never asks for; pass <model> with --yes, or \
+             -f <payload>\n",
+        ),
+        (
+            &["deploy", "--yes"][..],
+            "deploying needs a model; pass <model>, or -f <payload>\n",
+        ),
+    ] {
+        let output = run(&manager, arguments);
+
+        assert_eq!(output.status.code(), Some(1), "{arguments:?}");
+        assert_eq!(text(&output.stdout), "", "{arguments:?}");
+        assert_eq!(text(&output.stderr), message, "{arguments:?}");
+    }
+    assert_eq!(manager.calls(), []);
+}
+
+#[test]
+fn deploy_on_a_line_terminal_asks_each_field_and_creates_what_was_reviewed() {
+    let mut state = deploy_site();
+    state.catalog.models.push(Model {
+        model_id: "gemma-4-e4b".to_owned(),
+        display_name: "Gemma 4 E4B".to_owned(),
+        ..Model::default()
+    });
+    let manager = FakeManager::start(state);
+
+    let Some(run) = run_in_pty(
+        terminal_command(&manager, &["deploy"]),
+        Session::new([
+            Step::Wait("Model & machine"),
+            Step::Wait("gemma-4-e4b (unavailable: no machine can run models)"),
+            Step::Send(b"\n"),
+            Step::Wait("long-context  too large"),
+            Step::Send(b"\n"),
+            Step::Wait("KV cache Precision"),
+            Step::Send(b"2\n"),
+            Step::Wait("Parallel requests (1-64) [4]:"),
+            Step::Send(b"2\n"),
+            Step::Wait("Context per request (4096-262144 tokens) [32768]:"),
+            Step::Send(b"\n"),
+            Step::Wait("Total context (follows the two above) [131072]:"),
+            Step::Send(b"\n"),
+            Step::Wait("Name [Qwen 3.8 27B]:"),
+            Step::Send(b"\n"),
+            Step::Wait("Route (follows the name) [qwen-3.8-27b]:"),
+            Step::Send(b"\n"),
+            Step::Wait("Deploy?"),
+            Step::Wait("Choice [1]:"),
+            Step::Send(b"\n"),
+        ]),
+    ) else {
+        return;
+    };
+
+    assert_eq!(run.code(), Some(0), "screen:\n{}", run.session());
+    assert_eq!(run.stdout(), "OK Deploying Qwen 3.8 27B (created-1)\n");
+    assert_eq!(run.stderr(), "");
+    let session = run.session();
+    let model = session
+        .lines()
+        .skip_while(|line| line.trim() != "Model")
+        .take(4)
+        .map(str::trim_end)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        model,
+        [
+            "Model",
+            "  1) Qwen 3.8 27B  qwen3-8-27b · fits now",
+            "  2) Gemma 4 E4B  gemma-4-e4b (unavailable: no machine can run models)",
+            "Choice [1]:",
+        ],
+        "{session}"
+    );
+    for expected in [
+        "OK Model & machine: Qwen 3.8 27B · balanced on gb10-host Simulated models",
+        "OK Capabilities: KV cache Precision q8_0",
+        "OK Memory: fits now",
+        "Fits all 2 at once: 49152",
+        "OK Context: 32768 per request · 2 parallel · 131072 total",
+    ] {
+        assert!(
+            run.session().lines().any(|line| line.trim() == expected),
+            "{expected}\n{}",
+            run.session()
+        );
+    }
+    let state = manager.state();
+    assert_eq!(state.catalog.preview_requests.len(), 1);
+    assert_eq!(
+        state.catalog.create_requests,
+        [CreateModelDeploymentRequest {
+            exposure: Some(ModelDeploymentExposure {
+                kind: Some(model_deployment_exposure::Kind::Direct(
+                    DirectRouteExposure {
+                        route_name: "qwen-3.8-27b".to_owned(),
+                    }
+                )),
+            }),
+            ..create_request(
+                LocalModelDeploymentConfiguration {
+                    engine_parameter_values: Some(ParameterValues {
+                        values: vec![value(
+                            "parallel-requests",
+                            parameter_value::Value::UnsignedInteger(2)
+                        )],
+                    }),
+                    option_overrides: vec![ModelOptionValues {
+                        option_id: "kv-cache-precision".to_owned(),
+                        values: vec![ModelOptionParameterValue {
+                            parameter_id: "precision".to_owned(),
+                            value: Some(model_option_parameter_value::Value::String(
+                                "q8_0".to_owned()
+                            )),
+                        }],
+                    }],
+                    ..LocalModelDeploymentConfiguration::default()
+                },
+                None,
+                "Qwen 3.8 27B",
+            )
+        }]
+    );
+}
+
+#[test]
+fn deploy_on_a_rich_terminal_shows_forms_and_leaves_one_line_per_step() {
+    let manager = FakeManager::start(deploy_site());
+
+    let Some(run) = run_in_pty(
+        rich_terminal_command(&manager, &["deploy", "qwen"]),
+        Session::new([
+            Step::Wait("Profile"),
+            Step::Send(b"\r"),
+            Step::Wait("KV cache Precision"),
+            Step::Send(b"\x1b[C\r"),
+            Step::Wait("Parallel requests"),
+            Step::Send(b"\x7f2"),
+            Step::Wait("Fits all 2 at once: 49152"),
+            Step::Send(b"\r"),
+            Step::Wait("[ Deploy ]"),
+            Step::Send(b"\r"),
+        ])
+        .with_stdout_on_terminal(),
+    ) else {
+        return;
+    };
+
+    assert_eq!(run.code(), Some(0), "screen:\n{}", run.session());
+    let session = run.session();
+    let lines = session
+        .lines()
+        .map(str::trim_end)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        lines[lines.len() - 6..],
+        [
+            "OK Model & machine: Qwen 3.8 27B · balanced on gb10-host Simulated models",
+            "OK Capabilities: KV cache Precision q8_0",
+            "OK Context: 32768 per request · 2 parallel · 131072 total",
+            "OK Review & deploy: Qwen 3.8 27B · route qwen-3.8-27b",
+            "OK Memory on gb10-host Simulated models: fit unknown",
+            "OK Deploying Qwen 3.8 27B (created-1)",
+        ],
+        "{session}"
+    );
+    assert!(
+        !session.contains("this deployment"),
+        "no memory block is left behind:\n{session}"
+    );
+    assert_eq!(manager.state().catalog.create_requests.len(), 1);
+}
+
+#[test]
+fn ctrl_c_in_a_form_cancels_the_deploy_and_creates_nothing() {
+    let manager = FakeManager::start(deploy_site());
+
+    let Some(run) = run_in_pty(
+        rich_terminal_command(&manager, &["deploy", "qwen", "--profile", "balanced"]),
+        Session::new([Step::Wait("KV cache Precision"), Step::Send(b"\x03")]),
+    ) else {
+        return;
+    };
+
+    assert_eq!(run.code(), Some(130), "screen:\n{}", run.session());
+    assert_eq!(run.stdout(), "");
+    assert_eq!(manager.state().catalog.create_requests, []);
+    run.assert_terminal_restored();
+}
+
+#[test]
+fn deploy_in_yaml_on_a_terminal_names_the_payload_flags_and_never_asks() {
+    let manager = FakeManager::start(deploy_site());
+
+    let Some(run) = run_in_pty(
+        terminal_command(&manager, &["--yaml", "deploy", "qwen"]),
+        Session::new([]),
+    ) else {
+        return;
+    };
+
+    assert_eq!(run.code(), Some(1), "screen:\n{}", run.screen());
+    assert_eq!(run.stdout(), "");
+    assert_eq!(
+        run.stderr(),
+        "deploying needs a payload, which --yaml never asks for; pass -f <payload>, or --yes to \
+         deploy the starting values\n"
+    );
+    assert_eq!(run.screen().trim(), "");
     assert_eq!(manager.calls(), []);
 }
 
@@ -747,6 +974,24 @@ fn run_with_input(manager: &FakeManager, arguments: &[&str], input: &str) -> Out
         .write_all(input.as_bytes())
         .expect("write the payload");
     child.wait_with_output().expect("run dotc model")
+}
+
+/// `dotc model <arguments>` against the manager, for a pseudo-terminal to run as its controlling
+/// terminal.
+fn terminal_command(manager: &FakeManager, arguments: &[&str]) -> Command {
+    let mut command = isolated_dotc();
+    command
+        .arg("model")
+        .args(arguments)
+        .env("DOTCORE_MANAGEMENT_ADDR", manager.address().to_string());
+    command
+}
+
+/// A command on a terminal type that draws arrow-key prompts.
+fn rich_terminal_command(manager: &FakeManager, arguments: &[&str]) -> Command {
+    let mut command = terminal_command(manager, arguments);
+    command.env("TERM", "xterm-256color");
+    command
 }
 
 fn text(value: &[u8]) -> String {

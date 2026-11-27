@@ -7,7 +7,7 @@
 
 use clap::Args;
 use dotcore_proto::dotcore::{
-    catalog::v1::{ListModelsRequest, Model},
+    catalog::v1::Model,
     deployment::v1::MemoryFit,
     model::v1::{
         ListModelProfileCompatibilityRequest, ListModelProfileCompatibilityResponse,
@@ -16,8 +16,9 @@ use dotcore_proto::dotcore::{
 };
 use serde::Serialize;
 
+use super::site::DeploySite;
 use crate::{
-    management::{DeploymentGroup, Manager, ManagerArgs, NodeNames, call_failed, single_line},
+    management::{DeploymentGroup, ManagerArgs, NodeNames, call_failed, single_line},
     output::{OutputFormat, present, write_yaml},
     reference::{Referable, ReferenceKind, resolve},
     terminal::Message,
@@ -71,17 +72,14 @@ pub(super) struct SiteCatalog {
 impl SiteCatalog {
     /// Reads the catalog and the compatibility of every profile, narrowed to the model `reference`
     /// names when given.
-    pub(super) async fn read(manager: &Manager, reference: Option<&str>) -> anyhow::Result<Self> {
-        let mut models = manager
-            .catalog()
-            .list_models(ListModelsRequest {})
-            .await
-            .map_err(call_failed(
-                DeploymentGroup::Model,
-                "read the model catalog",
-            ))?
-            .into_inner()
-            .models;
+    pub(super) async fn read(
+        site: &dyn DeploySite,
+        reference: Option<&str>,
+    ) -> anyhow::Result<Self> {
+        let mut models = site.list_models().await.map_err(call_failed(
+            DeploymentGroup::Model,
+            "read the model catalog",
+        ))?;
         if let Some(reference) = reference {
             let model = resolve(ReferenceKind::CatalogModel, reference, &models)?.clone();
             models = vec![model];
@@ -89,9 +87,8 @@ impl SiteCatalog {
         let model_id = reference
             .and(models.first())
             .map(|model| model.model_id.clone());
-        let compatibility = manager
-            .models()
-            .list_model_profile_compatibility(ListModelProfileCompatibilityRequest {
+        let compatibility = site
+            .compatibility(ListModelProfileCompatibilityRequest {
                 model_id,
                 target: None,
                 scenario: None,
@@ -100,12 +97,11 @@ impl SiteCatalog {
             .map_err(call_failed(
                 DeploymentGroup::Model,
                 "read where the catalog models fit",
-            ))?
-            .into_inner();
+            ))?;
         Ok(Self {
             models,
             compatibility,
-            nodes: manager.node_names().await,
+            nodes: site.node_names().await,
         })
     }
 
@@ -145,6 +141,61 @@ pub(super) fn fit_label(entry: &ModelProfileCompatibility) -> &'static str {
         ModelCompatibilityStatus::CannotRun => "can't run",
         ModelCompatibilityStatus::Unknown | ModelCompatibilityStatus::Unspecified => "unknown",
     }
+}
+
+/// Why a profile can't run on a target, or can't be judged there, in operator words; `machine` is
+/// the target's node as the operator knows it.
+pub(super) fn reason_words(entry: &ModelProfileCompatibility, machine: &str) -> String {
+    use dotcore_proto::dotcore::model::v1::ModelCompatibilityReasonCode as Code;
+
+    let reason = entry.reason.clone().unwrap_or_default();
+    match reason.code() {
+        Code::TargetNotReporting => format!("{machine} isn't reporting"),
+        Code::NvidiaDriverUnknown => format!("{machine}'s NVIDIA driver version is unknown"),
+        Code::AcceleratorMemoryUnknown => format!("{machine}'s GPU memory type is unknown"),
+        Code::TargetPlatformInvalid => format!("{machine} has no supported platform configured"),
+        Code::PlatformMismatch => {
+            format!("{machine} reports another platform than the configured one")
+        }
+        Code::NoAccelerator => format!("{machine} reports no usable GPU"),
+        Code::NoMatchingEngineArtifact => {
+            format!("no engine build of this profile runs on {machine}")
+        }
+        Code::NoSupportedHardwareClass => format!("not supported on {machine}'s hardware"),
+        Code::NvidiaDriverBelowMinimum => format!(
+            "needs NVIDIA driver {} or later (has {})",
+            reason.minimum_nvidia_driver_major_version, reason.observed_nvidia_driver_major_version
+        ),
+        Code::AcceleratorDeviceCountMismatch => format!(
+            "needs {} GPUs, the target has {}",
+            reason.required_accelerator_device_count, reason.accelerator_device_count
+        ),
+        Code::ProfileUnresolvable => format!("its launch settings don't resolve on {machine}"),
+        Code::Unspecified => match entry.status() {
+            ModelCompatibilityStatus::CannotRun => format!("can't run on {machine}"),
+            _ => format!("can't check {machine} right now"),
+        },
+    }
+}
+
+/// The best fit among compatibility entries, in the words of [`fit_label`]: fitting now first,
+/// then needing memory freed, too large, and any other word; none without an entry.
+pub(super) fn best_fit<'a>(
+    entries: impl IntoIterator<Item = &'a ModelProfileCompatibility>,
+) -> Option<&'static str> {
+    const ORDER: [&str; 7] = [
+        "fits now",
+        "needs memory freed",
+        "too large",
+        "unsupported sizing",
+        "fit unknown",
+        "can't run",
+        "unknown",
+    ];
+    entries
+        .into_iter()
+        .map(fit_label)
+        .min_by_key(|label| ORDER.iter().position(|word| word == label))
 }
 
 fn table(catalog: &SiteCatalog) -> Message {

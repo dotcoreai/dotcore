@@ -1,10 +1,14 @@
-//! Deploys one local model from a payload, or from its starting values, after confirmation.
+//! Deploys one local model step by step on a terminal, or from a payload, or from its starting
+//! values after confirmation.
 //!
-//! The payload comes from a file or stdin; without one, `--yes` deploys the model's starting
-//! values. Flags and overrides apply on top. A dry run has the server estimate the result and
-//! creates nothing: it reports the fit, what fits (for context per request, the value every
-//! parallel request reaches at once), the values sizing derives and any reason a launch would
-//! reject them. Only an invalid payload or a launch rejection fails it.
+//! On a terminal with nothing to deploy from, a guided flow asks for each choice. Otherwise the
+//! payload comes from a file or stdin; without one, the model's starting values are deployed when
+//! the operator agreed beforehand. Choices and overrides named on the command line apply on top,
+//! and every way builds the same payload and sends the same request. A dry run has the server
+//! estimate the result and creates nothing: it reports the fit, how full each memory would be,
+//! what fits (for context per request, the value every parallel request reaches at once), the
+//! values sizing derives and any reason a launch would reject them. Only an invalid payload or a
+//! launch rejection fails it.
 
 use std::path::PathBuf;
 
@@ -13,7 +17,7 @@ use dotcore_proto::dotcore::{
     catalog::v1::ParameterValues,
     model::v1::{
         CreateLocalModelDeploymentRequest, CreateModelDeploymentRequest,
-        EstimateLocalModelResourcesResponse, LocalModelDeploymentAdvisory,
+        EstimateLocalModelResourcesResponse, LocalModelDeploymentAdvisory, ModelDeployment,
         create_model_deployment_request,
     },
 };
@@ -21,23 +25,30 @@ use serde::Serialize;
 
 use super::{
     document,
-    payload::ModelPayload,
+    memory::memory_block,
+    payload::{ModelPayload, PayloadError},
     selection::{Choices, Selection, select},
-    template::{ChoiceArgs, all_at_once, estimate, starting_payload},
+    site::DeploySite,
+    template::{ChoiceArgs, estimate, starting_payload},
     view::ParameterView,
+    wizard::{self, WizardDefaults},
 };
 use crate::{
-    deploy::PayloadSource,
-    management::{DeploymentGroup, ManagerArgs, call_failed},
+    deploy::{PayloadSource, Setting},
+    management::{DeploymentGroup, Manager, ManagerArgs, call_failed},
     output::{OutputFormat, present, require_consent, write_yaml},
-    terminal::{ConfirmPrompt, Message, PromptError, open_terminal},
+    terminal::{
+        ConfirmPrompt, Message, PromptError, TerminalCondition, controlling_terminal_condition,
+        open_terminal,
+    },
 };
 
 /// Arguments for deploying a model.
 #[derive(Debug, Args)]
 pub struct ModelDeployArgs {
-    /// Catalog model: its ID, name, or a unique part of either; replaces the payload's.
-    #[arg(value_name = "MODEL", required_unless_present = "file")]
+    /// Catalog model: its ID, name, or a unique part of either; replaces the payload's. Chosen on
+    /// a terminal when left out.
+    #[arg(value_name = "MODEL")]
     model: Option<String>,
 
     /// Payload file to deploy, or `-` for stdin.
@@ -67,17 +78,33 @@ pub struct ModelDeployArgs {
     manager: ManagerArgs,
 }
 
-/// Deploys the payload, or reports its estimate on a dry run.
+/// Deploys step by step on a terminal, else the payload, or reports its estimate on a dry run.
 pub(crate) async fn model_deploy(
     arguments: ModelDeployArgs,
     format: OutputFormat,
 ) -> anyhow::Result<()> {
-    let from_file = arguments.file.is_some();
-    if !from_file && !arguments.yes && !arguments.dry_run {
-        anyhow::bail!(
-            "deploying needs a payload; pass -f <payload>, or --yes to deploy the starting values"
-        );
+    if guided(&arguments, format, controlling_terminal_condition())? {
+        let manager = arguments.manager.connect().await?;
+        let choices = arguments.choices;
+        let deployed = wizard::run(
+            &manager,
+            open_terminal().as_mut(),
+            WizardDefaults {
+                model: arguments.model,
+                profile: choices.profile,
+                node: choices.node,
+                target: choices.target,
+                name: arguments.name,
+                route: arguments.route,
+                settings: choices.settings,
+            },
+        )
+        .await?;
+        let name = deployed.payload.name.clone().unwrap_or_default();
+        return report_deployed(&manager, deployed.deployment, &name, format).await;
     }
+
+    let from_file = arguments.file.is_some();
     let mut payload = match &arguments.file {
         Some(path) => ModelPayload::parse(&PayloadSource::from(path.clone()).read()?)?,
         None => ModelPayload::default(),
@@ -99,24 +126,8 @@ pub(crate) async fn model_deploy(
     }
 
     let manager = arguments.manager.connect().await?;
-    let selection = select(
-        &manager,
-        &Choices {
-            model: &payload.model,
-            profile: payload.profile.as_deref(),
-            node: payload.node.as_deref(),
-            target: payload.target.as_deref(),
-        },
-    )
-    .await?;
-    if !from_file {
-        let flags = payload;
-        payload = starting_payload(&selection);
-        payload.name = flags.name.or(payload.name);
-        payload.route = flags.route.or(payload.route);
-    }
-    payload.apply(&choices.settings)?;
-    let configuration = payload.configuration(&selection.schema())?;
+    let (selection, payload) =
+        resolve_payload(&manager, payload, !from_file, &choices.settings).await?;
 
     if arguments.dry_run {
         let estimate = estimate(&manager, &selection, &payload).await?;
@@ -129,10 +140,7 @@ pub(crate) async fn model_deploy(
         "deploying needs a terminal to confirm; run in a terminal or pass --yes",
         "deploying needs confirmation, which --yaml never asks for; pass --yes to deploy",
     )?;
-    let name = payload
-        .name
-        .clone()
-        .unwrap_or_else(|| selection.model.display_name.clone());
+    let name = deployment_name(&selection, &payload);
     if !arguments.yes {
         let question = format!(
             "Deploy {name} ({}) on {} {}?",
@@ -144,28 +152,135 @@ pub(crate) async fn model_deploy(
     }
 
     let deployment = manager
-        .models()
-        .create_model_deployment(CreateModelDeploymentRequest {
-            source: Some(create_model_deployment_request::Source::Local(
-                CreateLocalModelDeploymentRequest {
-                    model_id: selection.model.model_id.clone(),
-                    profile_id: selection.profile.profile_id.clone(),
-                    placement: Some(selection.placement.clone()),
-                    configuration: Some(configuration),
-                },
-            )),
-            exposure: Some(payload.exposure()),
-            model_deployment_name: payload.name.clone(),
-        })
+        .create(create_request(&selection, &payload)?)
         .await
         .map_err(call_failed(
             DeploymentGroup::Model,
             format!("deploy {name}"),
-        ))?
-        .into_inner()
-        .deployment
-        .unwrap_or_default();
+        ))?;
+    report_deployed(&manager, deployment, &name, format).await
+}
 
+/// Resolves a payload's choices on the site and applies the overrides. Without values of its
+/// own (`starting`), the payload is replaced by the selection's starting payload, keeping its
+/// name and route.
+pub(super) async fn resolve_payload(
+    site: &dyn DeploySite,
+    mut payload: ModelPayload,
+    starting: bool,
+    settings: &[Setting],
+) -> anyhow::Result<(Selection, ModelPayload)> {
+    let selection = select(
+        site,
+        &Choices {
+            model: &payload.model,
+            profile: payload.profile.as_deref(),
+            node: payload.node.as_deref(),
+            target: payload.target.as_deref(),
+        },
+    )
+    .await?;
+    if starting {
+        let flags = payload;
+        payload = starting_payload(&selection);
+        payload.name = flags.name.or(payload.name);
+        payload.route = flags.route.or(payload.route);
+    }
+    payload.apply(settings)?;
+    payload.configuration(&selection.schema())?;
+    Ok((selection, payload))
+}
+
+/// The request creating the payload's deployment of the selection; every deploy sends this one.
+pub(super) fn create_request(
+    selection: &Selection,
+    payload: &ModelPayload,
+) -> Result<CreateModelDeploymentRequest, PayloadError> {
+    Ok(CreateModelDeploymentRequest {
+        source: Some(create_model_deployment_request::Source::Local(
+            CreateLocalModelDeploymentRequest {
+                model_id: selection.model.model_id.clone(),
+                profile_id: selection.profile.profile_id.clone(),
+                placement: Some(selection.placement.clone()),
+                configuration: Some(payload.configuration(&selection.schema())?),
+            },
+        )),
+        exposure: Some(payload.exposure()),
+        model_deployment_name: payload.name.clone(),
+    })
+}
+
+/// The name a deployment is shown by: the payload's, else the model's.
+pub(super) fn deployment_name(selection: &Selection, payload: &ModelPayload) -> String {
+    payload
+        .name
+        .clone()
+        .unwrap_or_else(|| selection.model.display_name.clone())
+}
+
+/// The operator words of the preview's advisories that need them.
+pub(super) fn advisories_words(selection: &Selection) -> Vec<&'static str> {
+    selection
+        .advisories
+        .iter()
+        .filter_map(|advisory| match advisory {
+            LocalModelDeploymentAdvisory::HostKvOffloadSharesMemory => {
+                Some("Host KV cache offload adds no memory on a target that shares host memory")
+            }
+            LocalModelDeploymentAdvisory::UnifiedMemoryPoolBelowDeviceMinimum => {
+                Some("The target's shared memory is below the model's per-device memory minimum")
+            }
+            LocalModelDeploymentAdvisory::Unspecified => None,
+        })
+        .collect()
+}
+
+/// Whether the deploy is asked for step by step: on a terminal, with no payload, no starting
+/// values to deploy and no dry run. Fails, never prompting, when nothing else says what to
+/// deploy.
+fn guided(
+    arguments: &ModelDeployArgs,
+    format: OutputFormat,
+    condition: TerminalCondition,
+) -> anyhow::Result<bool> {
+    let named = arguments.model.is_some();
+    if arguments.file.is_some() {
+        return Ok(false);
+    }
+    if arguments.yes || arguments.dry_run {
+        if !named {
+            anyhow::bail!("deploying needs a model; pass <model>, or -f <payload>");
+        }
+        return Ok(false);
+    }
+    match (format, condition, named) {
+        (OutputFormat::Yaml, _, true) => anyhow::bail!(
+            "deploying needs a payload, which --yaml never asks for; pass -f <payload>, or --yes \
+             to deploy the starting values"
+        ),
+        (OutputFormat::Yaml, _, false) => anyhow::bail!(
+            "deploying needs a model, which --yaml never asks for; pass <model> with --yes, or \
+             -f <payload>"
+        ),
+        (_, TerminalCondition::NonInteractive, true) => anyhow::bail!(
+            "deploying needs a payload; pass -f <payload>, or --yes to deploy the starting values"
+        ),
+        (_, TerminalCondition::NonInteractive, false) => anyhow::bail!(
+            "deploying needs a model; pass <model> with --yes, or -f <payload>, or run in a \
+             terminal to choose one"
+        ),
+        (_, TerminalCondition::Interactive, _) => Ok(true),
+    }
+}
+
+/// Prints the created deployment: its YAML document, or one line with its name, `name` when the
+/// manager returned none, and its ID.
+async fn report_deployed(
+    manager: &Manager,
+    deployment: ModelDeployment,
+    name: &str,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
     if format == OutputFormat::Yaml {
         let nodes = manager.node_names().await;
         return write_yaml(&document(deployment, &nodes, false));
@@ -173,7 +288,7 @@ pub(crate) async fn model_deploy(
     present(&[Message::Success(format!(
         "Deploying {} ({})",
         if deployment.model_deployment_name.is_empty() {
-            &name
+            name
         } else {
             &deployment.model_deployment_name
         },
@@ -274,63 +389,11 @@ fn dry_run_messages(
         Some(MemoryFit::Exceeds) => Message::Warning(format!("{place} exceeds the free memory")),
         _ => Message::Info(format!("{place}: fit unknown")),
     }];
-
-    let mut facts = Vec::new();
-    if let Some(tokens) = estimate.largest_context_tokens_per_request {
-        facts.push((
-            format!(
-                "Context per request fitting {}",
-                all_at_once(parallel_requests)
-            ),
-            tokens.to_string(),
-        ));
-    }
-    if let Some(tokens) = estimate.largest_total_context_tokens {
-        facts.push(("Largest total context".to_owned(), tokens.to_string()));
-    }
-    for fit in &estimate.memory_parameter_fits {
-        facts.push((
-            format!("Largest {}", fit.parameter_id),
-            fit.largest_fit.to_string(),
-        ));
-    }
-    for value in estimate
-        .hardware_class_estimates
-        .iter()
-        .flat_map(|entry| entry.derived_engine_parameter_values.iter())
-        .flat_map(|values| values.values.iter())
-    {
-        if let Some(text) = value
-            .value
-            .as_ref()
-            .map(dotcore_catalog::typed_parameters::canonical_text)
-        {
-            facts.push((format!("Derived {}", value.parameter_id), text));
-        }
-    }
-    if !facts.is_empty() {
-        messages.push(Message::KeyValues(facts));
-    }
+    messages.extend(memory_block(estimate, parallel_requests));
     messages.extend(
         advisories
             .iter()
             .map(|advisory| Message::Warning((*advisory).to_owned())),
     );
     messages
-}
-
-fn advisories_words(selection: &Selection) -> Vec<&'static str> {
-    selection
-        .advisories
-        .iter()
-        .filter_map(|advisory| match advisory {
-            LocalModelDeploymentAdvisory::HostKvOffloadSharesMemory => {
-                Some("Host KV cache offload adds no memory on a target that shares host memory")
-            }
-            LocalModelDeploymentAdvisory::UnifiedMemoryPoolBelowDeviceMinimum => {
-                Some("The target's shared memory is below the model's per-device memory minimum")
-            }
-            LocalModelDeploymentAdvisory::Unspecified => None,
-        })
-        .collect()
 }

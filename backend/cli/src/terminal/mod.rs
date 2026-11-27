@@ -13,6 +13,8 @@
 //! get plain line prompts. An operator cancel always surfaces as one distinct outcome so the
 //! command exits with 130.
 
+mod bars;
+mod form;
 mod line;
 mod output;
 mod render;
@@ -21,7 +23,9 @@ mod scripted;
 
 use std::{collections::BTreeSet, fs::File, io, time::Duration};
 
+pub use bars::{BarChart, BarFill, BarRow, BarSegment, BarTone};
 use dotcore_domain::timing::Timing;
+pub use form::{FieldHint, Footer, FormAnswer, FormField, FormPrompt, FormSession};
 use line::LineTerminal;
 pub use scripted::{ScriptedAnswer, ScriptedPrompt, ScriptedTerminal};
 
@@ -51,6 +55,18 @@ pub trait Terminal {
     /// or the operator goes ahead early, false when the operator skips it or the terminal cannot
     /// read a single key press.
     fn countdown(&mut self, prompt: &CountdownPrompt) -> Result<bool, PromptError>;
+
+    /// Shows one step's fields together until the operator finishes the step or goes back,
+    /// editing the prompt's field values in place and telling `session` about each edit.
+    fn form(
+        &mut self,
+        prompt: &mut FormPrompt,
+        session: &mut dyn FormSession,
+    ) -> Result<FormAnswer, PromptError>;
+
+    /// Whether forms keep their footer on screen while open; otherwise the caller states what
+    /// the footer says at the points that matter.
+    fn live_footer(&mut self) -> bool;
 
     /// Displays one styled message as command output, on stdout; a warning goes to stderr.
     fn message(&mut self, message: &Message) -> Result<(), PromptError>;
@@ -278,6 +294,14 @@ impl SelectItem {
     pub fn unavailable_reason(&self) -> Option<&str> {
         self.unavailable_reason.as_deref()
     }
+
+    /// Reports whether the label or the description contains `filter`, ignoring case.
+    fn matches(&self, filter: &str) -> bool {
+        let filter = filter.to_lowercase();
+        std::iter::once(self.label())
+            .chain(self.description())
+            .any(|text| text.to_lowercase().contains(&filter))
+    }
 }
 
 /// A yes/no question with the decision taken by an empty answer.
@@ -426,6 +450,9 @@ pub enum Message {
         /// Rows of cells, top first, each empty or the index of its color in `colors`.
         rows: Vec<Vec<Option<usize>>>,
     },
+
+    /// Labelled stacked bars with a legend, such as how full each memory would be.
+    Bars(BarChart),
 }
 
 /// A standard terminal color for the cells of a [`Message::ColorGrid`].

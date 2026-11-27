@@ -808,6 +808,7 @@ fn prompt_titles(terminal: &ScriptedTerminal) -> Vec<&str> {
             ScriptedPrompt::Confirm(prompt) => prompt.title(),
             ScriptedPrompt::Input(prompt) | ScriptedPrompt::Secret(prompt) => prompt.title(),
             ScriptedPrompt::Countdown(prompt) => prompt.title(),
+            ScriptedPrompt::Form(prompt) => &prompt.title,
         })
         .collect()
 }

@@ -39,7 +39,7 @@ pub(super) struct ParameterView {
 }
 
 /// One parameter as the operator sees it.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct ViewParameter {
     /// The key a payload and `--set` use: the engine parameter ID, or `<option>.<parameter>` for
     /// an option parameter.
@@ -56,6 +56,12 @@ pub(super) struct ViewParameter {
 
     /// The type its value takes.
     pub(super) kind: ValueKind,
+
+    /// The values it accepts when it is a choice, in catalog order; empty otherwise.
+    pub(super) choices: Vec<String>,
+
+    /// Whether the value is a secret, which is never shown.
+    pub(super) secret: bool,
 
     /// Whether the parameter shows in the main view or only among advanced ones.
     pub(super) advanced: bool,
@@ -154,6 +160,13 @@ fn engine_parameters(
                 summary: definition.summary.clone(),
                 accepts: engine_accepts(definition),
                 kind: engine_kind(definition),
+                choices: match &definition.parameter_type {
+                    Some(parameter_definition::ParameterType::StringEnum(schema)) => {
+                        schema.values.clone()
+                    }
+                    _ => Vec::new(),
+                },
+                secret: is_secret(definition),
                 advanced: visibility == ParameterVisibility::Advanced,
                 starting,
                 follows: id == TOTAL_CONTEXT && total_follows,
@@ -200,6 +213,13 @@ fn option_parameters(
                     summary: declared.summary.clone(),
                     accepts: option_accepts(definition),
                     kind: option_kind(definition),
+                    choices: match &definition.parameter_type {
+                        Some(model_option_parameter_definition::ParameterType::StringEnum(
+                            schema,
+                        )) => schema.values.clone(),
+                        _ => Vec::new(),
+                    },
+                    secret: false,
                     advanced: declared.visibility() == ParameterVisibility::Advanced,
                     starting: resolved
                         .and_then(|values| {
@@ -318,17 +338,21 @@ mod tests {
                         true,
                         Some("true")
                     ),
-                    parameter(
-                        "api-key",
-                        "API key",
-                        "secret, generated when left out",
-                        ValueKind::Text,
-                        true,
-                        None
-                    ),
+                    ViewParameter {
+                        secret: true,
+                        ..parameter(
+                            "api-key",
+                            "API key",
+                            "secret, generated when left out",
+                            ValueKind::Text,
+                            true,
+                            None
+                        )
+                    },
                     ViewParameter {
                         option: true,
                         summary: "Precision of the context cache.".into(),
+                        choices: vec!["f16".into(), "q8_0".into()],
                         ..parameter(
                             "kv-cache-precision.precision",
                             "KV cache precision Precision",
@@ -413,6 +437,8 @@ mod tests {
             summary: format!("What {name} does."),
             accepts: accepts.into(),
             kind,
+            choices: Vec::new(),
+            secret: false,
             advanced,
             starting: starting.map(Into::into),
             follows: false,

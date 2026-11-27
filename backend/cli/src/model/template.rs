@@ -17,14 +17,16 @@ use dotcore_proto::dotcore::{
 };
 
 use super::{
-    payload::ModelPayload,
+    payload::{ModelPayload, PayloadError},
     selection::{Choices, Selection, select},
+    site::DeploySite,
     view::{CONTEXT_PER_REQUEST, ParameterView, TOTAL_CONTEXT, ViewParameter},
 };
 use crate::{
     deploy::{PlainValue, Setting, ValueKind},
-    management::{DeploymentGroup, Manager, ManagerArgs, call_failed},
+    management::{DeploymentGroup, ManagerArgs, call_failed},
     output::write_text,
+    terminal::FieldHint,
 };
 
 /// Arguments for printing a deploy payload.
@@ -100,25 +102,30 @@ pub(super) fn starting_payload(selection: &Selection) -> ModelPayload {
 
 /// Has the server estimate the payload's configuration on the selected target.
 pub(super) async fn estimate(
-    manager: &Manager,
+    site: &dyn DeploySite,
     selection: &Selection,
     payload: &ModelPayload,
 ) -> anyhow::Result<EstimateLocalModelResourcesResponse> {
-    let configuration = payload.configuration(&selection.schema())?;
-    Ok(manager
-        .models()
-        .estimate_local_model_resources(EstimateLocalModelResourcesRequest {
-            model_id: selection.model.model_id.clone(),
-            profile_id: selection.profile.profile_id.clone(),
-            configuration: Some(configuration),
-            placement: Some(selection.placement.clone()),
-        })
+    Ok(site
+        .estimate(estimate_request(selection, payload)?)
         .await
         .map_err(call_failed(
             DeploymentGroup::Model,
             format!("estimate the memory of {}", selection.model.display_name),
-        ))?
-        .into_inner())
+        ))?)
+}
+
+/// The request estimating the payload's configuration on the selected target.
+pub(super) fn estimate_request(
+    selection: &Selection,
+    payload: &ModelPayload,
+) -> Result<EstimateLocalModelResourcesRequest, PayloadError> {
+    Ok(EstimateLocalModelResourcesRequest {
+        model_id: selection.model.model_id.clone(),
+        profile_id: selection.profile.profile_id.clone(),
+        configuration: Some(payload.configuration(&selection.schema())?),
+        placement: Some(selection.placement.clone()),
+    })
 }
 
 /// The payload text: a summary comment, the selection, then every shown parameter with its
@@ -178,7 +185,9 @@ fn render(
             entry(
                 parameter,
                 payload.parameters.get(&parameter.key),
-                hints.get(parameter.key.as_str()).map(String::as_str),
+                hints
+                    .get(parameter.key.as_str())
+                    .map(|hint| hint.text.as_str()),
                 "  ",
             )
         })
@@ -300,19 +309,23 @@ fn section(lines: &mut Vec<String>, key: &str, entries: Vec<Entry>) {
     }
 }
 
-/// What the estimate says fits for each parameter it bounds, by parameter ID, in the words the
-/// template and the dry run show.
-fn fit_hints(
+/// What the estimate says fits for each parameter it bounds, by parameter ID: the value it
+/// suggests and the words the template, the dry run and the guided deploy show.
+pub(super) fn fit_hints(
     estimate: &EstimateLocalModelResourcesResponse,
     parallel_requests: Option<u64>,
-) -> BTreeMap<&str, String> {
-    let mut hints: BTreeMap<&str, String> = estimate
+) -> BTreeMap<&str, FieldHint> {
+    let hint = |words: String, value: String| FieldHint {
+        text: format!("{words}: {value}"),
+        value,
+    };
+    let mut hints: BTreeMap<&str, FieldHint> = estimate
         .memory_parameter_fits
         .iter()
         .map(|fit| {
             (
                 fit.parameter_id.as_str(),
-                format!("Largest fit: {}", fit.largest_fit),
+                hint("Largest fit".to_owned(), fit.largest_fit.to_string()),
             )
         })
         .collect();
@@ -321,11 +334,17 @@ fn fit_hints(
         // not the most one request may use, so the hint says so.
         hints.insert(
             CONTEXT_PER_REQUEST,
-            format!("Fits {}: {tokens}", all_at_once(parallel_requests)),
+            hint(
+                format!("Fits {}", all_at_once(parallel_requests)),
+                tokens.to_string(),
+            ),
         );
     }
     if let Some(tokens) = estimate.largest_total_context_tokens {
-        hints.insert(TOTAL_CONTEXT, format!("Largest fit: {tokens}"));
+        hints.insert(
+            TOTAL_CONTEXT,
+            hint("Largest fit".to_owned(), tokens.to_string()),
+        );
     }
     hints
 }

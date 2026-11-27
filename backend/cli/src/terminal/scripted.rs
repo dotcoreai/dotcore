@@ -10,8 +10,8 @@
 use std::collections::{BTreeSet, VecDeque};
 
 use super::{
-    ConfirmPrompt, CountdownPrompt, InputPrompt, Message, MultiSelectPrompt, PromptError,
-    SelectPrompt, Terminal, TerminalCondition,
+    ConfirmPrompt, CountdownPrompt, FormAnswer, FormPrompt, FormSession, InputPrompt, Message,
+    MultiSelectPrompt, PromptError, SelectPrompt, Terminal, TerminalCondition, form::settle,
 };
 
 /// A terminal that replays scripted answers and records what the flow presented.
@@ -21,6 +21,12 @@ pub struct ScriptedTerminal {
     prompts: Vec<ScriptedPrompt>,
     messages: Vec<Message>,
     lines: Vec<String>,
+
+    /// Whether forms keep a live footer, as on a rich terminal.
+    live_footer: bool,
+
+    /// Every footer the open forms showed, as plain lines, each recorded when it changed.
+    footers: Vec<Vec<String>>,
 }
 
 impl ScriptedTerminal {
@@ -35,7 +41,15 @@ impl ScriptedTerminal {
             prompts: Vec::new(),
             messages: Vec::new(),
             lines: Vec::new(),
+            live_footer: true,
+            footers: Vec::new(),
         }
+    }
+
+    /// Makes forms ask one field at a time without a footer, as on a line terminal.
+    pub fn without_live_footer(mut self) -> Self {
+        self.live_footer = false;
+        self
     }
 
     /// Creates an interactive terminal with queued answers.
@@ -61,6 +75,23 @@ impl ScriptedTerminal {
     /// Returns the plain text of every displayed message, one entry per line.
     pub fn lines(&self) -> &[String] {
         &self.lines
+    }
+
+    /// Returns every footer the forms showed, as plain lines, each recorded when it changed.
+    pub fn footers(&self) -> &[Vec<String>] {
+        &self.footers
+    }
+
+    /// Records the session's footer when it differs from the last one recorded.
+    fn record_footer(&mut self, session: &dyn FormSession) {
+        let Some(footer) = session.footer() else {
+            return;
+        };
+        let mut lines = vec![footer.title.clone()];
+        lines.extend(footer.lines.iter().flat_map(Message::plain_lines));
+        if self.footers.last() != Some(&lines) {
+            self.footers.push(lines);
+        }
     }
 
     /// Records `prompt` and returns the next answer, or the stop outcome it scripts.
@@ -164,6 +195,55 @@ impl Terminal for ScriptedTerminal {
         }
     }
 
+    fn form(
+        &mut self,
+        prompt: &mut FormPrompt,
+        session: &mut dyn FormSession,
+    ) -> Result<FormAnswer, PromptError> {
+        if !self.live_footer {
+            return super::form::ask_each_field(self, prompt, session);
+        }
+        loop {
+            let answer = self.next_answer(ScriptedPrompt::Form(prompt.clone()))?;
+            let ScriptedAnswer::Form(edits, then) = answer else {
+                panic!(
+                    "scripted {answer:?} does not answer form {:?}",
+                    prompt.title
+                );
+            };
+            self.record_footer(session);
+            for (label, value) in edits {
+                let field = prompt
+                    .fields
+                    .iter_mut()
+                    .find(|field| field.label == label)
+                    .unwrap_or_else(|| panic!("form {:?} has no field {label:?}", prompt.title));
+                field.value = value;
+                session.edited(&mut prompt.fields);
+                settle(session, &mut prompt.fields);
+                self.record_footer(session);
+            }
+            if then == FormAnswer::Back && !prompt.can_go_back {
+                return Err(PromptError::Cancelled);
+            }
+            let errors = prompt
+                .fields
+                .iter()
+                .filter_map(|field| field.error.as_ref())
+                .map(|error| format!("✘ {error}"))
+                .collect::<Vec<_>>();
+            if then == FormAnswer::Back || errors.is_empty() {
+                return Ok(then);
+            }
+            // The form stays open on a value it does not accept, as Enter does on a terminal.
+            self.lines.extend(errors);
+        }
+    }
+
+    fn live_footer(&mut self) -> bool {
+        self.live_footer
+    }
+
     fn message(&mut self, message: &Message) -> Result<(), PromptError> {
         self.lines.extend(message.plain_lines());
         self.messages.push(message.clone());
@@ -195,6 +275,9 @@ pub enum ScriptedPrompt {
 
     /// A countdown before an action.
     Countdown(CountdownPrompt),
+
+    /// A form, with its fields as they were when it opened.
+    Form(FormPrompt),
 }
 
 /// A replayable answer or interruption for the next prompt.
@@ -224,6 +307,10 @@ pub enum ScriptedAnswer {
     /// The outcome of a countdown: true when it runs out or the operator goes ahead early, false
     /// when the operator skips the action.
     Countdown(bool),
+
+    /// Values typed into a form's fields, by label and in order, then how the form ends; a value
+    /// the form does not accept keeps it open for the next answer.
+    Form(Vec<(String, String)>, FormAnswer),
 
     /// An operator cancellation at any prompt, such as Ctrl-C or Esc.
     Cancelled,
