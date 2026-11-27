@@ -19,6 +19,7 @@ export function VisionField({ disabled, enabled, onChange, option }: VisionField
       help={option.description || undefined}
       label={option.displayName}
       layout="inline"
+      summary={option.summary || undefined}
     >
       {(control) => (
         <Switch {...control} checked={enabled} disabled={disabled} onCheckedChange={onChange} />

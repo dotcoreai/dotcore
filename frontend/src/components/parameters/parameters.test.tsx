@@ -107,6 +107,98 @@ describe("ParametersForm", () => {
     ).toEqual(["test-gpu", "test-host"]);
   });
 
+  it("shows a field's summary under its label as part of the control's description", () => {
+    const parameters: ParameterView[] = [
+      {
+        description: "Full detail about the cache.",
+        id: "cache",
+        label: "Prompt cache",
+        summary: "Reuses earlier prompts to answer faster.",
+        type: { kind: "text", minimumLength: 0 },
+      },
+    ];
+    render(
+      <ParametersForm
+        errors={new Map()}
+        groups={[]}
+        idPrefix="test"
+        inputRefs={{ current: new Map() }}
+        inputs={new Map()}
+        onBlur={() => {}}
+        onChange={() => {}}
+        parameters={parameters}
+      />,
+    );
+
+    const input = screen.getByRole("textbox", { name: "Prompt cache" });
+    expect(screen.getByText("Reuses earlier prompts to answer faster.")).toBeVisible();
+    expect(input).toHaveAccessibleDescription(
+      "Reuses earlier prompts to answer faster. Full detail about the cache.",
+    );
+  });
+
+  it("puts a switch before its label and summary", () => {
+    const parameters: ParameterView[] = [
+      {
+        id: "flash",
+        label: "Flash attention",
+        summary: "Speeds up long prompts.",
+        type: { kind: "boolean" },
+      },
+    ];
+    render(
+      <ParametersForm
+        errors={new Map()}
+        groups={[]}
+        idPrefix="test"
+        inputRefs={{ current: new Map() }}
+        inputs={new Map([["flash", "false"]])}
+        onBlur={() => {}}
+        onChange={() => {}}
+        parameters={parameters}
+      />,
+    );
+
+    const row = screen
+      .getByRole("switch", { name: "Flash attention" })
+      .closest("[data-slot=field]")?.firstElementChild;
+    expect(row?.firstElementChild).toContainElement(
+      screen.getByRole("switch", { name: "Flash attention" }),
+    );
+    expect(row?.lastElementChild).toHaveTextContent("Flash attentionSpeeds up long prompts.");
+  });
+
+  it("shows no heading for a group with one member, and a summarized one for two", () => {
+    const parameters: ParameterView[] = [
+      { ...expertField("gpu", "Expert GPU memory"), groupId: "solo" },
+      { ...expertField("host", "Expert host memory"), groupId: "pair" },
+      { ...expertField("disk", "Expert disk memory"), groupId: "pair" },
+    ];
+    const groups: ParameterGroupView[] = [
+      { id: "solo", label: "Solo memory", summary: "Not shown." },
+      { id: "pair", label: "Pair memory", summary: "Where the pair lives." },
+    ];
+    render(
+      <ParametersForm
+        errors={new Map()}
+        groups={groups}
+        idPrefix="test"
+        inputRefs={{ current: new Map() }}
+        inputs={new Map()}
+        onBlur={() => {}}
+        onChange={() => {}}
+        parameters={parameters}
+      />,
+    );
+
+    expect(screen.queryByText("Solo memory")).toBeNull();
+    expect(screen.queryByText("Not shown.")).toBeNull();
+    expect(screen.getByRole("textbox", { name: "Expert GPU memory" })).toBeVisible();
+    expect(screen.getByRole("group", { name: "Pair memory" })).toHaveTextContent(
+      "Pair memoryWhere the pair lives.",
+    );
+  });
+
   it("shows a switched group's members and a switch's dependents only while on", () => {
     const parameters: ParameterView[] = [
       { groupId: "login", id: "login", label: "Require login", type: { kind: "boolean" } },

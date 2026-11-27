@@ -31,6 +31,7 @@ describe("model option fields", () => {
             description: "",
             displayName: "Vision",
             optionId: "vision",
+            summary: "Lets requests include images.",
           }}
         />
         <KvCachePrecisionField
@@ -42,6 +43,7 @@ describe("model option fields", () => {
             description: "",
             displayName: "KV cache precision",
             optionId: "kv",
+            summary: "Lower precision fits more context.",
           }}
           precision="FP16"
         />

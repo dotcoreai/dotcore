@@ -54,6 +54,7 @@ export function ModelDeployOptionFields({
             onCountChange={speculative.onCountChange}
             onMethodChange={speculative.onMethodChange}
             options={speculative.options}
+            summary={speculative.summary}
           />
         );
     }

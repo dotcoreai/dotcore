@@ -110,6 +110,7 @@ export function ModelDeployContextStep({
       facts?: readonly string[];
       help?: string;
       largestFit?: SizeLargestFit;
+      summary?: string;
     } = {},
   ) => (
     <SizeField
@@ -156,6 +157,7 @@ export function ModelDeployContextStep({
             ],
             help: contextPerRequest.description,
             largestFit: contextFits.perRequest,
+            summary: contextPerRequest.summary,
           })
         : null}
       {totalContext
@@ -174,6 +176,7 @@ export function ModelDeployContextStep({
             facts: contextHints.total ? [contextHints.total] : undefined,
             help: totalContext.description,
             largestFit: contextFits.total,
+            summary: totalContext.summary,
           })
         : null}
       {parameters.shown.length ? (

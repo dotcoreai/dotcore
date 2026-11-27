@@ -20,6 +20,8 @@ interface SpeculativeDecodingFieldProps {
   onMethodChange: (optionId: string) => void;
   /** The speculative options the selected profile's configuration declares, never empty. */
   options: readonly SpeculativeOption[];
+  /** One line telling a newcomer what speculative decoding does, from the catalog. */
+  summary?: string;
 }
 
 /**
@@ -37,6 +39,7 @@ export function SpeculativeDecodingField({
   onCountChange,
   onMethodChange,
   options,
+  summary,
 }: SpeculativeDecodingFieldProps) {
   const chosen = options.find((candidate) => candidate.optionId === choice.optionId);
   const option = chosen?.switch ? undefined : chosen;
@@ -58,6 +61,7 @@ export function SpeculativeDecodingField({
       }
       help={description || undefined}
       label="Speculative decoding"
+      summary={summary || undefined}
     >
       {(control) => (
         <div className="flex min-w-0 flex-wrap items-center gap-2">

@@ -24,6 +24,7 @@ export function parameterView(definition: ParameterDefinition): ParameterView | 
     groupId: definition.groupId,
     id: definition.parameterId,
     label: definition.displayName,
+    summary: definition.summary || undefined,
   };
   const type = definition.parameterType;
   switch (type.case) {
@@ -57,6 +58,7 @@ export function parameterGroupView(group: ParameterGroup): ParameterGroupView {
     description: group.description || undefined,
     id: group.groupId,
     label: group.displayName,
+    summary: group.summary || undefined,
     switchId: group.switchParameterId,
   };
 }

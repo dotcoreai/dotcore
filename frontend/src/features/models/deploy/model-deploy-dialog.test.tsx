@@ -2081,10 +2081,9 @@ describe("ModelDeployDialog", () => {
       await openAdvancedStep(user);
 
       // The KV offload field surfaces the schema label and the profile default (16 GiB).
-      const kvOffload = within(screen.getByRole("group", { name: "Host memory" })).getByRole(
-        "textbox",
-        { name: "KV offloading size" },
-      );
+      // Its group has one member, so it shows no heading.
+      expect(screen.queryByRole("group", { name: "Host memory" })).toBeNull();
+      const kvOffload = screen.getByRole("textbox", { name: "KV offloading size" });
       expect(kvOffload).toHaveValue("16");
 
       await user.clear(kvOffload);

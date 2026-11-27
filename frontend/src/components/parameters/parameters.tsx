@@ -80,8 +80,16 @@ export function ParametersForm(props: ParametersFormProps) {
         </SwitchedFormGroup>
       );
 
+    // A group with one member has nothing to organize: the member's own label carries it.
+    if (members.length === 1) return fieldWithDependents(members[0]);
+
     return (
-      <FormGroup help={group.description} key={`group:${group.id}`} title={group.label}>
+      <FormGroup
+        help={group.description}
+        key={`group:${group.id}`}
+        summary={group.summary}
+        title={group.label}
+      >
         {members.map(fieldWithDependents)}
       </FormGroup>
     );
@@ -160,6 +168,7 @@ function ParameterField({
     error: errors.get(parameter.id),
     help: parameter.description || undefined,
     label: parameter.label,
+    summary: parameter.summary,
   };
   const register = (control: HTMLElement | null) => {
     inputRefs.current.set(parameter.id, control);

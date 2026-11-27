@@ -7,6 +7,8 @@ interface FormGroupProps {
   children: ReactNode;
   /** What the fields have in common, shown in a help popover beside the title. */
   help?: ReactNode;
+  /** One line telling a newcomer what the group is for, shown under the title. */
+  summary?: string;
   title: string;
 }
 
@@ -14,18 +16,21 @@ interface FormGroupProps {
  * A titled section of related form fields, always open: a small heading with an optional help
  * popover over a divider, then the fields at the form's own indentation.
  */
-export function FormGroup({ children, help, title }: FormGroupProps) {
+export function FormGroup({ children, help, summary, title }: FormGroupProps) {
   const descriptionId = useId();
 
   return (
     <div aria-label={title} className={groupClass} role="group">
-      <div className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-muted-foreground">
-        <span aria-describedby={help ? descriptionId : undefined}>{title}</span>
-        {help ? (
-          <FieldHelp descriptionId={descriptionId} label={title}>
-            {help}
-          </FieldHelp>
-        ) : null}
+      <div className="grid min-w-0 gap-0.5">
+        <div className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+          <span aria-describedby={help ? descriptionId : undefined}>{title}</span>
+          {help ? (
+            <FieldHelp descriptionId={descriptionId} label={title}>
+              {help}
+            </FieldHelp>
+          ) : null}
+        </div>
+        {summary ? <p className="text-xs text-muted-foreground">{summary}</p> : null}
       </div>
       {children}
     </div>

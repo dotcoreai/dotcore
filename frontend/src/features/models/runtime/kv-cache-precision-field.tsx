@@ -26,6 +26,7 @@ export function KvCachePrecisionField({
       controlId="kv-cache-precision"
       help={option.description || undefined}
       label={option.displayName}
+      summary={option.summary || undefined}
     >
       {(control) => (
         <NativeSelect

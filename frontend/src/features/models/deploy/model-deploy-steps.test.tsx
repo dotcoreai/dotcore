@@ -140,8 +140,9 @@ describe("ModelDeployDialog Settings step", () => {
     expect(presetLabels()).toEqual(["8k", "32k", "64k", "128k", "256k", "1M"]);
     await user.click(preset("64k"));
     await user.click(screen.getByRole("button", { name: "Next" }));
-    const hostMemory = screen.getByRole("group", { name: "Host memory" });
-    const kvOffload = within(hostMemory).getByRole("textbox", { name: "KV offloading size" });
+    // The group has one member, so it shows no heading.
+    expect(screen.queryByRole("group", { name: "Host memory" })).toBeNull();
+    const kvOffload = screen.getByRole("textbox", { name: "KV offloading size" });
     expect(kvOffload).toHaveAccessibleDescription(
       "Host memory used to offload the KV cache, in GiB.",
     );
@@ -153,7 +154,7 @@ describe("ModelDeployDialog Settings step", () => {
     await user.type(kvOffload, "512m");
     await user.tab();
     expect(
-      await within(hostMemory).findByText("KV offloading size must be a whole number of GiB."),
+      await screen.findByText("KV offloading size must be a whole number of GiB."),
     ).toBeVisible();
     expect(kvOffload).toHaveAttribute("aria-invalid", "true");
     expect(await readFieldHelpFacts("KV offloading size")).toContain("Range 0 or more GiB");
@@ -161,7 +162,7 @@ describe("ModelDeployDialog Settings step", () => {
     // Without a declared maximum, any larger size is accepted, typed in any byte unit.
     await user.clear(kvOffload);
     await user.type(kvOffload, "2t");
-    expect(within(hostMemory).queryByText(/must be/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/must be/)).not.toBeInTheDocument();
     await deployFromAdvanced(user);
     await user.click(screen.getByRole("button", { name: "Deploy" }));
 
@@ -423,8 +424,8 @@ describe("ModelDeployDialog Advanced step", () => {
     renderDialog({ initialProfileId: "ninfer-nvfp4" });
 
     await openAdvancedStep(user);
-    const hostMemory = screen.getByRole("group", { name: "Host memory" });
-    const hostContext = within(hostMemory).getByRole("textbox", { name: "Host context memory" });
+    expect(screen.queryByRole("group", { name: "Host memory" })).toBeNull();
+    const hostContext = screen.getByRole("textbox", { name: "Host context memory" });
     expect(hostContext).toHaveValue("20 GiB");
     expect(hostContext).toHaveAccessibleDescription(
       "Host memory where idle conversations and paused requests are kept, so they resume without processing their prompt again. 0 turns it off.",
@@ -525,7 +526,7 @@ describe("ModelDeployDialog Advanced step", () => {
     expect(submittedValues(onSubmit)).toContainEqual(["expert-vram-mib", 6144n]);
   });
 
-  it("shows a group in each step that holds a member, by the profile's visibility", async () => {
+  it("shows a one-member group's field in each step by the profile's visibility, with no heading", async () => {
     const user = setupUser();
     renderStrataDialog(
       {},
@@ -537,19 +538,21 @@ describe("ModelDeployDialog Advanced step", () => {
     );
 
     await openAdvancedSettings(user);
-    const settingsGroup = screen.getByRole("group", { name: "Expert memory" });
+    expect(screen.queryByRole("group", { name: "Expert memory" })).toBeNull();
     expect(
-      within(settingsGroup)
+      screen
         .getAllByRole("textbox")
-        .map((input) => input.id),
+        .map((input) => input.id)
+        .filter((id) => id.startsWith("engine-parameter-expert")),
     ).toEqual(["engine-parameter-expert-vram-mib"]);
 
     await user.click(screen.getByRole("button", { name: "Next" }));
-    const advancedGroup = screen.getByRole("group", { name: "Expert memory" });
+    expect(screen.queryByRole("group", { name: "Expert memory" })).toBeNull();
     expect(
-      within(advancedGroup)
+      screen
         .getAllByRole("textbox")
-        .map((input) => input.id),
+        .map((input) => input.id)
+        .filter((id) => id.startsWith("engine-parameter-expert")),
     ).toEqual(["engine-parameter-expert-host-memory-mib"]);
   });
 
@@ -944,7 +947,9 @@ describe("ModelDeployDialog model options by visibility", () => {
     expect(screen.getByText("Step 2 of 4 — Capabilities")).toBeVisible();
     const vision = screen.getByRole("switch", { name: "Vision" });
     expect(vision).not.toBeChecked();
-    expect(vision).toHaveAccessibleDescription("Lets requests include images.");
+    expect(vision).toHaveAccessibleDescription(
+      "Accepts images in requests. Lets requests include images.",
+    );
 
     // The vLLM configuration declares no vision option, so there is nothing to ask.
     await user.click(screen.getByRole("button", { name: "Back" }));

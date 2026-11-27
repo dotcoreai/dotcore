@@ -78,6 +78,7 @@ export function EngineParametersForm({
         onBlur={onBlur}
         onChange={onChange}
         parameter={parameter}
+        summary={view.summary}
         range={fit === undefined ? undefined : { maximum: fit, minimum: Number(view.type.minimum) }}
       />
     );

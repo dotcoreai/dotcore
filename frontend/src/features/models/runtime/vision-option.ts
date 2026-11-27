@@ -17,6 +17,7 @@ export interface VisionOption {
   description: string;
   displayName: string;
   optionId: string;
+  summary: string;
 }
 
 // Parameter id the catalog contract fixes for the switch of a vision option.
@@ -50,6 +51,7 @@ export function configurationVisionOption(
       description: option.description,
       displayName: option.displayName,
       optionId: option.optionId,
+      summary: option.summary,
     };
   }
   return undefined;
