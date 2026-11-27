@@ -421,7 +421,7 @@ describe("generic upstream endpoint UI", () => {
     await user.tab();
     await waitFor(() => expect(route).toHaveAttribute("aria-invalid", "true"));
     expect(route).toHaveAccessibleDescription(
-      expect.stringContaining("Route name must start with a letter"),
+      /Route name must start with a letter and contain only lowercase letters, numbers, hyphens, and periods\./,
     );
   });
 
@@ -584,9 +584,7 @@ describe("generic upstream endpoint UI", () => {
     expect(onSubmit).not.toHaveBeenCalled();
     expect(route).toHaveAttribute("aria-invalid", "true");
     expect(route).toHaveAccessibleDescription(
-      expect.stringContaining(
-        "Route name must start with a letter and contain only lowercase letters, numbers, hyphens, and periods.",
-      ),
+      /Route name must start with a letter and contain only lowercase letters, numbers, hyphens, and periods\./,
     );
     expect(route).toHaveFocus();
 
