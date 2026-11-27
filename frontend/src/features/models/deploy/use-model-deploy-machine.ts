@@ -149,7 +149,7 @@ export function useModelDeployMachine(
 
   const profile = model.profiles.find((candidate) => candidate.profileId === profileId);
   const configuration = model.configurations.find(
-    (candidate) => candidate.configurationId === profile?.configurationId,
+    (candidate) => candidate.configurationId === profile?.configurationIds[0],
   );
   // A configuration that excludes parameters gets a new release object per call, and the launch
   // values and previews built on it must keep their identity across renders.

@@ -381,7 +381,7 @@ function projectProfileRow(
   input: ProfileRowInput,
 ): ProfileRow {
   const configuration = model.configurations.find(
-    (candidate) => candidate.configurationId === profile.configurationId,
+    (candidate) => candidate.configurationId === profile.configurationIds[0],
   );
   const releases = (configuration?.engineArtifacts ?? []).flatMap((reference) => {
     const release = input.engineReleases.find(
@@ -443,7 +443,7 @@ function projectProfileRow(
 
   return {
     acceleratorRequirements,
-    configurationId: profile.configurationId,
+    configurationId: profile.configurationIds[0],
     contextSliderEnds: profileContextSliderEnds(model, profile, input.engineReleases),
     description: profile.description || undefined,
     displayName: profile.displayName || profile.profileId,

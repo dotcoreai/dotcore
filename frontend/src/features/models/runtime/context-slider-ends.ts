@@ -69,7 +69,7 @@ export function profileContextSliderEnds(
 ): ContextSliderEnds | undefined {
   const release = profileEngineRelease(model, profile, engineReleases);
   const configuration = model.configurations.find(
-    (candidate) => candidate.configurationId === profile.configurationId,
+    (candidate) => candidate.configurationId === profile.configurationIds[0],
   );
   const parameter = (parameterId: string) =>
     release?.parameterSchema?.parameters.find(

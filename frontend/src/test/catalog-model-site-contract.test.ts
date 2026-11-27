@@ -426,7 +426,7 @@ describe("desired site and current-state contracts", () => {
     ]);
     expect(fieldNames(profile)).toEqual([
       "profile_id",
-      "configuration_id",
+      "configuration_ids",
       "default_model_artifact_binding_id",
       "engine_parameter_defaults",
       "engine_parameter_visibility_overrides",

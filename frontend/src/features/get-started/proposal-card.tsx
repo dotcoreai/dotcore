@@ -375,7 +375,7 @@ function modelNames(
   const model = models.find((candidate) => candidate.modelId === proposal.modelId);
   const profile = model?.profiles.find((candidate) => candidate.profileId === proposal.profileId);
   const configuration = model?.configurations.find(
-    (candidate) => candidate.configurationId === profile?.configurationId,
+    (candidate) => candidate.configurationId === profile?.configurationIds[0],
   );
   const engineKind = configuration?.engineConfiguration?.engineKind;
   const engineKey = engineKind === undefined ? undefined : engineKindKey(engineKind);

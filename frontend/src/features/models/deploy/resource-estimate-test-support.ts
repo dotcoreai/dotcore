@@ -20,7 +20,7 @@ export function sharedContextEstimate(model: Model): ResourceEstimateLoader {
     const total = unsigned("total-context");
     const profile = model.profiles.find((candidate) => candidate.profileId === profileId);
     const modelConfiguration = model.configurations.find(
-      (candidate) => candidate.configurationId === profile?.configurationId,
+      (candidate) => candidate.configurationId === profile?.configurationIds[0],
     );
     const maximum = maximumContext(model, modelConfiguration);
     const filled =

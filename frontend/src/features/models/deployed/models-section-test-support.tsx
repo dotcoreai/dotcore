@@ -370,7 +370,7 @@ export function deployableModel() {
       {
         profileId: "default",
         displayName: "Fast start",
-        configurationId: "cuda",
+        configurationIds: ["cuda"],
         defaultModelArtifactBindingId: "q4-binding",
         engineParameterDefaults: {
           values: [

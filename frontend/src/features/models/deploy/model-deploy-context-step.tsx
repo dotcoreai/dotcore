@@ -87,7 +87,7 @@ export function ModelDeployContextStep({
   totalFollows,
 }: ModelDeployContextStepProps) {
   const configuration = model.configurations.find(
-    (candidate) => candidate.configurationId === profile?.configurationId,
+    (candidate) => candidate.configurationId === profile?.configurationIds[0],
   );
   const { contextPerRequest, parallelRequests, totalContext } =
     runtimeParameterGroups(exposedParameters).context;

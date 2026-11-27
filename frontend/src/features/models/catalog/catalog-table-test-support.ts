@@ -236,7 +236,7 @@ function alphaModel(): Model {
     ],
     profiles: [
       {
-        configurationId: "cuda-llama",
+        configurationIds: ["cuda-llama"],
         defaultModelArtifactBindingId: "q4-binding",
         description: "Starts quickly.",
         displayName: "Fast",
@@ -244,7 +244,7 @@ function alphaModel(): Model {
         profileId: "fast",
       },
       {
-        configurationId: "cuda-llama",
+        configurationIds: ["cuda-llama"],
         defaultModelArtifactBindingId: "q8-binding",
         displayName: "Quality",
         engineParameterDefaults: contextDefaults(131072n),
@@ -252,20 +252,20 @@ function alphaModel(): Model {
         profileId: "quality",
       },
       {
-        configurationId: "cuda-vllm",
+        configurationIds: ["cuda-vllm"],
         defaultModelArtifactBindingId: "fp4-binding",
         displayName: "Sized",
         engineParameterDefaults: contextDefaults(65536n),
         profileId: "sized",
       },
       {
-        configurationId: "cpu-llama",
+        configurationIds: ["cpu-llama"],
         defaultModelArtifactBindingId: "q4-cpu-binding",
         engineParameterDefaults: contextDefaults(4096n),
         profileId: "cpu",
       },
       {
-        configurationId: "orphan",
+        configurationIds: ["orphan"],
         defaultModelArtifactBindingId: "q8-orphan-binding",
         displayName: "Orphan",
         profileId: "orphan",
@@ -311,7 +311,7 @@ function bareModel(): Model {
     modelId: "bare",
     profiles: [
       {
-        configurationId: "plain",
+        configurationIds: ["plain"],
         defaultModelArtifactBindingId: "only-binding",
         profileId: "plain",
       },

@@ -173,7 +173,7 @@ export function CatalogProfileSections({
   row: ProfileRow;
 }) {
   const configuration = model.configurations.find(
-    (candidate) => candidate.configurationId === profile.configurationId,
+    (candidate) => candidate.configurationId === profile.configurationIds[0],
   );
 
   return (

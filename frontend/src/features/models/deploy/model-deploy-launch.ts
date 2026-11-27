@@ -241,7 +241,7 @@ export function configurationStart(
 
   const profile = model.profiles.find((candidate) => candidate.profileId === profileId);
   const modelConfiguration = model.configurations.find(
-    (candidate) => candidate.configurationId === profile?.configurationId,
+    (candidate) => candidate.configurationId === profile?.configurationIds[0],
   );
   const exposedIds = new Set(
     effectiveEngineParameters(profileEngineRelease(model, profile, engineReleases), profile).map(
@@ -303,7 +303,7 @@ export function operatorSentence(reason: string): string {
 function profileSpeculativeChoice(model: Model, profileId: string): SpeculativeChoice {
   const profile = model.profiles.find((candidate) => candidate.profileId === profileId);
   const configuration = model.configurations.find(
-    (candidate) => candidate.configurationId === profile?.configurationId,
+    (candidate) => candidate.configurationId === profile?.configurationIds[0],
   );
   return defaultSpeculativeChoice(configurationSpeculativeOptions(model, configuration, profile));
 }
