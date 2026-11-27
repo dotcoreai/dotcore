@@ -144,6 +144,9 @@ export function DeploymentApplicationInspector({
   const actionDisabled = pending || isTransitioningApplicationState(lifecycleState);
   const pauseDisabled = pending || isPauseConflictingLifecycleState(lifecycleState);
   const observationStale = Boolean(deployment.state?.observationStale);
+  // The manager's reason replaces the generic outlook: a machine that can't apply its configuration
+  // stays stale until someone fixes it.
+  const observationStaleReason = deployment.state?.observationStaleReason;
   const steps = deployment.state?.steps;
   const editAction: InspectorAction = {
     disabled: pending || tearingDown,
@@ -263,7 +266,7 @@ export function DeploymentApplicationInspector({
                       ; last report <span title={lastReport.title}>{lastReport.text}</span>
                     </>
                   ) : null}
-                  . The state updates when the machine reports again.
+                  . {observationStaleReason || "The state updates when the machine reports again."}
                 </Notice>
               ) : null}
               {failure?.message ? (

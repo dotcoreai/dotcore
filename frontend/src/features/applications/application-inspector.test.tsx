@@ -752,6 +752,50 @@ describe("Application deployment dialog", () => {
     vi.useRealTimers();
   });
 
+  it("explains why a stale machine observation can't be confirmed", () => {
+    vi.useFakeTimers({ now: new Date("2026-10-01T12:00:00Z"), toFake: ["Date"] });
+    const reason =
+      "This machine can't apply the site's configuration, so its deployments can't be confirmed. Its logs give the reason.";
+    render(
+      <DeploymentApplicationInspector
+        deployment={create(ApplicationDeploymentSchema, {
+          applicationDeploymentId: "deployment-1",
+          applicationDeploymentName: "Team chat",
+          placement: { siteNodeId: "worker", executionTargetId: "remote-app" },
+          snapshot: resolvedSnapshot(application),
+          state: create(ApplicationDeploymentStateSchema, {
+            lifecycleState: ApplicationLifecycleState.READY,
+            observationStale: true,
+            observationStaleReason: reason,
+            readinessState: ApplicationReadinessState.READY,
+          }),
+        })}
+        onOpenChange={vi.fn()}
+        onRemove={vi.fn()}
+        open
+        openerRef={createRef<HTMLElement>()}
+        pending={false}
+        executionTargets={[
+          remoteApplicationTarget("remote-app", "worker", NodeObservationState.CONNECTED),
+        ]}
+        placementMachine={create(MachineSchema, {
+          displayName: "gb10-host-2",
+          machineId: "worker",
+          observationFreshness: {
+            receivedAt: timestampFromDate(new Date("2026-10-01T11:59:00Z")),
+            state: NodeObservationState.CONNECTED,
+          },
+        })}
+      />,
+    );
+
+    const status = screen.getByRole("region", { name: "Status" });
+    expect(within(status).getByRole("status")).toHaveTextContent(
+      `Machine stale. Showing the last state gb10-host-2 reported; last report 1 minute ago. ${reason}`,
+    );
+    vi.useRealTimers();
+  });
+
   it("keeps remote presentation off a deployment on the site manager's machine", () => {
     render(
       <DeploymentApplicationInspector
