@@ -22,6 +22,11 @@ options:
     speculativeDecoding: { method: "SPECULATIVE_DECODING_METHOD_DSPARK" }
     visibility: "PARAMETER_VISIBILITY_ADVANCED"
     description: "Drafts a block of tokens ahead and has the model check them together, which makes code generation much faster; prose gains little or slows a bit. Loads the drafter next to the model, which uses more memory and holds less context."
+  - optionId: "kv-cache"
+    displayName: "KV cache precision"
+    kvCachePrecision: {}
+    visibility: "PARAMETER_VISIBILITY_ADVANCED"
+    description: "Precision of the stored request tokens. A lower precision shrinks the memory each token takes, so more context fits, at a small cost in answer quality."
 artifacts:
   - artifactId: "nvfp4"
     weightQuantization: "NVFP4"
@@ -96,6 +101,15 @@ artifacts:
           - path: "tokenizer.json"
             provenanceDigest: "7f332727f9a3f093dd452a39cc978e6757627e5dad1b0673aa4e75174f236dd6"
 auxiliaryArtifacts:
+  # Strata's vision file, loaded next to the pack while the `vision` option is on. Its size and digest are the
+  # repository's own listing (`SHA256SUMS.txt` at this revision, 636,526,592 bytes).
+  - auxiliaryArtifactId: "strata-vision"
+    source:
+      repository: "strata-engine/Inkling-2-Mini-Strata"
+      revision: "04996a1e2c45009b6a04f2af126cb6bdb2ba3587"
+      file:
+        path: "Inkling-2-Mini-Vision.strata"
+        provenanceDigest: "6589eff47f9c20bc3a032faa3d449f10bf4f04a84cc6b2ee8a44d51d2b6fc677"
   # The checkpoint's own template, which carries the inkling reasoning and tool-call format.
   - auxiliaryArtifactId: "inkling-chat-template"
     source:
@@ -128,7 +142,7 @@ configurations:
         - "dsparkBytes"
         - "marginBytes"
       parameters:
-        # One shared pool of 1 MiB blocks: 96 caches in groups of 8, each with a 128 KiB page.
+        # With FP8 KV: one shared pool of 1 MiB blocks, 96 caches in groups of 8, each with a 128 KiB page.
         kvBlockBytes: 1048576
         # Full attention: 8 fp8 caches x 8 KV heads x 128 x (K + V) bytes per token.
         kvBytesPerToken: 16384
@@ -148,13 +162,43 @@ configurations:
         # points on an RTX 5090; the GB10 logs the same capacities.
         kvDsparkBytesPerToken: 4096
         kvDsparkRequestBytes: 46137344
+        # With BF16 KV: vLLM's own planner (`get_kv_cache_groups` and
+        # `_max_memory_usage_bytes_from_groups`) run on CPU in the pinned image over the checkpoint's layer
+        # layout, as for the FP8 constants. Pages double to 256 KiB, so a block is 2 MiB and the short-convolution
+        # block shrinks to 16 tokens; the full-attention caches take 8 x 8 KV heads x 128 x (K + V) x 2 bytes per
+        # token.
+        kvBf16BytesPerToken: 32768
+        # The decode window of one request, 103 blocks of 2 MiB: exactly twice the FP8 window.
+        kvBf16RequestWindowBytes: 216006656
+        # The planner's prompt reservation is exactly linear in the batched tokens at 64 to 4,096 (1.8125 blocks
+        # of 2 MiB per batched token, 194 beside them). With the window above and no separate reservation, the
+        # equation exceeds the planner by 4 to 12 MiB at every batched token count tried from 1 to 4,096.
+        kvBf16BatchedTokenBytes: 1900544
+        # The DSpark drafter's three bf16 caches join the target's groups, which makes every group nine caches
+        # wide: with BF16 KV the whole pool grows by 9/8 (planner total x 9/8 at 8K and 64K context, 512 and
+        # 2,048 batched tokens). That is one eighth of each term above and 4,096 bytes per token as for FP8
+        # (`kvDsparkBytesPerToken`). Launched at the largest offered context with 2 requests and 2,048 batched tokens
+        # under load: on an RTX 5090 (66,789 tokens with the drafter, 121,694 without) the estimate sat 0.27-0.31 GB
+        # above the peak, and on a GB10 (2 x 1,048,576) 0.17 GB with the drafter and 0.57 GB without.
+        kvBf16DsparkRequestBytes: 27000832
+        kvBf16DsparkBatchedTokenBytes: 237568
       derivedParameters:
         kv-cache-memory-bytes: >-
-          ${parallel-requests} * ${kvRequestWindowBytes}
-          + ${kvPromptReservationBytes} + ${kvBatchedTokenBytes} * ${maximum-batched-tokens}
-          + ${kvBytesPerToken} * ${total-context}
+          if(${options.kv-cache.precision} == "bfloat16", 0, 1)
+            * (${parallel-requests} * ${kvRequestWindowBytes}
+              + ${kvPromptReservationBytes} + ${kvBatchedTokenBytes} * ${maximum-batched-tokens}
+              + ${kvBytesPerToken} * ${total-context})
+          + if(${options.kv-cache.precision} == "bfloat16", 1, 0)
+            * (${parallel-requests} * ${kvBf16RequestWindowBytes}
+              + ${kvBf16BatchedTokenBytes} * ${maximum-batched-tokens}
+              + ${kvBf16BytesPerToken} * ${total-context})
           + if(${options.dspark.enabled}, 1, 0)
-            * (${parallel-requests} * ${kvDsparkRequestBytes} + ${kvDsparkBytesPerToken} * ${total-context})
+            * (if(${options.kv-cache.precision} == "bfloat16", 0, 1)
+                * (${parallel-requests} * ${kvDsparkRequestBytes} + ${kvDsparkBytesPerToken} * ${total-context})
+              + if(${options.kv-cache.precision} == "bfloat16", 1, 0)
+                * (${parallel-requests} * ${kvBf16DsparkRequestBytes}
+                  + ${kvBf16DsparkBatchedTokenBytes} * ${maximum-batched-tokens}
+                  + ${kvDsparkBytesPerToken} * ${total-context}))
       estimates:
         acceleratorMemory:
           unit: bytes
@@ -210,7 +254,6 @@ configurations:
           reasoningParser: "inkling"
           toolCallParser: "inkling"
           chatTemplateAuxiliaryArtifactId: "inkling-chat-template"
-          kvCacheDataType: "VLLM_KV_CACHE_DATA_TYPE_FP8"
           kvCacheMemoryBytesParameterId: "kv-cache-memory-bytes"
           maximumBatchedTokensParameterId: "maximum-batched-tokens"
           maximumCudaGraphCaptureSizeParameterId: "maximum-cudagraph-capture-size"
@@ -234,6 +277,8 @@ configurations:
             # The engine accepts only the checkpoint's block size minus one (`mtp_config.block_size` 8,
             # checked in `vllm/models/inkling2/nvidia/dspark.py`).
             dspark: { speculativeTokenCount: 7, drafterPath: "mtp.safetensors" }
+          - optionId: "kv-cache"
+            kvCachePrecision: {}
     executionCapabilities:
       supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
     requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
@@ -276,6 +321,20 @@ configurations:
           values:
             - parameterId: "enabled"
               boolean: true
+      # FP8 by default, as before the option existed.
+      - optionId: "kv-cache"
+        parameters:
+          - parameterId: "precision"
+            displayName: "Precision"
+            # The KV dtypes the pinned engine takes for Inkling (`supported` in
+            # `vllm/models/inkling2/nvidia/attention.py`): bfloat16 everywhere, fp8 on SM12x GPUs. Its float16 is
+            # refused while drafting, which is on by default, so it is not offered.
+            stringEnum: { values: ["bfloat16", "fp8"] }
+        defaultValues:
+          optionId: "kv-cache"
+          values:
+            - parameterId: "precision"
+              string: "fp8"
   - configurationId: "strata-nvidia-cuda"
     # The Inkling engine places its experts itself and takes no expert budgets.
     excludedEngineParameterIds: ["expert-vram-mib", "expert-host-memory-mib"]
@@ -302,8 +361,22 @@ configurations:
       parameters:
         # FP16 KV (the wrapper passes --kv fp16): 8 of the 48 layer visits keep full KV, 32 KiB per token.
         kvBytesPerToken: 32768
+        # FP8 KV (--kv fp8): the engine's payload is 16 KiB per token (8 visits x 8 KV heads x 128 x (K + V) x
+        # 1 byte). Measured on an RTX 5090 with SQ-20 at 1 parallel request and 383,058 tokens, filled to 371,228
+        # (32.12 GB observed): the whole slope with the shared scratch below is 21,908 bytes per token, so the
+        # constant holds 22,000 less that scratch. Only the sum is measured, so it sits below the payload. Runs of
+        # SQ-10, SQ-15 and SQ-20 at 2 parallel requests read 16.9-19.8 KB per token on the total context, below
+        # the 22,000 because the scratch follows each request's context and the equation charges it on the total.
+        kvFp8BytesPerToken: 14768
         # Sliding-window and convolution state of one request.
         requestStateBytes: 324960316
+        # FP8 KV: the 40 sliding-window visits keep 1,024 tokens each, 40,960 token-visits of 4,096 bytes in FP16
+        # and 2,112 in FP8 (payload and scales), 81,264,640 bytes less. Derived from the FP16 constant, unmeasured.
+        requestStateFp8Bytes: 243695676
+        # Strata 0.2.21 reads pictures on the CPU, so the accelerator holds little for vision. Measured on an
+        # RTX 5090 with SQ-20 at 1 parallel request and 197,116 tokens (31.42 GB observed): starting with the
+        # vision file read 0.2 GB higher than without, and a request with two 1,024 px images raised nothing.
+        visionBytes: 250000000
         # Prefill chunk buffers: the engine uses 2,048-token chunks at 1-3 parallel requests and 1,024 from 4 on.
         largeChunkBytes: 1451940443
         # Start-up scratch per token of the context per request, with the per-token slope of the fit held at
@@ -315,9 +388,12 @@ configurations:
           equation: >-
             ${weightBytes}
             + if(${parallel-requests} < 4, 1, 0) * ${largeChunkBytes}
-            + ${requestStateBytes} * ${parallel-requests}
-            + ${kvBytesPerToken} * ${total-context}
+            + if(${options.kv-cache.precision} == "fp8", 0, 1)
+              * (${requestStateBytes} * ${parallel-requests} + ${kvBytesPerToken} * ${total-context})
+            + if(${options.kv-cache.precision} == "fp8", 1, 0)
+              * (${requestStateFp8Bytes} * ${parallel-requests} + ${kvFp8BytesPerToken} * ${total-context})
             + ${requestContextBytesPerToken} * ${total-context}
+            + if(${options.vision.enabled}, 1, 0) * ${visionBytes}
           allowance: >-
             ${marginBytes}
     hardwareSupport:
@@ -348,11 +424,53 @@ configurations:
       strata:
         fixedSettings:
           inklingPack: {}
+        optionRealizations:
+          - optionId: "vision"
+            vision: { enabledParameterId: "enabled", auxiliaryArtifactId: "strata-vision" }
+          - optionId: "kv-cache"
+            kvCachePrecision: {}
     executionCapabilities:
       supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
     requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
     inputCapabilities:
-      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT", "MODEL_INPUT_MODALITY_IMAGE"]
+      # A policy for Strata 0.2.21, which reads every picture on the CPU: minutes for large ones, and a cancelled
+      # request does not free the engine. Two images of up to 1,024 px per side; upstream advises about 442
+      # tokens at this side. The visual token count is the model processor's formula at the cap, 1 + ceil(h / 40)
+      # x ceil(w / 40) (`vllm/models/inkling2/processing.py`), an upper bound. Byte limits are 4 bytes per pixel.
+      imageInputCapacity:
+        maximumImageCount: 2
+        supportedMediaTypes: ["MODEL_IMAGE_MEDIA_TYPE_JPEG", "MODEL_IMAGE_MEDIA_TYPE_PNG"]
+        maximumEncodedBytes: "4194304"
+        maximumDecodedBytes: "4194304"
+        maximumWidth: 1024
+        maximumHeight: 1024
+        maximumPixels: "1048576"
+        fixedVisualTokens: 677
+        fixedDetail: "MODEL_IMAGE_DETAIL_AUTO"
+    options:
+      - optionId: "vision"
+        parameters:
+          - parameterId: "enabled"
+            displayName: "Enabled"
+            boolean: {}
+        defaultValues:
+          optionId: "vision"
+          values:
+            - parameterId: "enabled"
+              boolean: false
+      - optionId: "kv-cache"
+        parameters:
+          - parameterId: "precision"
+            displayName: "Precision"
+            # The KV types the dotcore Strata adapter launches (`--kv`). The Inkling engine also accepts auto, k8v8
+            # and k8v4 (0.2.21), which are not offered.
+            stringEnum: { values: ["fp16", "fp8"] }
+        defaultValues:
+          optionId: "kv-cache"
+          values:
+            - parameterId: "precision"
+              string: "fp16"
   - configurationId: "strata-nvidia-gb10"
     # The Inkling engine places its experts itself and takes no expert budgets.
     excludedEngineParameterIds: ["expert-vram-mib", "expert-host-memory-mib"]
@@ -375,8 +493,18 @@ configurations:
       parameters:
         # FP16 KV (the wrapper passes --kv fp16): 32 KiB per token (upstream's memory notes).
         kvBytesPerToken: 32768
+        # FP8 KV: 16 KiB of payload per token plus one assumed fp32 scale per token, KV head and K or V (8 x 8 x 2 x
+        # 4 = 512 bytes), an upper bound. Derived, unmeasured on a GB10.
+        kvFp8BytesPerToken: 16896
         # The sliding-window and convolution state each request holds.
         requestStateBytes: 230000000
+        # FP8 KV: the FP16 constant less the 81,264,640 bytes the RTX 5090 configuration derives for the
+        # sliding-window visits. Unmeasured on a GB10.
+        requestStateFp8Bytes: 148735360
+        # The vision file (636,526,592 bytes, the repository's listing) plus working memory for two images of up to
+        # 1,024 px, 640 MB. Strata reads pictures on the CPU, which on a GB10's shared memory still counts here.
+        # Derived, unmeasured on a GB10.
+        visionBytes: 1276526592
         # Scratch sized when the engine starts, per token of the context per request.
         requestContextBytesPerToken: 22500
         # Memory grows about 85 KB per token of the longest prompt served and stays (see the RTX 5090 configuration).
@@ -386,9 +514,12 @@ configurations:
           unit: bytes
           equation: >-
             ${weightBytes}
-            + ${requestStateBytes} * ${parallel-requests}
-            + ${kvBytesPerToken} * ${total-context}
+            + if(${options.kv-cache.precision} == "fp8", 0, 1)
+              * (${requestStateBytes} * ${parallel-requests} + ${kvBytesPerToken} * ${total-context})
+            + if(${options.kv-cache.precision} == "fp8", 1, 0)
+              * (${requestStateFp8Bytes} * ${parallel-requests} + ${kvFp8BytesPerToken} * ${total-context})
             + ${requestContextBytesPerToken} * ${total-context}
+            + if(${options.vision.enabled}, 1, 0) * ${visionBytes}
           allowance: >-
             ${marginBytes}
             + ${promptBytesPerToken} * ${total-context}
@@ -415,11 +546,53 @@ configurations:
       strata:
         fixedSettings:
           inklingPack: {}
+        optionRealizations:
+          - optionId: "vision"
+            vision: { enabledParameterId: "enabled", auxiliaryArtifactId: "strata-vision" }
+          - optionId: "kv-cache"
+            kvCachePrecision: {}
     executionCapabilities:
       supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
     requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
     inputCapabilities:
-      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT", "MODEL_INPUT_MODALITY_IMAGE"]
+      # A policy for Strata 0.2.21, which reads every picture on the CPU: minutes for large ones, and a cancelled
+      # request does not free the engine. Two images of up to 1,024 px per side; upstream advises about 442
+      # tokens at this side. The visual token count is the model processor's formula at the cap, 1 + ceil(h / 40)
+      # x ceil(w / 40) (`vllm/models/inkling2/processing.py`), an upper bound. Byte limits are 4 bytes per pixel.
+      imageInputCapacity:
+        maximumImageCount: 2
+        supportedMediaTypes: ["MODEL_IMAGE_MEDIA_TYPE_JPEG", "MODEL_IMAGE_MEDIA_TYPE_PNG"]
+        maximumEncodedBytes: "4194304"
+        maximumDecodedBytes: "4194304"
+        maximumWidth: 1024
+        maximumHeight: 1024
+        maximumPixels: "1048576"
+        fixedVisualTokens: 677
+        fixedDetail: "MODEL_IMAGE_DETAIL_AUTO"
+    options:
+      - optionId: "vision"
+        parameters:
+          - parameterId: "enabled"
+            displayName: "Enabled"
+            boolean: {}
+        defaultValues:
+          optionId: "vision"
+          values:
+            - parameterId: "enabled"
+              boolean: false
+      - optionId: "kv-cache"
+        parameters:
+          - parameterId: "precision"
+            displayName: "Precision"
+            # The KV types the dotcore Strata adapter launches (`--kv`). The Inkling engine also accepts auto, k8v8
+            # and k8v4 (0.2.21), which are not offered.
+            stringEnum: { values: ["fp16", "fp8"] }
+        defaultValues:
+          optionId: "kv-cache"
+          values:
+            - parameterId: "precision"
+              string: "fp16"
 profiles:
   - profileId: "nvfp4"
     displayName: "Inkling 2 Mini NVFP4"
@@ -444,8 +617,8 @@ profiles:
       - { parameterId: "maximum-batched-tokens", visibility: "PARAMETER_VISIBILITY_ADVANCED" }
   - profileId: "strata-sq-10"
     displayName: "SQ-10 on Strata"
-    description: "Runs Inkling 2 Mini's SQ-10 pack through Strata on an RTX 5090 or RTX PRO 6000 for text inference."
-    configurationIds: ["strata-nvidia-cuda"]
+    description: "Runs Inkling 2 Mini's SQ-10 pack through Strata."
+    configurationIds: ["strata-nvidia-cuda", "strata-nvidia-gb10"]
     defaultModelArtifactBindingId: "sq-10"
     engineParameterDefaults: {}
     # Strata's total context is always the parallel requests times the context per request.
@@ -453,8 +626,8 @@ profiles:
       - { parameterId: "total-context", visibility: "PARAMETER_VISIBILITY_HIDDEN" }
   - profileId: "strata-sq-15"
     displayName: "SQ-15 on Strata"
-    description: "Runs Inkling 2 Mini's SQ-15 pack through Strata on an RTX 5090 or RTX PRO 6000 for text inference."
-    configurationIds: ["strata-nvidia-cuda"]
+    description: "Runs Inkling 2 Mini's SQ-15 pack through Strata."
+    configurationIds: ["strata-nvidia-cuda", "strata-nvidia-gb10"]
     defaultModelArtifactBindingId: "sq-15"
     engineParameterDefaults: {}
     # Strata's total context is always the parallel requests times the context per request.
@@ -462,35 +635,8 @@ profiles:
       - { parameterId: "total-context", visibility: "PARAMETER_VISIBILITY_HIDDEN" }
   - profileId: "strata-sq-20"
     displayName: "SQ-20 on Strata"
-    description: "Runs Inkling 2 Mini's SQ-20 pack through Strata on an RTX 5090 or RTX PRO 6000 for text inference."
-    configurationIds: ["strata-nvidia-cuda"]
-    defaultModelArtifactBindingId: "sq-20"
-    engineParameterDefaults: {}
-    # Strata's total context is always the parallel requests times the context per request.
-    engineParameterVisibilityOverrides:
-      - { parameterId: "total-context", visibility: "PARAMETER_VISIBILITY_HIDDEN" }
-  - profileId: "strata-gb10-sq-10"
-    displayName: "SQ-10 on Strata for GB10"
-    description: "Runs Inkling 2 Mini's SQ-10 pack through Strata on a GB10 for text inference."
-    configurationIds: ["strata-nvidia-gb10"]
-    defaultModelArtifactBindingId: "sq-10"
-    engineParameterDefaults: {}
-    # Strata's total context is always the parallel requests times the context per request.
-    engineParameterVisibilityOverrides:
-      - { parameterId: "total-context", visibility: "PARAMETER_VISIBILITY_HIDDEN" }
-  - profileId: "strata-gb10-sq-15"
-    displayName: "SQ-15 on Strata for GB10"
-    description: "Runs Inkling 2 Mini's SQ-15 pack through Strata on a GB10 for text inference."
-    configurationIds: ["strata-nvidia-gb10"]
-    defaultModelArtifactBindingId: "sq-15"
-    engineParameterDefaults: {}
-    # Strata's total context is always the parallel requests times the context per request.
-    engineParameterVisibilityOverrides:
-      - { parameterId: "total-context", visibility: "PARAMETER_VISIBILITY_HIDDEN" }
-  - profileId: "strata-gb10-sq-20"
-    displayName: "SQ-20 on Strata for GB10"
-    description: "Runs Inkling 2 Mini's SQ-20 pack through Strata on a GB10 for text inference."
-    configurationIds: ["strata-nvidia-gb10"]
+    description: "Runs Inkling 2 Mini's SQ-20 pack through Strata."
+    configurationIds: ["strata-nvidia-cuda", "strata-nvidia-gb10"]
     defaultModelArtifactBindingId: "sq-20"
     engineParameterDefaults: {}
     # Strata's total context is always the parallel requests times the context per request.

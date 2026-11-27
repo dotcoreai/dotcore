@@ -641,8 +641,8 @@ profiles:
             boolean: false
   - profileId: "strata-q4-xl"
     displayName: "Unsloth Q4_K_XL on Strata"
-    description: "Runs the balanced Q4 weights through Strata on an RTX 5090 or RTX PRO 6000, keeping the experts that don't fit on the GPU in host memory."
-    configurationIds: ["strata-nvidia-cuda"]
+    description: "Runs the balanced Q4 weights through Strata, keeping the experts that don't fit in GPU memory in the rest of the machine's memory."
+    configurationIds: ["strata-nvidia-cuda", "strata-nvidia-gb10"]
     defaultModelArtifactBindingId: "q4-xl"
     engineParameterDefaults: {}
     # Strata's total context is always the parallel requests times the context per request.
@@ -650,8 +650,8 @@ profiles:
       - { parameterId: "total-context", visibility: "PARAMETER_VISIBILITY_HIDDEN" }
   - profileId: "strata-q6-xl"
     displayName: "Unsloth Q6_K_XL on Strata"
-    description: "Runs the higher-precision Q6 weights through Strata on an RTX 5090 or RTX PRO 6000, keeping the experts that don't fit on the GPU in host memory."
-    configurationIds: ["strata-nvidia-cuda"]
+    description: "Runs the higher-precision Q6 weights through Strata, keeping the experts that don't fit in GPU memory in the rest of the machine's memory."
+    configurationIds: ["strata-nvidia-cuda", "strata-nvidia-gb10"]
     defaultModelArtifactBindingId: "q6-xl"
     engineParameterDefaults: {}
     # Strata's total context is always the parallel requests times the context per request.
@@ -659,35 +659,8 @@ profiles:
       - { parameterId: "total-context", visibility: "PARAMETER_VISIBILITY_HIDDEN" }
   - profileId: "strata-q8"
     displayName: "Q8_0 on Strata"
-    description: "Runs the 8-bit weights, the closest to the full model, through Strata on an RTX 5090 or RTX PRO 6000, keeping the experts that don't fit on the GPU in host memory."
-    configurationIds: ["strata-nvidia-cuda"]
-    defaultModelArtifactBindingId: "q8"
-    engineParameterDefaults: {}
-    # Strata's total context is always the parallel requests times the context per request.
-    engineParameterVisibilityOverrides:
-      - { parameterId: "total-context", visibility: "PARAMETER_VISIBILITY_HIDDEN" }
-  - profileId: "strata-gb10-q4-xl"
-    displayName: "Unsloth Q4_K_XL on Strata for GB10"
-    description: "Runs the balanced Q4 weights through Strata on a GB10, keeping every expert in the memory its GPU shares with the host."
-    configurationIds: ["strata-nvidia-gb10"]
-    defaultModelArtifactBindingId: "q4-xl"
-    engineParameterDefaults: {}
-    # Strata's total context is always the parallel requests times the context per request.
-    engineParameterVisibilityOverrides:
-      - { parameterId: "total-context", visibility: "PARAMETER_VISIBILITY_HIDDEN" }
-  - profileId: "strata-gb10-q6-xl"
-    displayName: "Unsloth Q6_K_XL on Strata for GB10"
-    description: "Runs the higher-precision Q6 weights through Strata on a GB10, keeping every expert in the memory its GPU shares with the host."
-    configurationIds: ["strata-nvidia-gb10"]
-    defaultModelArtifactBindingId: "q6-xl"
-    engineParameterDefaults: {}
-    # Strata's total context is always the parallel requests times the context per request.
-    engineParameterVisibilityOverrides:
-      - { parameterId: "total-context", visibility: "PARAMETER_VISIBILITY_HIDDEN" }
-  - profileId: "strata-gb10-q8"
-    displayName: "Q8_0 on Strata for GB10"
-    description: "Runs the 8-bit weights, the closest to the full model, through Strata on a GB10, keeping every expert in the memory its GPU shares with the host."
-    configurationIds: ["strata-nvidia-gb10"]
+    description: "Runs the 8-bit weights, the closest to the full model, through Strata, keeping the experts that don't fit in GPU memory in the rest of the machine's memory."
+    configurationIds: ["strata-nvidia-cuda", "strata-nvidia-gb10"]
     defaultModelArtifactBindingId: "q8"
     engineParameterDefaults: {}
     # Strata's total context is always the parallel requests times the context per request.
