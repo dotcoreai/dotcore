@@ -895,8 +895,8 @@ fn valid_binding_evidence(
             .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
 }
 
-/// Byte progress belongs only to a Downloading status, completed never exceeding a non-zero
-/// total.
+/// Byte progress belongs only to a Downloading status, or a Loading one verifying model
+/// artifacts, completed never exceeding a non-zero total.
 fn valid_progress(
     lifecycle: ModelLifecycleObservation,
     deployment: &ModelDeploymentStatus,
@@ -905,10 +905,12 @@ fn valid_progress(
         .preparation_progress
         .as_ref()
         .is_none_or(|progress| {
-            lifecycle == ModelLifecycleObservation::Downloading
-                && progress
-                    .total_bytes
-                    .is_none_or(|total| total != 0 && progress.completed_bytes <= total)
+            matches!(
+                lifecycle,
+                ModelLifecycleObservation::Downloading | ModelLifecycleObservation::Loading
+            ) && progress
+                .total_bytes
+                .is_none_or(|total| total != 0 && progress.completed_bytes <= total)
         })
 }
 

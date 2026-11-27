@@ -427,10 +427,10 @@ fn recorded_lifecycle_message_and_download_bytes_are_reported_as_recorded() {
         ),
         (
             ModelDeploymentStatus::Loading,
-            "Checking model artifacts",
+            "Verifying model artifacts",
             Some((5, Some(10))),
             Observed::Loading,
-            None,
+            Some(bytes(5, Some(10))),
         ),
         (
             ModelDeploymentStatus::Loading,

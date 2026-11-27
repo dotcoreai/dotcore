@@ -407,10 +407,17 @@ pub(crate) fn deployment_status(
     status.realization_generation = live_target.map(|target| target.reconcile_generation);
     status.lifecycle = lifecycle as i32;
     status.status_message = bounded_status_message(&state.status_message);
+    // Downloads report transferred bytes; a loading deployment verifying its artifacts reports
+    // hashed bytes.
     status.preparation_progress = state
         .progress
         .as_ref()
-        .filter(|_| lifecycle == ModelLifecycleObservation::Downloading)
+        .filter(|_| {
+            matches!(
+                lifecycle,
+                ModelLifecycleObservation::Downloading | ModelLifecycleObservation::Loading
+            )
+        })
         .and_then(preparation_progress);
     status.binding_readiness = binding_readiness as i32;
     status.failure = failure;

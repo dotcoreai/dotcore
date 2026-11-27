@@ -428,6 +428,29 @@ pub(super) fn artifact_preparation_stage_state(
     Some(state)
 }
 
+/// Adds hashed bytes to a deployment verifying its model artifacts. Artifacts are checked
+/// concurrently, so one reused artifact must not hide another still hashing: progress also
+/// applies while reusing, and shows the deployment verifying again. Any other state is left as
+/// is, as is a prepared deployment, whose quiet revalidation never shows the verify stage.
+pub(super) fn verification_progress_state(
+    previous: Option<&ModelDeploymentState>,
+    progress: ModelArtifactProgress,
+) -> Option<ModelDeploymentState> {
+    let previous = previous?;
+    if ModelDeploymentStatus::try_from(previous.status) != Ok(ModelDeploymentStatus::Loading)
+        || ![VERIFYING_MODEL_ARTIFACTS, REUSING_MODEL_ARTIFACTS]
+            .contains(&previous.status_message.as_str())
+    {
+        return None;
+    }
+
+    let mut state = previous.clone();
+    state.status_message = VERIFYING_MODEL_ARTIFACTS.to_owned();
+    state.progress = Some(bytes_progress(progress));
+    state.updated_at = Some(now());
+    Some(state)
+}
+
 pub(super) fn downloading_state(
     previous: Option<&ModelDeploymentState>,
     progress: ModelArtifactProgress,
@@ -453,21 +476,25 @@ fn download_progress_state(
     status_message: &str,
 ) -> ModelDeploymentState {
     let mut state = previous.cloned().unwrap_or_else(loading_state);
-    let percent = progress
-        .total
-        .map(|total| ((u128::from(progress.completed) * 100) / u128::from(total)) as u32);
     state.status = ModelDeploymentStatus::Downloading as i32;
     state.status_message = status_message.to_owned();
     state.observed_placements.clear();
-    state.progress = Some(ModelDeploymentProgress {
+    state.progress = Some(bytes_progress(progress));
+    state.updated_at = Some(now());
+    state.failure = None;
+    state
+}
+
+fn bytes_progress(progress: ModelArtifactProgress) -> ModelDeploymentProgress {
+    let percent = progress
+        .total
+        .map(|total| ((u128::from(progress.completed) * 100) / u128::from(total)) as u32);
+    ModelDeploymentProgress {
         percent,
         completed: progress.completed,
         total: progress.total,
         unit: ModelDeploymentProgressUnit::Bytes as i32,
-    });
-    state.updated_at = Some(now());
-    state.failure = None;
-    state
+    }
 }
 
 pub(super) fn resuming_state(lifecycle_generation: u64) -> ModelDeploymentState {
@@ -936,7 +963,7 @@ mod tests {
     use anyhow::anyhow;
     use dotcore_proto::dotcore::model::v1::{
         ModelDeploymentDesiredState, ModelDeploymentFailure, ModelDeploymentState,
-        ModelDeploymentStatus, ModelDeploymentSteps, ObservedPlacement,
+        ModelDeploymentStatus, ModelDeploymentStep, ModelDeploymentSteps, ObservedPlacement,
     };
     use dotcore_runtime::{ExecutionTarget, LoopbackEndpoint, WorkloadObservation};
     use dotcore_site::{persistence::SiteStorageError, repository::SiteRepositoryError};
@@ -953,7 +980,7 @@ mod tests {
         record_for_declared_generation, resume_recovery_required_state,
         resume_start_uncertain_state, resuming_state, runtime_startup_progress_state,
         start_requested_state, state_from_observation, status_from_observation, unavailable_state,
-        unloading_state,
+        unloading_state, verification_progress_state,
     };
     use crate::model::{
         controller::{
@@ -1498,6 +1525,92 @@ mod tests {
                 total: Some(100),
                 unit: dotcore_proto::dotcore::model::v1::ModelDeploymentProgressUnit::Bytes as i32,
             })
+        );
+    }
+
+    #[test]
+    fn verification_progress_details_only_the_verify_stage_on_the_current_step() {
+        let progress = |completed| dotcore_artifact::ModelArtifactProgress {
+            completed,
+            total: Some(200),
+        };
+        let current_step = |state: &ModelDeploymentState| {
+            state
+                .steps
+                .as_ref()
+                .map(|steps| steps.steps[steps.current as usize])
+        };
+        let verify = |previous: &ModelDeploymentState| {
+            artifact_preparation_stage_state(
+                Some(previous),
+                dotcore_artifact::ModelArtifactStage::Verify,
+            )
+            .expect("verification transition")
+        };
+
+        let cached =
+            verification_progress_state(Some(&verify(&start_requested_state())), progress(50))
+                .expect("cached start verification progress");
+        assert_eq!(cached.status, ModelDeploymentStatus::Loading as i32);
+        assert_eq!(cached.status_message, "Verifying model artifacts");
+        assert_eq!(
+            cached.progress,
+            Some(dotcore_proto::dotcore::model::v1::ModelDeploymentProgress {
+                percent: Some(25),
+                completed: 50,
+                total: Some(200),
+                unit: dotcore_proto::dotcore::model::v1::ModelDeploymentProgressUnit::Bytes as i32,
+            })
+        );
+        assert_eq!(
+            current_step(&cached),
+            Some(ModelDeploymentStep::CheckingArtifacts as i32)
+        );
+
+        let downloaded = downloading_state(Some(&start_requested_state()), progress(200));
+        let after_download = verification_progress_state(Some(&verify(&downloaded)), progress(100))
+            .expect("post-download verification progress");
+        assert_eq!(
+            after_download
+                .progress
+                .as_ref()
+                .and_then(|progress| progress.percent),
+            Some(50)
+        );
+        assert_eq!(
+            current_step(&after_download),
+            Some(ModelDeploymentStep::DownloadingArtifacts as i32)
+        );
+
+        assert_eq!(
+            verification_progress_state(Some(&downloaded), progress(100)),
+            None
+        );
+        // Another artifact reused while this one still hashes.
+        let reusing = artifact_preparation_stage_state(
+            Some(&cached),
+            dotcore_artifact::ModelArtifactStage::Reuse,
+        )
+        .expect("reuse transition");
+        assert_eq!(reusing.progress, None);
+        let still_hashing = verification_progress_state(Some(&reusing), progress(150))
+            .expect("verification progress past a reused artifact");
+        assert_eq!(still_hashing.status_message, "Verifying model artifacts");
+        assert_eq!(
+            still_hashing
+                .progress
+                .as_ref()
+                .and_then(|progress| progress.percent),
+            Some(75)
+        );
+        let publishing = artifact_preparation_stage_state(
+            Some(&cached),
+            dotcore_artifact::ModelArtifactStage::Publish,
+        )
+        .expect("publication transition");
+        assert_eq!(
+            verification_progress_state(Some(&publishing), progress(200)),
+            None
         );
     }
 

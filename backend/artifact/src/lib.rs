@@ -139,13 +139,15 @@ impl ArtifactManager {
     }
 
     /// Materializes every model and auxiliary artifact selected by the resolved launch, reporting
-    /// the downloads as the model download step to `output`.
+    /// the downloads and verifications as the model download step to `output`, transfer bytes to
+    /// `progress` and hashed bytes to `verification`.
     pub async fn prepare_model(
         &self,
         artifacts: &BTreeMap<String, ModelArtifactSource>,
         cancellation: &CancellationToken,
         progress: Option<ModelArtifactProgressObserver>,
         stage: Option<ModelArtifactStageObserver>,
+        verification: Option<ModelArtifactProgressObserver>,
         output: &PreparationOutput,
     ) -> Result<ModelArtifactPreparation, ArtifactCacheError> {
         let step = output.step(
@@ -154,7 +156,14 @@ impl ArtifactManager {
         );
         let result = self
             .model_cache
-            .prepare_artifacts_cancellable(artifacts, cancellation, progress, stage, &step)
+            .prepare_artifacts_cancellable(
+                artifacts,
+                cancellation,
+                progress,
+                stage,
+                verification,
+                &step,
+            )
             .await;
         step.complete(&result, ArtifactCacheError::is_cancelled);
         result
@@ -935,6 +944,7 @@ mod tests {
             .prepare_model(
                 &artifacts,
                 &CancellationToken::new(),
+                None,
                 None,
                 None,
                 &PreparationOutput::discard(),
