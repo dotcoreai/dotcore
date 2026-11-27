@@ -1,0 +1,77 @@
+syntax = "proto3";
+
+package dotcore.node.v1;
+
+import "dotcore/node/v1/config.proto";
+import "dotcore/site/v1/site.proto";
+
+// Private one-time handshake that lets one declared node replace its complete target set.
+// The node proves its pinned identity; the manager verifies the whole-node base against durable
+// state, the proposed replacement against the whole site and the deployment guard, and the
+// operator reviews and approves the exact change. Nothing is recorded before approval, and a
+// replacement is committed durably once, before the node installs it. Ordinary join is unchanged
+// and never carries a target.
+service NodeRescanService {
+  // Proposes the full replacement target set for one declared node; blocks while the operator
+  // reviews and approves. Errors: NOT_FOUND (unknown node), FAILED_PRECONDITION (refusal:
+  // invalid proposal, stale base, deployment guard, active rescan), RESOURCE_EXHAUSTED (too
+  // many pending rescans).
+  rpc ProposeRescan(ProposeRescanRequest) returns (ProposeRescanResponse);
+}
+
+// The worker's proposal for a whole-node target replacement, authenticated by the node's
+// pinned certificate. The worker re-reads its node folder before sending; the manager derives
+// the base itself, so the proposal carries only the replacement.
+message ProposeRescanRequest {
+  // Leaf certificate of the node in DER form, proving it holds the pinned identity of the node.
+  bytes node_certificate_der = 1;
+
+  // SiteNode identity the proposal replaces.
+  string node_id = 2;
+
+  // Whole target set the replacement installs: the complete target inventory, models and
+  // applications together, no bare delta.
+  repeated dotcore.site.v1.ExecutionTarget targets = 3;
+
+  // Refreshed observation configuration the node installs.
+  dotcore.node.v1.NodeObservationConfiguration observation = 4;
+}
+
+// The manager's reply after the operator approves and the commit re-check passes. Nothing is
+// recorded before the approval; the committed outcome is returned once it is durable.
+message ProposeRescanResponse {
+  oneof outcome {
+    // The approved replacement, recorded durably; the node installs it before serving.
+    RescanCommitted committed = 1;
+
+    // The whole-projection comparison found no byte changes; nothing is written and no restart
+    // is needed.
+    RescanNoOp no_op = 2;
+  }
+}
+
+// The whole committed projection for one replacement: the whole target set, the refreshed
+// observation configuration and its canonical digest.
+message RescanCommitted {
+  // SiteNode identity the replacement was recorded for.
+  string node_id = 1;
+
+  // Whole target set the node installs.
+  repeated dotcore.site.v1.ExecutionTarget targets = 2;
+
+  // Refreshed observation configuration the node installs.
+  dotcore.node.v1.NodeObservationConfiguration observation = 3;
+
+  // Canonical lowercase SHA-256 digest of the committed observation configuration.
+  string observation_configuration_sha256 = 4;
+
+  // Whether the node must restart to serve under the replacement.
+  bool restart_required = 5;
+}
+
+// A no-op replacement: the whole projection equals the committed one; nothing is written and no
+// restart is needed.
+message RescanNoOp {
+  // SiteNode identity the check was done for.
+  string node_id = 1;
+}

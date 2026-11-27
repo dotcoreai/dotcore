@@ -854,7 +854,8 @@ export const JoinNewNodeSchema: GenMessage<JoinNewNode> = /*@__PURE__*/
   messageDesc(file_dotcore_site_v1_membership, 24);
 
 /**
- * What changes when a declared machine joins again; its identity and targets stay.
+ * What changes when a declared machine joins again. Its identity and existing targets stay; only
+ * its addresses and observation configuration change.
  *
  * @generated from message dotcore.site.v1.JoinRejoin
  */
@@ -1160,10 +1161,10 @@ export const MachineRemovalRefusalReasonSchema: GenEnum<MachineRemovalRefusalRea
 
 /**
  * Management API for the running site's membership: adding a machine, letting a declared one join
- * again, and removing one. Joins live in the site manager's memory only: a manager restart ends
- * every join and voids its token. Errors: NOT_FOUND (unknown or ended join), FAILED_PRECONDITION
- * (decision that doesn't match the join's current proposal), RESOURCE_EXHAUSTED (too many active
- * joins).
+ * again, and removing one. Joins live in the
+ * site manager's memory only: a manager restart ends every join and voids its token. Errors:
+ * NOT_FOUND (unknown or ended join), FAILED_PRECONDITION (decision that doesn't match the join's
+ * current proposal), RESOURCE_EXHAUSTED (too many active joins).
  *
  * @generated from service dotcore.site.v1.SiteMembershipService
  */

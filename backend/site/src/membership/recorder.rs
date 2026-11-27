@@ -1,5 +1,6 @@
 //! Records membership changes on the running site: a joined node with its execution targets and
-//! the pin of its certificate, or a rejoining node's new addresses.
+//! the pin of its certificate, or a rejoining node's new addresses, and one existing node's
+//! whole replacement target set.
 //!
 //! Each change is persist-or-reject. Once the site lock confirms the change is valid and a joined
 //! node is new, its pin is written, then `site.yaml`; only then is the change accepted in memory
@@ -15,7 +16,13 @@ use std::{
 
 use dotcore_proto::dotcore::site::v1::{ExecutionTarget, Site, SiteNode};
 
-use super::join::{JoinSiteError, JoinSiteWriter};
+use super::{
+    join::{JoinSiteError, JoinSiteWriter},
+    rescan::{
+        ReplacementRole, RescanBase, RescanCommitError, RescanReplacement, RescanSiteWriter,
+        record_replacement,
+    },
+};
 use crate::{
     atomic::{StdFileSystem, persist_bytes},
     manager_trust::{ManagerTrust, ManagerTrustError, SITE_TRUST_DIRECTORY, WORKER_PIN_DIRECTORY},
@@ -139,6 +146,31 @@ impl JoinSiteWriter for MembershipRecorder {
     }
 }
 
+impl RescanSiteWriter for MembershipRecorder {
+    fn declaration_rules(&self) -> SiteDeclarationRules {
+        self.site.declaration_rules()
+    }
+
+    fn site(&self) -> Result<Site, RescanCommitError> {
+        self.site
+            .snapshot()
+            .map_err(|source| RescanCommitError::Failed(anyhow::Error::new(source)))
+    }
+
+    fn node_pin(&self, node_id: &str) -> Result<Option<CertificateFingerprint>, RescanCommitError> {
+        read_node_pin(&self.site_root, node_id)
+            .map_err(|source| RescanCommitError::Failed(anyhow::Error::new(source)))
+    }
+
+    fn commit_replacement(
+        &self,
+        base: &RescanBase,
+        replacement: &RescanReplacement,
+    ) -> Result<(), RescanCommitError> {
+        record_replacement(&self.site, base, replacement, ReplacementRole::Worker)
+    }
+}
+
 /// Returns a copy of `site` with the node and its targets added, after checking that the result
 /// is a valid site, the node is not a site manager, its host is new, and every target belongs
 /// to it. Nothing is written.
@@ -153,6 +185,8 @@ pub(super) fn site_with_node(
         &mut MembershipSiteTransaction {
             nodes: &mut updated.nodes,
             execution_targets: &mut updated.execution_targets,
+            deployments: &updated.model_deployments,
+            applications: &updated.application_deployments,
         },
         node,
         targets,

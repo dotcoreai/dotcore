@@ -2866,7 +2866,7 @@ const WORKER_NODE_ID: &str = "node-7b836d678d251736";
 const WORKER_APPLICATION_TARGET: &str = "application-execution-target-7182af3d809190c5-simulated";
 
 #[test]
-fn node_remove_leave_and_list_help_describe_their_arguments() {
+fn node_remove_leave_list_and_rescan_help_describe_their_arguments() {
     let help = |action: &str| {
         let output = dotc()
             .args(["node", action, "--help"])
@@ -2890,6 +2890,49 @@ fn node_remove_leave_and_list_help_describe_their_arguments() {
         help("list"),
         "List the nodes of this site with their addresses and deployments; runs on the manager, which may be running\n\nUsage: dotc node list [OPTIONS]\n\nOptions:\n      --details             Also show the address each node uses to reach the manager and whether the manager trusts the node's certificate; terminal output only\n      --verbose             Show the complete cause chain of a failure on a terminal\n      --execution-targets   Also list each node's execution targets; terminal output only\n      --site-dir <PATH>     Absolute site or node folder; defaults to $XDG_STATE_HOME/dotcore/site, else ~/.local/state/dotcore/site [env: DOTCORE_SITE_DIR]\n      --catalog-dir <PATH>  Absolute master catalog folder [env: DOTCORE_CATALOG_DIR]\n      --cache-dir <PATH>    Absolute root of the recreatable caches; defaults to $XDG_CACHE_HOME/dotcore, else ~/.cache/dotcore [env: DOTCORE_CACHE_DIR]\n  -h, --help                Print help\n"
     );
+    assert_eq!(
+        help("rescan"),
+        "Re-scan this machine's capabilities and replace one node's whole target set: runs on the node whose hardware or runtimes changed, with its server stopped. In a joined node folder the site manager records the replacement only after its operator approves it and the node then installs it; in a site folder this machine's own manager node is re-scanned and the site records the replacement itself. Both report the restart the replacement needs\n\nUsage: dotc node rescan [OPTIONS]\n\nOptions:\n      --verbose             Show the complete cause chain of a failure on a terminal\n      --yes                 Replace the targets without showing and confirming them first\n      --site-dir <PATH>     Absolute site or node folder; defaults to $XDG_STATE_HOME/dotcore/site, else ~/.local/state/dotcore/site [env: DOTCORE_SITE_DIR]\n      --catalog-dir <PATH>  Absolute master catalog folder [env: DOTCORE_CATALOG_DIR]\n      --cache-dir <PATH>    Absolute root of the recreatable caches; defaults to $XDG_CACHE_HOME/dotcore, else ~/.cache/dotcore [env: DOTCORE_CACHE_DIR]\n  -h, --help                Print help\n"
+    );
+}
+
+/// A re-scan of a site folder re-scans that site's manager node, so it refuses while the manager
+/// runs the site: the replacement holds the site folder while it plans and writes.
+#[test]
+fn node_rescan_of_a_site_folder_re_scans_that_site_s_manager_node() {
+    let fixture = TemporarySite::new();
+    let lock = File::options()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(format!("{}.lock", fixture.site_path().display()))
+        .expect("site lock");
+    // SAFETY: flock is called with a valid owned file descriptor and released when the file closes.
+    assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_SH) }, 0);
+
+    let output = dotc()
+        .args(["node", "rescan", "--yes", "--site-dir"])
+        .arg(fixture.site_path())
+        .clear_test_environment()
+        .output()
+        .expect("node rescan of a site folder");
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let stderr = text(&output.stderr);
+    assert!(
+        stderr.contains(&format!(
+            "the site at {} is running or locked",
+            fixture.site_path().display()
+        )),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("stop this machine's site before re-scanning its manager node's targets"),
+        "{stderr}"
+    );
+    drop(lock);
 }
 
 #[test]
@@ -3610,7 +3653,6 @@ fn a_running_node_or_a_mismatched_name_is_refused_before_the_manager_is_asked() 
     assert_eq!(after.site, before.site);
     assert_eq!(after.worker, before.worker);
 }
-
 #[test]
 fn the_intact_folder_of_a_removed_node_is_refused_with_the_leave_then_join_steps() {
     let fixture = TemporarySite::new();

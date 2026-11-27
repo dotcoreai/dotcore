@@ -5,8 +5,9 @@
 //! asks the operator to confirm before anything is sent. The node's private key is created
 //! here and never leaves; the finished node folder is what `dotcore` runs, and on a terminal the
 //! command then starts it, after a countdown the operator can skip. A node whose
-//! intact folder of the same site already exists joins again instead, with no probe or prompt,
-//! keeping its key, identity, and deployments and changing only its addresses.
+//! intact folder of the same site already exists joins again instead, keeping its key,
+//! identity, and deployments: the folder is re-read, and only its host and private port may
+//! change.
 
 use std::{
     collections::BTreeSet,
@@ -322,12 +323,12 @@ async fn join_new_site(
     Ok(())
 }
 
-/// Joins the node of the intact folder to the site again, probing and asking nothing: the folder
-/// already holds the node's identity, targets, and private port.
+/// Joins the node of the intact folder to the site again: it re-reads the folder under custody
+/// and re-asks the target choices.
 async fn rejoin_site(
     arguments: NodeJoinArgs,
     token: JoinToken,
-    folder: RejoiningNodeFolder,
+    mut folder: RejoiningNodeFolder,
     command: &StartCommand,
     mut terminal: Option<&mut dyn Terminal>,
     timing: JoinTiming,
@@ -336,9 +337,13 @@ async fn rejoin_site(
     announce_connection(&connection, lend(&mut terminal))?;
     if let Some(ignored) = ignored_rejoin_flags(&arguments) {
         Notices::new(lend(&mut terminal)).warn(&format!(
-            "{ignored} ignored: a node that joins again keeps its capabilities and execution targets"
+            "{ignored} ignored: a rejoin keeps the node's choices"
         ))?;
     }
+
+    // Nothing the rejoin sends may depend on a copy read before the operator confirmed, so the
+    // folder is re-read and re-validated here, under custody.
+    folder.recheck()?;
 
     let proposal = RejoinProposal {
         host: arguments.host.clone(),
@@ -397,19 +402,18 @@ fn open_rejoining_folder(
 fn ignored_rejoin_flags(arguments: &NodeJoinArgs) -> Option<String> {
     let flags: Vec<&str> = [
         ("--inference", !arguments.inference.is_empty()),
-        ("--applications", !arguments.applications.is_empty()),
         ("--nvidia-device", !arguments.nvidia_device.is_empty()),
         (
             "--native-workload-lifetime",
             arguments.native_workload_lifetime.is_some(),
         ),
+        ("--applications", !arguments.applications.is_empty()),
     ]
     .into_iter()
     .filter_map(|(flag, given)| given.then_some(flag))
     .collect();
     (!flags.is_empty()).then(|| flags.join(", "))
 }
-
 /// Shows which site and manager the token reached.
 fn announce_connection(
     connection: &JoinConnection,
@@ -1065,7 +1069,7 @@ mod tests {
             report_rejoined(
                 None,
                 &joined_folder(),
-                &StartCommand::new(Some(Path::new("/srv/node")), None)
+                &StartCommand::new(Some(Path::new("/srv/node")), None),
             )
             .expect("records")
             .as_deref(),
@@ -1086,6 +1090,15 @@ mod tests {
             ignored_rejoin_flags(&arguments).as_deref(),
             Some("--inference, --applications")
         );
+    }
+
+    #[test]
+    fn a_rejoin_records_no_target() {
+        let records = report_rejoined(None, &joined_folder(), &StartCommand::new(None, None))
+            .expect("records")
+            .expect("records");
+
+        assert!(!records.contains("DOTCORE_EXECUTION_TARGET_ID"));
     }
 
     #[test]

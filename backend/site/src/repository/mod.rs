@@ -319,9 +319,10 @@ impl SiteRepository {
         Ok(result)
     }
 
-    /// Runs a membership mutation: adding a joined node with its execution targets, or replacing a
-    /// declared node's addresses. The operation runs under the site lock, so what it checks holds
-    /// until the change is written. Nothing is written when the operation changes nothing.
+    /// Runs a membership mutation: adding a joined node with its execution targets, replacing a
+    /// declared node's addresses, or replacing a node's execution targets. The operation runs under
+    /// the site lock and sees the deployments read-only, so what it checks holds until the change
+    /// is written. Nothing is written when the operation changes nothing.
     ///
     /// Unlike other owner mutations it is persist-or-reject: the change is accepted in memory only
     /// once `site.yaml` holds it, because recording a node hands it its identity, which can't be
@@ -338,6 +339,8 @@ impl SiteRepository {
         let mut transaction = MembershipSiteTransaction {
             nodes: &mut candidate.nodes,
             execution_targets: &mut candidate.execution_targets,
+            deployments: &candidate.model_deployments,
+            applications: &candidate.application_deployments,
         };
         let result = operation(&mut transaction).map_err(ScopedSiteMutationError::Owner)?;
         if candidate == current.site {
@@ -998,10 +1001,14 @@ pub struct RouteSiteTransaction<'a> {
     pub routes: &'a mut Vec<InferenceRoute>,
 }
 
-/// Mutable membership section: the declared nodes and their execution targets.
+/// Mutable membership section: the declared nodes and their execution targets, plus the
+/// deployments placed on those targets, read-only, for the checks a membership change makes.
 pub struct MembershipSiteTransaction<'a> {
     pub nodes: &'a mut Vec<dotcore_proto::dotcore::site::v1::SiteNode>,
     pub execution_targets: &'a mut Vec<dotcore_proto::dotcore::site::v1::ExecutionTarget>,
+    pub deployments: &'a [ModelDeploymentDeclaration],
+    pub applications:
+        &'a [dotcore_proto::dotcore::application::v1::ApplicationDeploymentDeclaration],
 }
 
 /// Distinguishes an owner-rule rejection from a shared site transaction failure.

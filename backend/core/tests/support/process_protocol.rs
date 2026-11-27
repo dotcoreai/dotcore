@@ -150,6 +150,7 @@ impl ProcessSettings {
                 .collect(),
             native_launcher: self.native_launcher.clone(),
             clock: manual_clock.map(|clock| Arc::new(clock) as Arc<dyn Clock>),
+            docker_factory: None,
             metric_recorder: None,
         }
     }

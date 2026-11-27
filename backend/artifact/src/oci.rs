@@ -6,7 +6,12 @@
 //! each layer's status changes as lines, and an image already present reports nothing. Callers own
 //! cancellation, and a development tag is resolved to its current image ID on request.
 
-use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
+use std::{
+    collections::HashMap,
+    future::Future,
+    pin::Pin,
+    sync::{Arc, Mutex},
+};
 
 use bollard::{Docker, errors::Error as BollardError, query_parameters::CreateImageOptionsBuilder};
 use dotcore_domain::{
@@ -217,6 +222,110 @@ impl DockerImageInspector for OciPreparer {
                 .inspect_docker_image(reference)
                 .await
                 .map_err(|error| error.0)
+        })
+    }
+}
+
+/// An application image preparer that connects to its daemon on first use instead of when it is
+/// built, so a daemon nobody can reach blocks nothing until a preparation needs it.
+///
+/// An attempt that finds no daemon reports the outage and keeps no connection, so the next
+/// preparation or pin attempt opens it again and the preparer recovers as soon as the daemon
+/// answers. A connection that worked is kept for every later attempt.
+pub fn lazy_oci_preparer(
+    connect: Arc<dyn Fn() -> PrepareConnectionFuture + Send + Sync + 'static>,
+) -> Arc<dyn OciImagePreparer> {
+    Arc::new(LazyOciPreparer {
+        connect,
+        connected: Arc::new(Mutex::new(None)),
+    })
+}
+
+type PrepareConnectionFuture = Pin<
+    Box<dyn Future<Output = Result<Arc<dyn OciImagePreparer>, OciClientError>> + Send + 'static>,
+>;
+
+/// Cloneable lazy-connection handle for one lazy preparer. Cloning shares the connection cache.
+#[derive(Clone)]
+struct LazyOciPreparer {
+    connect: Arc<dyn Fn() -> PrepareConnectionFuture + Send + Sync + 'static>,
+    connected: Arc<Mutex<Option<Arc<dyn OciImagePreparer>>>>,
+}
+
+impl LazyOciPreparer {
+    async fn preparer(&self) -> Result<Arc<dyn OciImagePreparer>, OciClientError> {
+        if let Some(preparer) = self
+            .connected
+            .lock()
+            .expect("lazy preparer connection lock")
+            .clone()
+        {
+            return Ok(preparer);
+        }
+        let preparer = (self.connect)().await?;
+        let cloned = Arc::clone(&preparer);
+        *self
+            .connected
+            .lock()
+            .expect("lazy preparer connection lock") = Some(cloned);
+        Ok(preparer)
+    }
+}
+
+impl OciImagePreparer for LazyOciPreparer {
+    fn prepare(
+        &self,
+        request: OciPreparationRequest,
+        cancellation: CancellationToken,
+        output: StepOutput,
+    ) -> OciPreparationFuture {
+        let this = self.clone();
+        Box::pin(async move {
+            let preparer = this
+                .preparer()
+                .await
+                .map_err(|error| OciPreparationError::Inspection(error.0))?;
+            preparer.prepare(request, cancellation, output).await
+        })
+    }
+
+    fn as_local_image_identity_resolver(&self) -> Option<&dyn LocalImageIdentityResolver> {
+        Some(self)
+    }
+
+    fn as_docker_image_inspector(&self) -> Option<&dyn DockerImageInspector> {
+        Some(self)
+    }
+}
+
+impl LocalImageIdentityResolver for LazyOciPreparer {
+    fn resolve_local_image_identity(
+        &self,
+        reference: String,
+    ) -> LocalImageIdentityResolutionFuture {
+        let this = self.clone();
+        Box::pin(async move {
+            let preparer = this
+                .preparer()
+                .await
+                .map_err(|error| LocalImageIdentityResolutionError::Inspection(error.0))?;
+            let resolver = preparer
+                .as_local_image_identity_resolver()
+                .ok_or(LocalImageIdentityResolutionError::NotConfigured)?;
+            resolver.resolve_local_image_identity(reference).await
+        })
+    }
+}
+
+impl DockerImageInspector for LazyOciPreparer {
+    fn inspect_docker_image(&self, reference: String) -> DockerImageInspectionFuture {
+        let this = self.clone();
+        Box::pin(async move {
+            let preparer = this.preparer().await.map_err(|error| error.0)?;
+            let inspector = preparer.as_docker_image_inspector().ok_or(anyhow::anyhow!(
+                "Docker image inspection is unavailable on this node"
+            ))?;
+            inspector.inspect_docker_image(reference).await
         })
     }
 }
@@ -791,6 +900,71 @@ mod tests {
         );
         assert_eq!(client.pull_count(), 1);
         assert_eq!(client.maximum_active_pulls(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_lazy_preparer_opens_its_daemon_on_use_and_recovers_when_the_daemon_answers() {
+        // The daemon answers from its second connection on: the first preparation reaches an
+        // outage, the next one is served, and a later one reuses the connection that worked.
+        let connections = Arc::new(AtomicUsize::new(0));
+        let preparer = lazy_oci_preparer(Arc::new({
+            let connections = Arc::clone(&connections);
+            move || {
+                let attempt = connections.fetch_add(1, Ordering::SeqCst) + 1;
+                Box::pin(async move {
+                    if attempt == 1 {
+                        return Err(OciClientError(anyhow::anyhow!(
+                            "docker daemon is not reachable"
+                        )));
+                    }
+                    // Each preparation inspects the image it prepares, so the client answers twice.
+                    Ok(Arc::new(OciPreparer::new(Arc::new(FakeOciClient::new(
+                        [Ok(Some(image(&request()))), Ok(Some(image(&request())))],
+                        no_streams(),
+                    )))) as Arc<dyn OciImagePreparer>)
+                })
+            }
+        }));
+        assert_eq!(
+            connections.load(Ordering::SeqCst),
+            0,
+            "composition opens no daemon connection"
+        );
+
+        let request = request();
+        let outage = preparer
+            .prepare(request.clone(), CancellationToken::new(), discarded())
+            .await
+            .expect_err("an unreachable daemon reports the outage");
+        assert_eq!(
+            format!("{:#}", anyhow::Error::from(outage)),
+            "OCI image inspection failed: docker daemon is not reachable"
+        );
+        assert_eq!(
+            connections.load(Ordering::SeqCst),
+            1,
+            "the preparation attempt reached for the daemon"
+        );
+
+        preparer
+            .prepare(request.clone(), CancellationToken::new(), discarded())
+            .await
+            .expect("preparation after the daemon answered");
+        assert_eq!(
+            connections.load(Ordering::SeqCst),
+            2,
+            "the next preparation connected again"
+        );
+
+        preparer
+            .prepare(request, CancellationToken::new(), discarded())
+            .await
+            .expect("later preparation");
+        assert_eq!(
+            connections.load(Ordering::SeqCst),
+            2,
+            "a working connection is kept for later preparations"
+        );
     }
 
     #[tokio::test]

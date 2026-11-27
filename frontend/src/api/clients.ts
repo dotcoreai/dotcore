@@ -16,6 +16,7 @@ import {
   createSiteMembershipClient,
   type SiteMembershipClient,
 } from "@/api/site-membership-client";
+import { createSiteRescanClient, type SiteRescanClient } from "@/api/site-rescan-client";
 
 /**
  * Every API client the console uses, one per backend service. Pages and providers read them from
@@ -32,6 +33,7 @@ export interface ConsoleClients {
   routeClient: RouteClient;
   siteClient: SiteClient;
   siteMembershipClient: SiteMembershipClient;
+  siteRescanClient: SiteRescanClient;
 }
 
 export const ClientsContext = createContext<ConsoleClients | undefined>(undefined);
@@ -49,6 +51,7 @@ export function createConsoleClients(): ConsoleClients {
     routeClient: createRouteClient(),
     siteClient: createSiteClient(),
     siteMembershipClient: createSiteMembershipClient(),
+    siteRescanClient: createSiteRescanClient(),
   };
 }
 

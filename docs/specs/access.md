@@ -11,6 +11,9 @@ Code: node identity and enrollment in `backend/site/`, listeners in `backend/cor
 - Keep management access, inference consumption and app access separate.
 - See entitlement and usage, with where each number comes from and what enforces it.
 - Join a machine to a site with your approval, and remove it.
+- Re-scan an existing machine and replace its complete target set with your approval, keeping its
+  identity, trust, addresses, deployments and routes
+  ([re-scanning a node's targets](#re-scanning-a-nodes-targets)).
 - Keep the site fully local, or connect it to Dotcore's services for remote management.
 
 ## Architecture
@@ -93,6 +96,84 @@ sequenceDiagram
 - A removed node can't join again with its folder. You clean the machine, then join it with a new
   token.
 - A node with an intact folder joins a running site again by proving its pinned identity. Only its addresses change, and the dial-back checks the new ones the same way.
+- Joining never carries a target. One node's target set is changed only by a rescan ([re-scanning a node's targets](#re-scanning-a-nodes-targets)), a separate, explicit operation that keeps the node's identity, trust and addresses.
+
+### Re-scanning a node's targets
+
+```mermaid
+sequenceDiagram
+  participant OP as You
+  participant W as Affected node
+  participant API as Management API
+  participant SM as Site manager
+  OP->>API: Start a rescan for the node
+  API->>OP: Command to run on the node
+  OP->>W: dotc node rescan
+  W->>W: Re-read the node folder and scan its capabilities
+  W->>SM: Propose the whole replacement target set
+  SM->>API: Proposal to review
+  OP->>API: Approve the exact change
+  SM->>SM: Re-check the pin, the base and the replacement
+  SM->>SM: Commit the replacement durably
+  SM->>W: Committed projection
+  W->>W: Install the projection atomically before serving
+  OP->>W: Restart the node
+```
+
+The one `dotc node rescan` command serves both paths. The command runs on the affected node and
+scans its own capabilities; the manager never scans a remote node. Ordinary `dotc node join` is
+unchanged: a rejoin carries addresses and trust only, and never a target; a new node's join still proposes its initial targets.
+
+- Worker path: the command re-reads and re-validates the node folder under custody, scans locally
+  and proposes the whole replacement target set with the refreshed observation configuration to the
+  manager. The manager verifies the node's pinned identity, derives the base itself from durable
+  state, classifies added/changed/removed/unchanged targets, refuses the whole change when
+  removing or changing a target with a deployment, including one pending teardown, and validates
+  the whole site. The operator reviews the exact node, the classification, the deployments
+  affected and the restart instruction, and approves once. The manager commits the whole
+  replacement durably before the node installs it. The worker installs the committed projection —
+  the whole target set, the refreshed observation configuration and its canonical digest — atomically
+  (temporary file plus rename) and validates it before the node serves. A no-op installs nothing and
+  needs no restart.
+- Manager path: the command runs locally on the manager node; the operator reviews and confirms
+  the change in the terminal. The manager applies the same replacement through the authoritative
+  live-site path — no join, no new RPC, no automatic restart — re-checks the approval-relevant state at
+  commit, commits the replacement durably, then reports the required restart.
+- On both paths the affected node restarts before it serves under the replacement. The command
+  instructs the operator to restart after a durable commit (and, on the worker path, a successful
+  install). No automatic restart or generic live reload in this pass. A no-op writes no bytes and
+  needs no restart.
+- The approval is bound to the pin, the whole-node base and the exact replacement. The manager
+  re-checks all three at commit; a stale base, a mismatch or a wrong pin fails closed and records
+  nothing. Replay identity is the whole-node base plus the exact replacement — never a separate
+  replay token. An identical committed replacement replays once: the manager returns the prior
+  durable outcome. A lost acknowledgement fails closed, then compares the durable node declaration;
+  the operation is never rolled back merely because the acknowledgement was lost.
+- Scan scope: the node looks for every capability its host offers, not only the ones it declares,
+  so a capability gained since it was declared, such as Docker on a Mac set up without it, adds its
+  targets. A declared capability the host no longer offers keeps its committed targets, which report
+  unavailable; the scan never removes them. A kind of workload the node runs simulated stays
+  simulated: the scan adds no real capability of that kind beside it.
+  A capability that is present but unusable, such as a Docker daemon that fails to answer, is
+  reported to the operator with its reason; an absent one is silent.
+- One rescan at a time answers a node: starting a new rescan for the node forgets its ended
+  rescans, and only the new invitation answers the node. A node that lost its answer proposes again
+  under the new invitation and goes to review; the durable declaration decides the outcome.
+- Classification: the same node and target identity with the full declaration equal is unchanged;
+  the same identity with a declaration difference is changed; differing identity is added or removed.
+- The whole projection — targets, the refreshed observation configuration and the bootstrap digest —
+  is equal for a no-op, enforced at write time: the worker never writes or installs when the
+  projection differs nothing.
+- Retained publication host: a Docker app target that cannot be reached stays declared, keeps its
+  recorded host and endpoint configuration, and reports unavailable. The outage blocks neither
+  native model serving nor its fence, and never blocks the restart; fail-closed behavior is reserved
+  for structurally invalid or stale proposals, never for a live outage.
+- The console reuses the existing machines/approval surface — it shows the exact node, the
+  classification, the deployments affected and the restart instruction — while the command runs in
+  a terminal on the affected node. No console is added to worker nodes.
+- One host contract: a new node still uses the ordinary join flow; both worker and manager
+  rescans go through the one rescan contract above — the manager's private listener for a worker,
+  the authoritative live-site path on the manager node.
 
 ### Connecting nodes
 

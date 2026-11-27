@@ -71,6 +71,7 @@ pub use oci::LocalImageIdentityResolutionFuture;
 pub use oci::LocalImageIdentityResolver;
 #[cfg(any(test, feature = "test-support"))]
 pub use oci::OciPreparationFuture;
+pub use oci::lazy_oci_preparer;
 pub use oci::{
     DockerOciClient, OciClientError, OciImagePreparer, OciPlatform, OciPreparationError,
     OciPreparationRequest, OciPreparationSource, OciPreparer,

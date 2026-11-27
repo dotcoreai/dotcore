@@ -1,17 +1,26 @@
 //! Runtime backend composition for configured site capabilities.
 
 use std::{
+    collections::BTreeMap,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use dotcore_domain::{
-    SiteNodeId, SitePaths,
+    ExecutionPlatform, SiteNodeId, SitePaths,
     clock::Clock,
     timing::{NativeTiming, SimulatedTiming},
 };
 use dotcore_proto::dotcore::site::v1::{
     ExecutionTarget, application_runtime_binding, execution_target, model_runtime_binding,
+};
+use dotcore_runtime::{
+    ObservedWorkloadGroup, RuntimeBackendError, RuntimeBackendId, RuntimeFuture,
+    RuntimeGroupLogFollowQuery, RuntimeLogFuture, RuntimeLogQuery, RuntimeLogSourceHistory,
+    RuntimeLogSourceSelection, RuntimeLogSourceStream, WorkloadGroupBackend, WorkloadGroupId,
+    WorkloadGroupLaunch, WorkloadGroupObservation, WorkloadMaterializationRequirements,
+    WorkloadStorageKey, WorkloadUnitName, WorkloadUnitResourceObservation,
 };
 use dotcore_runtime_backends::{
     docker::{
@@ -28,7 +37,7 @@ use dotcore_runtime_backends::{
     },
 };
 use dotcore_site::view::fencing::AcceptedNodeViewAuthority;
-use tracing::info;
+use tracing::{info, warn};
 
 use super::{
     CompositionError,
@@ -58,9 +67,10 @@ pub(super) fn runtime_adapter_registry_for_site_id(
     native_launcher: Option<&Path>,
     native_timing: NativeTiming,
     simulated: SimulatedRuntimeInputs,
+    docker_factory_override: Option<Arc<dyn DockerBackendFactory>>,
 ) -> Result<RuntimeAdapterRegistry, CompositionError> {
     let mut registry = runtime_adapter_registry_with_docker_factory(
-        Arc::new(docker_factory(configuration, site_id)),
+        docker_factory_override.unwrap_or_else(|| Arc::new(docker_factory(configuration, site_id))),
         simulated,
     )?;
     registry
@@ -116,6 +126,7 @@ pub(super) async fn node_application_runtimes_for(
     targets: &[ExecutionTarget],
     registry: &RuntimeAdapterRegistry,
     view: AcceptedNodeViewAuthority,
+    reconnect: DockerReconnect,
 ) -> Result<ApplicationRuntimeMap, CompositionError> {
     let mut builder = ApplicationRuntimeMapBuilder::leased(view);
     for target in targets {
@@ -130,8 +141,33 @@ pub(super) async fn node_application_runtimes_for(
             )
         })?;
         let key = application_adapter_key(adapter);
-        let runtime = registry.application_backend(key, target).await?;
-        info!(event_kind = "runtime_selected", owner = "application", execution_target_id = %target.execution_target_id, runtime = key.as_str(), "selected node runtime adapter");
+        let runtime = match registry.application_backend(key, target).await {
+            Ok(runtime) => {
+                info!(event_kind = "runtime_selected", owner = "application", execution_target_id = %target.execution_target_id, runtime = key.as_str(), "selected node runtime adapter");
+                runtime
+            }
+            // An unreachable Docker daemon leaves the target declared and unavailable instead of
+            // failing the node: its declaration and its host and endpoint configuration stay, and
+            // every other target composes and acts under the node's accepted view as before.
+            Err(error) if is_unreachable_docker_application_target(key, &error) => {
+                let Some(factory) = registry.application_factory(key) else {
+                    return Err(error);
+                };
+                warn!(
+                    event_kind = "runtime_target_unavailable",
+                    owner = "application",
+                    execution_target_id = %target.execution_target_id,
+                    error = %dotcore_domain::diagnostic::diagnostic_chain(&error),
+                    "Application target's Docker daemon could not be reached; the target stays declared and unavailable"
+                );
+                Box::new(DeferredDockerApplicationRuntime::new(
+                    factory,
+                    target.clone(),
+                    reconnect.clone(),
+                )) as Box<dyn dotcore_runtime::WorkloadGroupBackend>
+            }
+            Err(error) => return Err(error),
+        };
         builder
             .insert_boxed(&target.execution_target_id, runtime)
             .map_err(|error| {
@@ -139,6 +175,294 @@ pub(super) async fn node_application_runtimes_for(
             })?;
     }
     Ok(builder.build())
+}
+
+/// Whether one application target's composition failure may leave it declared and unavailable
+/// instead of failing the node: only a Docker application adapter whose own runtime reports a
+/// backend failure. Invalid configuration and every other adapter still fail the node.
+fn is_unreachable_docker_application_target(
+    key: RuntimeAdapterKey,
+    error: &CompositionError,
+) -> bool {
+    key == DOCKER_ADAPTER_KEY && matches!(error, CompositionError::RuntimeBackend(_))
+}
+
+/// When an unreachable Docker daemon is tried again: the backend clock and the retry window.
+#[derive(Clone, Debug)]
+pub(super) struct DockerReconnect {
+    pub(super) clock: Arc<dyn Clock>,
+    pub(super) interval: Duration,
+}
+
+/// The runtime of one Docker application target whose daemon could not be reached. It stands in
+/// for the Docker backend so the target stays declared and unavailable: every operation opens the
+/// connection it needs, an unreachable daemon reports the outage instead of a success, and the
+/// target serves again as soon as the daemon answers, with no restart and no target change. After a
+/// failed attempt, calls within the retry window fail with that outage without reconnecting.
+struct DeferredDockerApplicationRuntime {
+    factory: Arc<dyn ApplicationRuntimeAdapterFactory>,
+    target: ExecutionTarget,
+    connected: Mutex<Option<Arc<dyn WorkloadGroupBackend>>>,
+    reconnect: DockerReconnect,
+
+    /// When the last connection attempt failed and why.
+    last_failure: Mutex<Option<ConnectFailure>>,
+}
+
+struct ConnectFailure {
+    at: tokio::time::Instant,
+    message: String,
+}
+
+impl DeferredDockerApplicationRuntime {
+    fn new(
+        factory: Arc<dyn ApplicationRuntimeAdapterFactory>,
+        target: ExecutionTarget,
+        reconnect: DockerReconnect,
+    ) -> Self {
+        Self {
+            factory,
+            target,
+            connected: Mutex::new(None),
+            reconnect,
+            last_failure: Mutex::new(None),
+        }
+    }
+
+    /// Returns the Docker backend of the target, opening the connection on the first attempt that
+    /// reaches the daemon and keeping it for every later operation. Within the retry window after
+    /// a failed attempt it reports that failure without connecting again.
+    async fn backend(&self) -> Result<Arc<dyn WorkloadGroupBackend>, RuntimeBackendError> {
+        if let Some(backend) = self
+            .connected
+            .lock()
+            .expect("deferred runtime connection lock")
+            .clone()
+        {
+            return Ok(backend);
+        }
+        if let Some(failure) = self
+            .last_failure
+            .lock()
+            .expect("deferred runtime failure lock")
+            .as_ref()
+            .filter(|failure| {
+                self.reconnect
+                    .clock
+                    .now()
+                    .saturating_duration_since(failure.at)
+                    < self.reconnect.interval
+            })
+        {
+            return Err(RuntimeBackendError::Docker(anyhow::anyhow!(
+                "{}",
+                failure.message
+            )));
+        }
+        let runtime = match self.factory.build(&self.target).await {
+            Ok(runtime) => runtime,
+            Err(error) => {
+                let error = deferred_application_runtime_error(error);
+                *self
+                    .last_failure
+                    .lock()
+                    .expect("deferred runtime failure lock") = Some(ConnectFailure {
+                    at: self.reconnect.clock.now(),
+                    message: match &error {
+                        RuntimeBackendError::Docker(source) => format!("{source:#}"),
+                        other => other.to_string(),
+                    },
+                });
+                return Err(error);
+            }
+        };
+        *self
+            .last_failure
+            .lock()
+            .expect("deferred runtime failure lock") = None;
+        let backend = Arc::from(runtime);
+        *self
+            .connected
+            .lock()
+            .expect("deferred runtime connection lock") = Some(Arc::clone(&backend));
+        Ok(backend)
+    }
+}
+
+/// Keeps the daemon's own runtime failure when a reconnection fails for another reason, naming the
+/// Docker target's reconnection as its context.
+fn deferred_application_runtime_error(error: CompositionError) -> RuntimeBackendError {
+    match error {
+        CompositionError::RuntimeBackend(source) => source,
+        other => RuntimeBackendError::docker_with_source(
+            "Docker application runtime reconnect failed",
+            other,
+        ),
+    }
+}
+
+impl WorkloadGroupBackend for DeferredDockerApplicationRuntime {
+    // The target keeps reporting the Docker runtime it declares, and Docker always materializes
+    // its own launch assets, so neither answer needs a connected daemon.
+    fn backend_id(&self) -> RuntimeBackendId {
+        RuntimeBackendId(dotcore_runtime_backends::docker::BACKEND_ID.to_owned())
+    }
+
+    fn execution_platform<'a>(
+        &'a self,
+        execution_target_id: &'a str,
+    ) -> RuntimeFuture<'a, ExecutionPlatform> {
+        Box::pin(async move {
+            let backend = self.backend().await?;
+            backend.execution_platform(execution_target_id).await
+        })
+    }
+
+    fn materialization_requirements(&self) -> WorkloadMaterializationRequirements {
+        WorkloadMaterializationRequirements::physical()
+    }
+
+    // Group discovery runs once for every application target of the node, so an unreachable daemon
+    // observes no groups here instead of failing the whole pass and stopping the other targets from
+    // reconciling. Their own operations still report the outage.
+    fn discover_workload_groups<'a>(&'a self) -> RuntimeFuture<'a, Vec<WorkloadGroupObservation>> {
+        Box::pin(async move {
+            let backend = match self.backend().await {
+                Ok(backend) => backend,
+                Err(error) => {
+                    warn!(
+                        event_kind = "runtime_target_unavailable",
+                        owner = "application",
+                        execution_target_id = %self.target.execution_target_id,
+                        error = %dotcore_domain::diagnostic::diagnostic_chain(&error),
+                        "Application target's Docker daemon could not be reached during discovery; observing no workload groups"
+                    );
+                    return Ok(Vec::new());
+                }
+            };
+            backend.discover_workload_groups().await
+        })
+    }
+
+    fn storage_exists<'a>(&'a self, storage: &'a WorkloadStorageKey) -> RuntimeFuture<'a, bool> {
+        Box::pin(async move {
+            let backend = self.backend().await?;
+            backend.storage_exists(storage).await
+        })
+    }
+
+    fn remove_storage<'a>(&'a self, storage: &'a WorkloadStorageKey) -> RuntimeFuture<'a, ()> {
+        Box::pin(async move {
+            let backend = self.backend().await?;
+            backend.remove_storage(storage).await
+        })
+    }
+
+    fn ensure_workload_group_absent<'a>(
+        &'a self,
+        group: &'a WorkloadGroupId,
+        owner: &'a str,
+    ) -> RuntimeFuture<'a, ()> {
+        Box::pin(async move {
+            let backend = self.backend().await?;
+            backend.ensure_workload_group_absent(group, owner).await
+        })
+    }
+
+    fn create_workload_group<'a>(
+        &'a self,
+        group: &'a WorkloadGroupLaunch,
+    ) -> RuntimeFuture<'a, WorkloadGroupObservation> {
+        Box::pin(async move {
+            let backend = self.backend().await?;
+            backend.create_workload_group(group).await
+        })
+    }
+
+    fn start_workload_group<'a>(
+        &'a self,
+        group: &'a WorkloadGroupLaunch,
+    ) -> RuntimeFuture<'a, WorkloadGroupObservation> {
+        Box::pin(async move {
+            let backend = self.backend().await?;
+            backend.start_workload_group(group).await
+        })
+    }
+
+    fn inspect_workload_group<'a>(
+        &'a self,
+        group: &'a WorkloadGroupLaunch,
+    ) -> RuntimeFuture<'a, WorkloadGroupObservation> {
+        Box::pin(async move {
+            let backend = self.backend().await?;
+            backend.inspect_workload_group(group).await
+        })
+    }
+
+    fn observe_group_resources<'a>(
+        &'a self,
+        group: &'a WorkloadGroupLaunch,
+    ) -> RuntimeFuture<'a, BTreeMap<WorkloadUnitName, WorkloadUnitResourceObservation>> {
+        Box::pin(async move {
+            let backend = self.backend().await?;
+            backend.observe_group_resources(group).await
+        })
+    }
+
+    fn remove_workload_group<'a>(
+        &'a self,
+        group: &'a WorkloadGroupLaunch,
+    ) -> RuntimeFuture<'a, ()> {
+        Box::pin(async move {
+            let backend = self.backend().await?;
+            backend.remove_workload_group(group).await
+        })
+    }
+
+    fn remove_observed_workload_group<'a>(
+        &'a self,
+        group: &'a ObservedWorkloadGroup,
+    ) -> RuntimeFuture<'a, ()> {
+        Box::pin(async move {
+            let backend = self.backend().await?;
+            backend.remove_observed_workload_group(group).await
+        })
+    }
+
+    fn stop_workload_group<'a>(&'a self, group: &'a WorkloadGroupLaunch) -> RuntimeFuture<'a, ()> {
+        Box::pin(async move {
+            let backend = self.backend().await?;
+            backend.stop_workload_group(group).await
+        })
+    }
+
+    fn read_workload_group_logs<'a>(
+        &'a self,
+        group: &'a WorkloadGroupLaunch,
+        selection: &'a RuntimeLogSourceSelection,
+        query: &'a RuntimeLogQuery,
+    ) -> RuntimeLogFuture<'a, Vec<RuntimeLogSourceHistory>> {
+        Box::pin(async move {
+            let backend = self.backend().await?;
+            backend
+                .read_workload_group_logs(group, selection, query)
+                .await
+        })
+    }
+
+    fn follow_workload_group_logs<'a>(
+        &'a self,
+        group: &'a WorkloadGroupLaunch,
+        selection: &'a RuntimeLogSourceSelection,
+        query: RuntimeGroupLogFollowQuery,
+    ) -> RuntimeLogFuture<'a, Vec<RuntimeLogSourceStream>> {
+        Box::pin(async move {
+            let backend = self.backend().await?;
+            backend
+                .follow_workload_group_logs(group, selection, query)
+                .await
+        })
+    }
 }
 
 /// What a node's simulated runtimes run with: their test controls, the machine the node
@@ -611,26 +935,43 @@ fn simulated_runtime(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
 
-    use dotcore_domain::{clock::SystemClock, timing::Timing};
+    use std::time::UNIX_EPOCH;
+
+    use dotcore_domain::{
+        clock::{SystemClock, VirtualClock},
+        timing::Timing,
+    };
     use dotcore_launcher::workload::Lifetime;
     use dotcore_proto::dotcore::{
         catalog::v1::OciPlatform,
         site::v1::{
-            ApplicationRuntimeBinding, ExecutionTarget, ModelRuntimeBinding, NativeRuntimeAdapter,
+            ApplicationRuntimeBinding, DockerApplicationRuntimeAdapter, ExecutionTarget,
+            ModelRuntimeBinding, NativeRuntimeAdapter,
             NativeWorkloadLifetime as NativeWorkloadLifetimeBinding,
             SimulatedApplicationRuntimeAdapter, SimulatedRuntimeAdapter, SimulatedRuntimeScenario,
             Site, SiteNode, application_runtime_binding, execution_target, model_runtime_binding,
         },
     };
-    use dotcore_runtime::{RuntimeBackend, WorkloadGroupBackend};
+    use dotcore_runtime::{
+        RuntimeBackend, WorkloadCorrelation, WorkloadGroupBackend, WorkloadGroupId,
+        WorkloadGroupLaunch, WorkloadGroupObservation, WorkloadPublicationRequest,
+        WorkloadUnitName,
+    };
     use dotcore_runtime_backends::docker::{
         DockerAcceleratorTransport, DockerBackendFactory, DockerBackendFuture,
     };
-    use dotcore_site::view::fencing::{AcceptedNodeViewAuthority, ManagerSession, NodeIncarnation};
+    use dotcore_site::view::fencing::{
+        AcceptedNodeViewAuthority, ActionAssignment, LifecycleOperationAttempt, ManagerSession,
+        NodeIncarnation, NodeViewProjection,
+    };
 
     use super::*;
+    use crate::dispatch::application::ApplicationRuntimeError;
 
     #[tokio::test]
     async fn composes_only_the_application_targets_among_the_node_targets() {
@@ -640,13 +981,278 @@ mod tests {
             simulated_inputs(None),
         )
         .expect("registry");
-        let applications =
-            node_application_runtimes_for(&site.execution_targets, &registry, view_authority())
-                .await
-                .expect("Application targets");
+        let applications = node_application_runtimes_for(
+            &site.execution_targets,
+            &registry,
+            view_authority(),
+            reconnect_on_system_time(),
+        )
+        .await
+        .expect("Application targets");
         assert_eq!(
             applications.target_ids().collect::<Vec<_>>(),
             ["application-a", "application-b"]
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unreachable_docker_application_target_stays_declared_and_reports_the_outage() {
+        let daemon = Arc::new(UnreachableDockerDaemon::default());
+        let registry =
+            runtime_adapter_registry_with_docker_factory(daemon.clone(), simulated_inputs(None))
+                .expect("runtime adapter registry");
+
+        let runtimes = node_application_runtimes_for(
+            &[
+                simulated_application_target("application-a"),
+                docker_application_target("docker-applications"),
+            ],
+            &registry,
+            view_authority(),
+            reconnect_on_system_time(),
+        )
+        .await
+        .expect("node composed with an unreachable Docker application target");
+        assert_eq!(
+            runtimes.target_ids().collect::<Vec<_>>(),
+            ["application-a", "docker-applications"],
+            "the unreachable target stays declared in the node's application runtimes"
+        );
+        assert_eq!(
+            runtimes
+                .backend_id("docker-applications")
+                .expect("declared Docker runtime")
+                .0,
+            dotcore_runtime_backends::docker::BACKEND_ID,
+            "the unreachable target keeps reporting the Docker runtime it declares"
+        );
+        assert_eq!(
+            runtimes
+                .backend_id("application-a")
+                .expect("reachable application runtime")
+                .0,
+            dotcore_runtime_backends::simulated::BACKEND_ID,
+            "the Docker outage replaces no other target's runtime"
+        );
+        assert_eq!(
+            daemon.application_build_attempts(),
+            1,
+            "composition reached once for the Docker daemon"
+        );
+
+        // An operation on the unavailable target opens the connection again and reports the outage.
+        let error = runtimes
+            .inspect_workload_group("docker-applications", &group_launch("docker-applications"))
+            .await
+            .expect_err("an unreachable Docker daemon reports its outage");
+        assert_eq!(
+            format!("{:#}", anyhow::Error::from(error)),
+            "Application execution target \"docker-applications\" runtime failed: Docker runtime failure: docker daemon is not reachable: Docker runtime failure: docker daemon is not reachable: docker daemon is not reachable"
+        );
+        assert_eq!(
+            daemon.application_build_attempts(),
+            2,
+            "the operation tried the Docker daemon again"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_deferred_docker_application_target_serves_again_once_its_daemon_answers() {
+        // The daemon answers from its third attempt on: composition and the first operation reach
+        // an outage, and recovery needs no restart, no re-scan and no new composition.
+        let daemon = Arc::new(UnreachableDockerDaemon::default().answers_from_attempt(3));
+        let registry =
+            runtime_adapter_registry_with_docker_factory(daemon.clone(), simulated_inputs(None))
+                .expect("runtime adapter registry");
+        let clock = Arc::new(VirtualClock::starting_at(UNIX_EPOCH));
+        let runtimes = node_application_runtimes_for(
+            &[docker_application_target("docker-applications")],
+            &registry,
+            view_authority(),
+            reconnect_on(&clock),
+        )
+        .await
+        .expect("node composed while its Docker daemon is unreachable");
+
+        runtimes
+            .inspect_workload_group("docker-applications", &group_launch("docker-applications"))
+            .await
+            .expect_err("the target is unavailable while the daemon is down");
+        clock.advance(Timing::test().application.docker_reconnect_interval);
+        assert!(matches!(
+            runtimes
+                .inspect_workload_group("docker-applications", &group_launch("docker-applications"))
+                .await
+                .expect("the target recovered with its daemon"),
+            WorkloadGroupObservation::Absent { .. }
+        ));
+        assert_eq!(
+            daemon.application_build_attempts(),
+            3,
+            "one reconnect served again"
+        );
+
+        runtimes
+            .inspect_workload_group("docker-applications", &group_launch("docker-applications"))
+            .await
+            .expect("the recovered connection is kept");
+        assert_eq!(
+            daemon.application_build_attempts(),
+            3,
+            "a recovered target stops reopening its connection"
+        );
+    }
+
+    #[tokio::test]
+    async fn calls_within_the_retry_window_fail_fast_and_a_call_after_it_reconnects() {
+        // The daemon answers from its fourth attempt: composition is attempt one.
+        let daemon = Arc::new(UnreachableDockerDaemon::default().answers_from_attempt(4));
+        let registry =
+            runtime_adapter_registry_with_docker_factory(daemon.clone(), simulated_inputs(None))
+                .expect("runtime adapter registry");
+        let clock = Arc::new(VirtualClock::starting_at(UNIX_EPOCH));
+        let interval = Timing::test().application.docker_reconnect_interval;
+        let runtimes = node_application_runtimes_for(
+            &[docker_application_target("docker-applications")],
+            &registry,
+            view_authority(),
+            reconnect_on(&clock),
+        )
+        .await
+        .expect("node composed while its Docker daemon is unreachable");
+        let launch = group_launch("docker-applications");
+
+        let first = runtimes
+            .inspect_workload_group("docker-applications", &launch)
+            .await
+            .expect_err("the first call reaches the outage");
+        let outage = format!("{:#}", anyhow::Error::from(first));
+        assert_eq!(
+            outage,
+            "Application execution target \"docker-applications\" runtime failed: Docker runtime failure: docker daemon is not reachable: Docker runtime failure: docker daemon is not reachable: docker daemon is not reachable",
+        );
+        assert_eq!(daemon.application_build_attempts(), 2);
+
+        // Within the window, calls report the same outage without reconnecting.
+        clock.advance(interval - Duration::from_millis(1));
+        for _ in 0..3 {
+            let error = runtimes
+                .inspect_workload_group("docker-applications", &launch)
+                .await
+                .expect_err("the outage is reported inside the retry window");
+            assert_eq!(format!("{:#}", anyhow::Error::from(error)), outage);
+        }
+        assert_eq!(
+            daemon.application_build_attempts(),
+            2,
+            "calls inside the window do not reconnect"
+        );
+
+        // After the window, one call reconnects; it fails again and opens a new window.
+        clock.advance(Duration::from_millis(1));
+        runtimes
+            .inspect_workload_group("docker-applications", &launch)
+            .await
+            .expect_err("the daemon is still down");
+        assert_eq!(daemon.application_build_attempts(), 3);
+        runtimes
+            .inspect_workload_group("docker-applications", &launch)
+            .await
+            .expect_err("a failed reconnect opens a new window");
+        assert_eq!(daemon.application_build_attempts(), 3);
+
+        // After the next window the daemon answers and the target serves again.
+        clock.advance(interval);
+        assert!(matches!(
+            runtimes
+                .inspect_workload_group("docker-applications", &launch)
+                .await
+                .expect("the target recovered with its daemon"),
+            WorkloadGroupObservation::Absent { .. }
+        ));
+        assert_eq!(daemon.application_build_attempts(), 4);
+    }
+
+    #[tokio::test]
+    async fn an_unreachable_docker_application_target_still_acts_under_the_node_view_lease() {
+        let daemon = Arc::new(UnreachableDockerDaemon::default());
+        let registry =
+            runtime_adapter_registry_with_docker_factory(daemon.clone(), simulated_inputs(None))
+                .expect("runtime adapter registry");
+        let target = docker_application_target("docker-applications");
+        let assignment = application_assignment("docker-applications");
+        let view = view_authority();
+        view.install_for_test(
+            "site-one",
+            "manager-node",
+            1,
+            &NodeViewProjection::new(vec![target.clone()], Vec::new())
+                .expect("projection")
+                .with_application_assignments(vec![assignment.clone()])
+                .expect("application assignments"),
+        )
+        .expect("installed node view");
+
+        let runtimes =
+            node_application_runtimes_for(&[target], &registry, view, reconnect_on_system_time())
+                .await
+                .expect("node composed with an unavailable Docker application target");
+        let token = runtimes
+            .capture_operation(
+                &ActionAssignment::from(&assignment),
+                LifecycleOperationAttempt::Runtime {
+                    reconcile_generation: 1,
+                },
+            )
+            .expect("the node's action fence still admits the target");
+        let error = runtimes
+            .create_workload_group(
+                &token,
+                "docker-applications",
+                &group_launch("docker-applications"),
+            )
+            .await
+            .expect_err("the action fails on the daemon, not on the node's fence");
+        assert!(
+            matches!(
+                &error,
+                ApplicationRuntimeError::TargetAdapter {
+                    execution_target_id,
+                    source: RuntimeBackendError::Docker(_),
+                } if execution_target_id == "docker-applications"
+            ),
+            "an admitted action reaches the runtime: {error:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_application_target_without_a_runtime_adapter_still_fails_the_node() {
+        let registry = runtime_adapter_registry_with_docker_factory(
+            Arc::new(PanicDockerFactory),
+            simulated_inputs(None),
+        )
+        .expect("runtime adapter registry");
+        let target = ExecutionTarget {
+            execution_target_id: "application-a".to_owned(),
+            site_node_id: "manager-node".to_owned(),
+            runtime_binding: Some(execution_target::RuntimeBinding::ApplicationRuntime(
+                ApplicationRuntimeBinding { adapter: None },
+            )),
+            ..Default::default()
+        };
+
+        let error = node_application_runtimes_for(
+            &[target],
+            &registry,
+            view_authority(),
+            reconnect_on_system_time(),
+        )
+        .await
+        .err()
+        .expect("an adapter-less application target is invalid configuration");
+        assert_eq!(
+            format!("{:#}", anyhow::Error::from(error)),
+            "Backend composition failed: Application execution target requires one runtime adapter"
         );
     }
 
@@ -662,6 +1268,7 @@ mod tests {
             Some(&launcher),
             Timing::test().native,
             simulated_inputs(None),
+            None,
         )
         .expect("registry");
 
@@ -720,6 +1327,7 @@ mod tests {
             Some(&missing),
             Timing::test().native,
             simulated_inputs(Some(rtx_5090_desktop())),
+            None,
         )
         .expect("registry without a launcher");
 
@@ -903,6 +1511,86 @@ mod tests {
         }
     }
 
+    fn simulated_application_target(execution_target_id: &str) -> ExecutionTarget {
+        application_target(
+            execution_target_id,
+            application_runtime_binding::Adapter::SimulatedRuntime(
+                SimulatedApplicationRuntimeAdapter {},
+            ),
+        )
+    }
+
+    fn docker_application_target(execution_target_id: &str) -> ExecutionTarget {
+        application_target(
+            execution_target_id,
+            application_runtime_binding::Adapter::DockerRuntime(DockerApplicationRuntimeAdapter {}),
+        )
+    }
+
+    fn application_target(
+        execution_target_id: &str,
+        adapter: application_runtime_binding::Adapter,
+    ) -> ExecutionTarget {
+        ExecutionTarget {
+            execution_target_id: execution_target_id.to_owned(),
+            display_name: execution_target_id.to_owned(),
+            site_node_id: "manager-node".to_owned(),
+            platform: Some(platform()),
+            accelerator_device_ids: Vec::new(),
+            runtime_binding: Some(execution_target::RuntimeBinding::ApplicationRuntime(
+                ApplicationRuntimeBinding {
+                    adapter: Some(adapter),
+                },
+            )),
+        }
+    }
+
+    /// One application assignment placing a deployment on `execution_target_id` of this node, for
+    /// the runtime actions the node's fence admits.
+    fn application_assignment(
+        execution_target_id: &str,
+    ) -> dotcore_proto::dotcore::application::private::v1::ApplicationAssignment {
+        dotcore_proto::dotcore::application::private::v1::ApplicationAssignment {
+            declaration: Some(
+                dotcore_proto::dotcore::application::v1::ApplicationDeploymentDeclaration {
+                    application_deployment_id: "application-01".to_owned(),
+                    application_deployment_name: "application-01".to_owned(),
+                    placement: Some(dotcore_proto::dotcore::deployment::v1::ExactPlacement {
+                        site_node_id: "manager-node".to_owned(),
+                        execution_target_id: execution_target_id.to_owned(),
+                    }),
+                    lifecycle_generation: 1,
+                    ..Default::default()
+                },
+            ),
+            linked_route: None,
+        }
+    }
+
+    fn group_launch(execution_target_id: &str) -> WorkloadGroupLaunch {
+        WorkloadGroupLaunch {
+            group_id: WorkloadGroupId("application-01".to_owned()),
+            correlation: WorkloadCorrelation {
+                owner_id: "application-01".to_owned(),
+                reconcile_generation: 1,
+            },
+            execution_target: dotcore_runtime::ExecutionTarget {
+                managed_node_id: SiteNodeId::for_test("manager-node"),
+                accelerator_device_ids: Vec::new(),
+            },
+            execution_target_id: execution_target_id.to_owned(),
+            required_platform: ExecutionPlatform::linux_amd64(),
+            units: Default::default(),
+            publication: WorkloadPublicationRequest {
+                unit_name: WorkloadUnitName("web".to_owned()),
+                port_name: "http".to_owned(),
+                configured_host: std::net::Ipv4Addr::LOCALHOST,
+                host_port: std::num::NonZeroU16::new(30_000).expect("nonzero port"),
+            },
+            host_aliases: Default::default(),
+        }
+    }
+
     /// GPU of the named `rtx-5090` machine.
     const RTX_5090_GPU_ID: &str = "GPU-00000000-0000-0000-0000-000000005090";
 
@@ -959,6 +1647,77 @@ mod tests {
             _target: String,
         ) -> DockerBackendFuture<'_, Box<dyn WorkloadGroupBackend>> {
             Box::pin(async { panic!("Docker factory must not be called") })
+        }
+    }
+
+    /// The Docker daemon of a node whose daemon cannot be reached. By default it never answers;
+    /// `answers_from_attempt` makes that attempt and every later one reach a working Docker
+    /// backend, while earlier ones report the outage.
+    #[derive(Default)]
+    struct UnreachableDockerDaemon {
+        application_attempts: AtomicUsize,
+        answers_from: Option<usize>,
+    }
+
+    impl UnreachableDockerDaemon {
+        /// Answers from attempt `attempt` on, counting attempts from one.
+        fn answers_from_attempt(mut self, attempt: usize) -> Self {
+            self.answers_from = Some(attempt);
+            self
+        }
+
+        fn application_build_attempts(&self) -> usize {
+            self.application_attempts.load(Ordering::SeqCst)
+        }
+    }
+
+    impl DockerBackendFactory for UnreachableDockerDaemon {
+        fn model_backend(
+            &self,
+            _transport: DockerAcceleratorTransport,
+            _node: dotcore_domain::SiteNodeId,
+            _target: String,
+        ) -> DockerBackendFuture<'_, Box<dyn RuntimeBackend>> {
+            Box::pin(async { panic!("these tests compose no Docker model target") })
+        }
+
+        fn application_backend(
+            &self,
+            _transport: DockerAcceleratorTransport,
+            execution_target_id: String,
+        ) -> DockerBackendFuture<'_, Box<dyn WorkloadGroupBackend>> {
+            let attempt = self.application_attempts.fetch_add(1, Ordering::SeqCst) + 1;
+            Box::pin(async move {
+                if !self
+                    .answers_from
+                    .is_some_and(|answers_from| attempt >= answers_from)
+                {
+                    return Err(RuntimeBackendError::Docker(anyhow::anyhow!(
+                        "docker daemon is not reachable"
+                    )));
+                }
+                Ok(Box::new(InMemoryRuntimeBackend::for_target(
+                    SimulatedRuntimeConfig {
+                        execution_platform: ExecutionPlatform::linux_amd64(),
+                        ..Default::default()
+                    },
+                    &execution_target_id,
+                )) as Box<dyn WorkloadGroupBackend>)
+            })
+        }
+    }
+
+    fn reconnect_on(clock: &Arc<VirtualClock>) -> DockerReconnect {
+        DockerReconnect {
+            clock: clock.clone(),
+            interval: Timing::test().application.docker_reconnect_interval,
+        }
+    }
+
+    fn reconnect_on_system_time() -> DockerReconnect {
+        DockerReconnect {
+            clock: Arc::new(SystemClock),
+            interval: Timing::test().application.docker_reconnect_interval,
         }
     }
 

@@ -12,6 +12,10 @@ use std::{
     net::SocketAddr,
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -55,6 +59,9 @@ use dotcore_proto::dotcore::{
 };
 use dotcore_proto::google::protobuf::FieldMask;
 use dotcore_runtime::test_support::exposed_environment;
+use dotcore_runtime_backends::docker::{
+    DockerAcceleratorTransport, DockerBackendFactory, DockerBackendFuture,
+};
 use dotcore_runtime_backends::simulated::{
     SimulatedRuntimeCallCounts, SimulatedRuntimeGroupCall, SimulatedRuntimeGroupDrift,
     SimulatedRuntimeTestSupport,
@@ -160,6 +167,76 @@ async fn simulated_download_progress_precedes_runtime_loading_through_management
     .state
     .expect("ready state");
     assert_eq!(ready.status, ModelDeploymentStatus::Ready as i32);
+}
+
+#[tokio::test]
+async fn node_startup_and_model_serving_continue_with_an_unreachable_docker_app_target() {
+    let root = support::temporary_simulated_docker_fixture();
+    let site_path = root.join("site.yaml");
+    let declared: Site = dotcore_proto::yaml::from_file(&site_path).expect("declared fixture site");
+    let docker = Arc::new(UnreachableDockerFactory::default());
+
+    // The whole node composes and starts although its Docker application target has no daemon.
+    let backend = support::RunningBackend::start_with_test_support(
+        support::configuration(&root),
+        BackendTestSupport {
+            docker_factory: Some(docker.clone()),
+            timing: support::instant_startup_timing(),
+            ..BackendTestSupport::test()
+        },
+    )
+    .await;
+
+    // Its model target still realizes and serves a deployment through the node's action fence.
+    let mut client = backend.model_client();
+    let loaded = client
+        .create_model_deployment(CreateModelDeploymentRequest {
+            source: Some(
+                dotcore_proto::dotcore::model::v1::create_model_deployment_request::Source::Local(
+                    dotcore_proto::dotcore::model::v1::CreateLocalModelDeploymentRequest {
+                        model_id: "fixture-model".to_owned(),
+                        profile_id: "fixture-profile".to_owned(),
+                        placement: Some(support::exact_placement(
+                            "simulated-docker-docker",
+                            "simulated-docker-target",
+                        )),
+                        configuration: Some(support::local_model_configuration(
+                            "fixture-artifact",
+                            32_768,
+                        )),
+                    },
+                ),
+            ),
+            exposure: Some(support::hidden_model_exposure()),
+            model_deployment_name: None,
+        })
+        .await
+        .expect("load model while Docker is unavailable")
+        .into_inner()
+        .deployment
+        .expect("loaded model deployment");
+    let ready = wait_for_lifecycle_client(
+        &mut client,
+        &loaded.model_deployment_id,
+        ModelDeploymentStatus::Ready,
+    )
+    .await;
+    assert_eq!(
+        ready.state.expect("ready state").status,
+        ModelDeploymentStatus::Ready as i32
+    );
+
+    assert!(
+        docker.application_attempts() >= 1,
+        "the node reached for its Docker daemon and composed around the outage"
+    );
+    let started: Site =
+        dotcore_proto::yaml::from_file(&site_path).expect("site after node startup");
+    assert_eq!(
+        started.execution_targets, declared.execution_targets,
+        "an unreachable Docker application target removes, re-parents or replaces no target"
+    );
+    backend.stop().await;
 }
 
 #[tokio::test]
@@ -5370,4 +5447,45 @@ async fn rejected_local_configurations_return_their_reason_through_the_model_ser
     )
     .await
     .expect("the maximum total context");
+}
+
+/// The Docker runtime factory of a node whose daemon cannot be reached: every application backend
+/// build reports the outage, so the node composes its Docker application target without a runtime.
+#[derive(Default)]
+struct UnreachableDockerFactory {
+    application_attempts: AtomicUsize,
+}
+
+impl UnreachableDockerFactory {
+    fn application_attempts(&self) -> usize {
+        self.application_attempts.load(Ordering::SeqCst)
+    }
+}
+
+impl DockerBackendFactory for UnreachableDockerFactory {
+    fn model_backend(
+        &self,
+        _: DockerAcceleratorTransport,
+        _: dotcore_domain::SiteNodeId,
+        _: String,
+    ) -> DockerBackendFuture<'_, Box<dyn dotcore_runtime::RuntimeBackend>> {
+        Box::pin(async { panic!("this fixture declares no Docker model target") })
+    }
+
+    fn application_backend(
+        &self,
+        _: DockerAcceleratorTransport,
+        _: String,
+    ) -> DockerBackendFuture<'_, Box<dyn dotcore_runtime::WorkloadGroupBackend>> {
+        self.application_attempts.fetch_add(1, Ordering::SeqCst);
+        Box::pin(async {
+            Err(dotcore_runtime::RuntimeBackendError::docker_with_source(
+                "Docker client connection failed",
+                std::io::Error::new(
+                    std::io::ErrorKind::ConnectionRefused,
+                    "docker socket is not listening",
+                ),
+            ))
+        })
+    }
 }

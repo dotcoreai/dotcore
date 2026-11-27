@@ -6,8 +6,12 @@ help:
 lint:
   shellcheck -s sh install.sh
 
+# Run the installer regression cases with a pseudo-terminal and fake tools.
+test:
+  python3 test/install-test.py
+
 # Run all installer validations.
-check: lint
+check: lint test
 
 # Run the installer validations CI runs, without changing files.
 ci-check: check

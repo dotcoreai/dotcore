@@ -302,6 +302,7 @@ impl JoinConnection {
                 &offer.manager_private_endpoint,
                 private_bind_address.clone(),
                 observation,
+                offer.realization_targets.clone(),
             )
             .map_err(|_| {
                 NodeJoinError::InvalidOffer("the offered node configuration is invalid")
@@ -690,8 +691,9 @@ fn offered_host(
     Ok(host)
 }
 
-/// Checks that a rejoin offer keeps the folder's node, certificate, and targets exactly, so the
-/// rejoin can change nothing but the folder's addresses and observation configuration.
+/// Checks that a rejoin offer keeps the folder's identity exactly, its certificate unchanged,
+/// and its targets the installed ones, so the rejoin can change only the folder's addresses and
+/// observation configuration.
 fn check_offered_folder(
     offer: &JoinResponse,
     folder: &RejoiningNodeFolder,

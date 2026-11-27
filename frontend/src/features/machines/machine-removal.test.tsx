@@ -69,7 +69,7 @@ describe("machine removal", () => {
     const inspector = await screen.findByRole("complementary", { name: "Machine one" });
     await within(inspector).findByRole("heading", { name: "Execution targets" });
 
-    expect(screen.queryByRole("button", { name: "Remove…" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "More actions" })).not.toBeInTheDocument();
     expect(membership.spies.removeMachine).not.toHaveBeenCalled();
   });
 
@@ -88,7 +88,7 @@ describe("machine removal", () => {
         }),
       );
 
-    await user.click(await screen.findByRole("button", { name: "Remove…" }));
+    await openRemove(user);
     const dialog = await screen.findByRole("dialog", { name: "Remove Machine one?" });
     expect(dialog).toHaveTextContent(
       "Machine one is told to stop and leaves the site. Run dotc node leave on it to clean its folder.",
@@ -126,7 +126,7 @@ describe("machine removal", () => {
       }),
     );
 
-    await user.click(await screen.findByRole("button", { name: "Remove…" }));
+    await openRemove(user);
 
     const dialog = await screen.findByRole("dialog", { name: "Machine one has deployments" });
     expect(dialog).toHaveTextContent("Remove its deployments first, then remove the machine.");
@@ -181,7 +181,7 @@ describe("machine removal", () => {
         response({ outcome: { case: "removed", value: { displayName: "Machine one" } } }),
       );
 
-    await user.click(await screen.findByRole("button", { name: "Remove…" }));
+    await openRemove(user);
     const blocked = await screen.findByRole("dialog", { name: "Machine one has deployments" });
     await user.click(
       within(blocked).getByRole("button", { name: "Remove and forget 2 deployments…" }),
@@ -237,7 +237,7 @@ describe("machine removal", () => {
         }),
       );
 
-    await user.click(await screen.findByRole("button", { name: "Remove…" }));
+    await openRemove(user);
     const dialog = await screen.findByRole("dialog", { name: "Remove Machine one?" });
     await user.click(within(dialog).getByRole("button", { name: "Remove" }));
 
@@ -252,12 +252,18 @@ describe("machine removal", () => {
     const { membership } = renderHost();
     membership.spies.removeMachine.mockRejectedValueOnce(new Error("manager unreachable"));
 
-    await user.click(await screen.findByRole("button", { name: "Remove…" }));
+    await openRemove(user);
 
     const dialog = await screen.findByRole("dialog", { name: "Can't remove machine" });
     expect(dialog).toHaveTextContent("manager unreachable");
   });
 });
+
+/** A worker's machine keeps its consequential actions in the inspector's more-actions menu. */
+async function openRemove(user: ReturnType<typeof setupUser>) {
+  await user.click(await screen.findByRole("button", { name: "More actions" }));
+  await user.click(await screen.findByRole("menuitem", { name: "Remove…" }));
+}
 
 function renderHost({
   machine,

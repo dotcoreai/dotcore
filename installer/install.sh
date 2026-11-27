@@ -12,9 +12,11 @@ set -eu
 DEFAULT_FLAKE_REF="github:dotcoreai/dotcore"
 DETERMINATE_INSTALL_URL="https://install.determinate.systems/nix"
 DETERMINATE_DOCS_URL="https://docs.determinate.systems/determinate-nix/"
+DOCKER_DESKTOP_URL="https://docs.docker.com/desktop/setup/install/mac-install/"
 NIX_UNINSTALL_DOCS_URL="https://nix.dev/manual/nix/stable/installation/uninstall.html"
 NIX_DAEMON_PROFILE="/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh"
-DEFAULT_DOCKER_ENDPOINT="unix:///var/run/docker.sock"
+DEFAULT_DOCKER_SOCKET="/var/run/docker.sock"
+DEFAULT_DOCKER_ENDPOINT="unix://$DEFAULT_DOCKER_SOCKET"
 START_COUNTDOWN_SECONDS=2
 
 # Runs the requested command after the checks both share.
@@ -225,10 +227,42 @@ check_join_ready() {
   success "This machine can join a site."
 }
 
+# Checks Docker reachability. A supported Apple Silicon Mac can continue without Docker: native
+# models work and only apps need the daemon, so unreachable Docker asks before continuing instead
+# of failing. Everywhere else, Docker is a required prerequisite and fails before anything is
+# installed.
+check_docker() {
+  if [ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ]; then
+    check_docker_macos
+    return
+  fi
+  check_docker_required
+}
+
+# Probes the local Docker socket with a bounded read-only request, without the Docker CLI, so a
+# missing or differently-pointed CLI doesn't block a reachable daemon. The probe bypasses proxies
+# and user curl configuration.
+check_docker_macos() {
+  socket=$(docker_socket_path)
+  if docker_socket_reachable "$socket"; then
+    success "Docker is reachable at $socket."
+    return 0
+  fi
+  hint "Install Docker Desktop: $DOCKER_DESKTOP_URL"
+  hint "In its Settings > Advanced, allow the default Docker socket: Dotcore uses $socket."
+  hint "Continuing without Docker doesn't repair an existing Docker app target."
+  if ask_yes_no "Docker isn't reachable. You can still run models on this Mac, but apps need Docker Desktop. Continue without Docker?" no; then
+    info "Continuing without Docker. Apps can't be deployed until Docker works."
+    return 0
+  fi
+  info "Stopped. Install Docker Desktop, then run the installer again."
+  exit 0
+}
+
 # Checks that this user reaches the Docker daemon Dotcore will use, without sudo. Dotcore talks to
 # DOCKER_HOST when it is a Unix socket, else to the system socket, never to a Docker context, so
 # the check targets that same endpoint.
-check_docker() {
+check_docker_required() {
   if ! command -v docker >/dev/null 2>&1; then
     error "Docker isn't installed. Dotcore runs models and apps in Docker."
     docker_install_remedy
@@ -676,6 +710,23 @@ docker_endpoint() {
   esac
 }
 
+# Prints the Unix socket Dotcore uses, resolving DOCKER_HOST when it is one, else the system socket.
+docker_socket_path() {
+  case "${DOCKER_HOST:-}" in
+    unix://*) printf '%s\n' "${DOCKER_HOST#unix://}" ;;
+    *) printf '%s\n' "$DEFAULT_DOCKER_SOCKET" ;;
+  esac
+}
+
+# Probes the socket with a bounded read-only request. It bypasses proxies and user curl
+# settings so a local check can't be redirected or made to fail elsewhere.
+docker_socket_reachable() {
+  socket="$1"
+  command -v curl >/dev/null 2>&1 || return 1
+  CURL_HOME=/dev/null curl --noproxy '*' --max-time 5 --connect-timeout 3 --unix-socket "$socket" \
+    -fsS http://localhost/_ping >/dev/null 2>&1
+}
+
 # Prints the site folder dotc uses when nothing else names one.
 default_site_dir() {
   printf '%s\n' "${DOTCORE_SITE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/dotcore/site}"
@@ -735,7 +786,7 @@ load_nix_profile() {
 
 docker_install_remedy() {
   if [ "$(uname -s)" = Darwin ]; then
-    hint "Install Docker Desktop: https://docs.docker.com/desktop/setup/install/mac-install/"
+    hint "Install Docker Desktop: $DOCKER_DESKTOP_URL"
   else
     hint "Install Docker Engine: https://docs.docker.com/engine/install/"
   fi

@@ -38,6 +38,17 @@ A site can span several machines that reach each other directly. The first one i
 - When you deploy a model or an app, you pick the machine that runs it.
 - To remove a machine, first remove its deployments, then remove the machine from the console or with `dotc node remove`. The manager keeps running, and the removed machine stops Dotcore by itself. Run `dotc node leave` on it to clean it up. A machine that is off can be removed with its deployments forgotten; they may still run on it until you clean it.
 
+### Re-scan a machine's targets
+
+When a machine's hardware or runtimes change — GPUs replaced, Docker installed or changed — the targets it offers go stale. A re-scan replaces one machine's whole target set, and the machine keeps its identity and its place in the site:
+
+1. In the console, open **Machines**, select the machine, and pick **Re-scan targets**. It shows a command to run on that machine.
+2. On that machine, with Dotcore stopped there, run `dotc node rescan` in its terminal. The machine re-checks its own hardware and runtimes and proposes the replacement; the manager never scans it remotely.
+3. Back in the console, check the added, changed and removed targets and approve. A runtime or GPU the machine gained, such as Docker installed on a Mac set up without it, shows as added. One the machine no longer offers keeps its targets, which report unavailable. The re-scan is refused when a target a deployment uses would be removed or changed.
+4. Start Dotcore on the machine again. Until you do, it serves its previous targets. Nothing is written, and no restart is asked for, when the scan finds nothing to replace.
+
+To re-scan the manager machine itself, use the same command from a terminal there: stop Dotcore, run `dotc node rescan` in the site folder, confirm the change it shows you, then start Dotcore again. It refuses while Dotcore is running.
+
 ## Free disk space
 
 - `dotc gc` removes engine and app images that no deployment needs anymore, and caches and app data shared across deployments that nothing has used for a week (`--unused-days` changes that). It asks before removing anything.

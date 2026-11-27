@@ -13,7 +13,7 @@ use dotcore_node_hardware::{
     hardware::{AcceleratorUnavailable, AcceleratorVendorAdapter, UnavailableReason},
 };
 use dotcore_proto::dotcore::observation::v1::{AcceleratorFacts, AcceleratorVendor};
-use dotcore_runtime::{DockerCapabilityProbe, DockerCapabilityReport};
+use dotcore_runtime::{DockerCapabilityProbe, DockerCapabilityReport, DockerDaemonUnusable};
 
 use crate::initial::request::{
     InitialApplicationRuntime, InitialInferenceRuntime, InitialSiteRequest,
@@ -117,6 +117,17 @@ impl InitialSiteProbeReport {
     }
 }
 
+/// What probing for every selected capability found: the report of the capabilities this host
+/// offers, and why each one that is present but unusable is not offered.
+#[derive(Debug, Default)]
+pub struct InitialSiteOffer {
+    /// The capabilities this host offers.
+    pub report: InitialSiteProbeReport,
+
+    /// Each capability present on this host that can't be used, as its probe failure.
+    pub unusable: Vec<InitialSiteProbeError>,
+}
+
 /// Read-only initial site probe composed from Docker, NVML, and optional Apple GPU capability
 /// adapters.
 pub struct InitialSiteProber {
@@ -211,6 +222,44 @@ impl InitialSiteProber {
         })
     }
 
+    /// Probes each capability `request` selects on its own and reports the ones this host offers.
+    /// A capability that is absent is left out of the report instead of failing the whole probe;
+    /// one that is present but unusable is left out too, and the offer keeps why.
+    pub async fn probe_offered(&self, request: &InitialSiteRequest) -> InitialSiteOffer {
+        let applications = request
+            .applications()
+            .contains(&InitialApplicationRuntime::Docker)
+            .then(|| InitialSiteRequest::new([], [InitialApplicationRuntime::Docker]));
+        let inference = request
+            .inference()
+            .iter()
+            .filter(|runtime| **runtime != InitialInferenceRuntime::Simulated)
+            .map(|runtime| InitialSiteRequest::new([*runtime], []));
+
+        let mut offer = InitialSiteOffer::default();
+        for single in applications.into_iter().chain(inference) {
+            match self.probe(&single).await {
+                Ok(found) => {
+                    let report = &mut offer.report;
+                    report.docker = report.docker.take().or(found.docker);
+                    report.nvidia = report.nvidia.take().or(found.nvidia);
+                    report.apple = report.apple.take().or(found.apple);
+                }
+                Err(error) if error.is_absent() => tracing::debug!(
+                    error = %dotcore_domain::diagnostic::diagnostic_chain(&error),
+                    "Capability not offered by this host"
+                ),
+                // NVIDIA probes Docker again, so an unusable Docker is kept once.
+                Err(InitialSiteProbeError::DockerUnavailable(_))
+                    if offer.unusable.iter().any(|kept| {
+                        matches!(kept, InitialSiteProbeError::DockerUnavailable(_))
+                    }) => {}
+                Err(error) => offer.unusable.push(error),
+            }
+        }
+        offer
+    }
+
     fn probe_apple(&self) -> Result<InitialAppleProbeReport, InitialSiteProbeError> {
         let adapter = self.apple.as_ref().ok_or_else(|| {
             InitialSiteProbeError::apple_unavailable(AcceleratorUnavailable::stable(
@@ -284,6 +333,27 @@ pub enum InitialSiteProbeError {
 }
 
 impl InitialSiteProbeError {
+    /// Returns whether the failure means the capability is not on this host at all, rather than
+    /// present but unusable. Classified by stable reason, never by error text.
+    pub fn is_absent(&self) -> bool {
+        match self {
+            Self::DockerUnavailable(source) => {
+                source.downcast_ref::<DockerDaemonUnusable>().is_none()
+            }
+            Self::NvidiaUnavailable { reason, .. } | Self::AppleUnavailable { reason, .. } => {
+                matches!(
+                    reason,
+                    UnavailableReason::Unsupported
+                        | UnavailableReason::MissingLibrary
+                        | UnavailableReason::NoDevice
+                )
+            }
+            Self::DockerCdiUnavailable
+            | Self::NvidiaCdiUnavailable(_)
+            | Self::NvidiaCdiSelectorsUnavailable => false,
+        }
+    }
+
     fn nvidia_unavailable(error: AcceleratorUnavailable) -> Self {
         let (reason, source) = error.into_parts();
         Self::NvidiaUnavailable { reason, source }
@@ -368,7 +438,7 @@ mod tests {
         AcceleratorUnavailable, AcceleratorVendorAdapter, UnavailableReason,
     };
     use dotcore_proto::dotcore::observation::v1::{AcceleratorFacts, AcceleratorVendor};
-    use dotcore_runtime::{DockerCapabilityProbe, DockerCapabilityReport};
+    use dotcore_runtime::{DockerCapabilityProbe, DockerCapabilityReport, DockerDaemonUnusable};
 
     use super::{InitialSiteProbeError, InitialSiteProber};
     use crate::initial::request::{
@@ -518,6 +588,96 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn probing_what_is_offered_leaves_out_absent_capabilities_silently() {
+        // A Mac without Docker: only its Apple GPU is offered, and nothing absent is reported.
+        let prober = InitialSiteProber::new(
+            Box::new(FakeDocker::unavailable("daemon socket not found")),
+            Box::new(FakeNvidia::absent()),
+        )
+        .with_apple_accelerator(Box::new(FakeApple(Ok(vec![super::apple_facts(
+            "apple-gpu-0",
+        )]))));
+        let offer = prober.probe_offered(&every_capability()).await;
+        assert_eq!(
+            offer.report.apple().map(|apple| apple.device_id()),
+            Some("apple-gpu-0")
+        );
+        assert!(offer.report.docker().is_none());
+        assert!(offer.report.nvidia().is_none());
+        assert!(offer.unusable.is_empty());
+
+        // The same Mac once Docker runs: Docker is offered too, and NVIDIA is still absent.
+        let docker = FakeDocker::available([], []);
+        let docker_calls = Arc::clone(&docker.probe_calls);
+        let prober = InitialSiteProber::new(Box::new(docker), Box::new(FakeNvidia::absent()))
+            .with_apple_accelerator(Box::new(FakeApple(Ok(vec![super::apple_facts(
+                "apple-gpu-0",
+            )]))));
+        let offer = prober.probe_offered(&every_capability()).await;
+        assert_eq!(
+            offer.report.apple().map(|apple| apple.device_id()),
+            Some("apple-gpu-0")
+        );
+        assert_eq!(
+            offer
+                .report
+                .docker()
+                .map(|docker| docker.execution_platform().clone()),
+            Some(dotcore_domain::ExecutionPlatform::linux_amd64())
+        );
+        assert!(offer.report.nvidia().is_none());
+        assert!(offer.unusable.is_empty());
+        // NVIDIA and Docker applications are each probed on their own.
+        assert_eq!(docker_calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn probing_what_is_offered_keeps_why_a_present_capability_is_unusable() {
+        // A Docker daemon that answers but can't run workloads is reported once, though NVIDIA
+        // probes it too.
+        let prober = InitialSiteProber::new(
+            Box::new(FakeDocker::unusable("log driver missing")),
+            Box::new(FakeNvidia::available()),
+        );
+        let offer = prober.probe_offered(&every_capability()).await;
+        assert!(offer.report.docker().is_none());
+        assert_eq!(offer.unusable.len(), 1, "{:?}", offer.unusable);
+        assert!(matches!(
+            &offer.unusable[0],
+            InitialSiteProbeError::DockerUnavailable(source)
+                if source.downcast_ref::<DockerDaemonUnusable>().is_some()
+        ));
+
+        // Docker without CDI on a host with NVIDIA GPUs: Docker is offered, NVIDIA is unusable.
+        let prober = InitialSiteProber::new(
+            Box::new(FakeDocker::available([], [])),
+            Box::new(FakeNvidia::available()),
+        );
+        let offer = prober.probe_offered(&every_capability()).await;
+        assert!(offer.report.docker().is_some());
+        assert!(offer.report.nvidia().is_none());
+        assert_eq!(offer.unusable.len(), 1, "{:?}", offer.unusable);
+        assert!(matches!(
+            offer.unusable[0],
+            InitialSiteProbeError::DockerCdiUnavailable
+        ));
+
+        // A GPU driver that denies access is unusable, not absent.
+        let prober = InitialSiteProber::new(
+            Box::new(FakeDocker::available(["/etc/cdi"], ["nvidia.com/gpu=gpu0"])),
+            Box::new(FakeNvidia::unavailable(UnavailableReason::PermissionDenied)),
+        );
+        let offer = prober.probe_offered(&every_capability()).await;
+        assert!(matches!(
+            offer.unusable.as_slice(),
+            [InitialSiteProbeError::NvidiaUnavailable {
+                reason: UnavailableReason::PermissionDenied,
+                ..
+            }]
+        ));
+    }
+
+    #[tokio::test]
     async fn unavailable_docker_cdi_stops_before_selector_discovery() {
         let docker = FakeDocker::available([], ["nvidia.com/gpu=gpu0"]);
         let nvidia = FakeNvidia::available();
@@ -643,8 +803,21 @@ mod tests {
         assert_eq!(selector_calls.load(Ordering::SeqCst), 1);
     }
 
+    /// Requests every real capability a re-scan looks for.
+    fn every_capability() -> InitialSiteRequest {
+        InitialSiteRequest::new(
+            [
+                InitialInferenceRuntime::Nvidia,
+                InitialInferenceRuntime::Apple,
+            ],
+            [InitialApplicationRuntime::Docker],
+        )
+    }
+
     struct FakeDocker {
         probe_result: Result<DockerCapabilityReport, String>,
+        /// Whether a failing daemon answered before failing, so Docker is present but unusable.
+        answered: bool,
         selector_result: Result<BTreeSet<String>, String>,
         probe_calls: Arc<AtomicU8>,
         selector_calls: Arc<AtomicU8>,
@@ -661,6 +834,7 @@ mod tests {
                     cdi_spec_dirs,
                 )),
                 selector_result: Ok(selectors.into_iter().map(str::to_owned).collect()),
+                answered: false,
                 probe_calls: Arc::new(AtomicU8::new(0)),
                 selector_calls: Arc::new(AtomicU8::new(0)),
             }
@@ -670,8 +844,17 @@ mod tests {
             Self {
                 probe_result: Err(message.into()),
                 selector_result: Ok(BTreeSet::new()),
+                answered: false,
                 probe_calls: Arc::new(AtomicU8::new(0)),
                 selector_calls: Arc::new(AtomicU8::new(0)),
+            }
+        }
+
+        /// A daemon that answers but cannot run workloads, failing as the system probe does.
+        fn unusable(message: impl Into<String>) -> Self {
+            Self {
+                answered: true,
+                ..Self::unavailable(message)
             }
         }
 
@@ -682,6 +865,7 @@ mod tests {
                     ["/etc/cdi"],
                 )),
                 selector_result: Err(message.into()),
+                answered: false,
                 probe_calls: Arc::new(AtomicU8::new(0)),
                 selector_calls: Arc::new(AtomicU8::new(0)),
             }
@@ -694,7 +878,16 @@ mod tests {
         ) -> Pin<Box<dyn Future<Output = anyhow::Result<DockerCapabilityReport>> + Send + '_>>
         {
             self.probe_calls.fetch_add(1, Ordering::SeqCst);
-            let result = self.probe_result.clone().map_err(anyhow::Error::msg);
+            let answered = self.answered;
+            let result = self.probe_result.clone().map_err(|message| {
+                let error = anyhow::Error::msg(message);
+                let error = if answered {
+                    error.context(DockerDaemonUnusable)
+                } else {
+                    error
+                };
+                error.context("local Docker Engine probe")
+            });
             Box::pin(async move { result })
         }
 

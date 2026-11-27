@@ -19,7 +19,9 @@ pub struct RuntimeCapabilityProbes {
 
 /// Read-only probe of the local Docker daemon and its NVIDIA CDI devices.
 pub trait DockerCapabilityProbe: Send + Sync {
-    /// Verifies daemon reachability and returns the runtime capability facts it reports.
+    /// Verifies daemon reachability and returns the runtime capability facts it reports. A daemon
+    /// that answered but cannot run workloads fails with [`DockerDaemonUnusable`] in its error
+    /// chain; any other failure means no daemon could be reached.
     fn probe(
         &self,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<DockerCapabilityReport>> + Send + '_>>;
@@ -29,6 +31,12 @@ pub trait DockerCapabilityProbe: Send + Sync {
         &self,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<BTreeSet<String>>> + Send + '_>>;
 }
+
+/// Marks a Docker probe failure from a daemon that answered but cannot run workloads, as opposed
+/// to one that could not be reached: Docker is present on the host but unusable.
+#[derive(Debug, thiserror::Error)]
+#[error("the Docker daemon answered but cannot run workloads")]
+pub struct DockerDaemonUnusable;
 
 /// Docker Engine facts retained by a read-only capability report.
 #[derive(Clone, Debug, PartialEq, Eq)]

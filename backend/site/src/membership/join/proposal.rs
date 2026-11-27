@@ -387,7 +387,7 @@ impl RejoinProposal {
     }
 
     /// Builds the wire request carrying this proposal, the join secret, the manager address the
-    /// joining node dialed, the signing request bound to the secret, the node's certificate, and
+    /// joining node dialed, the signing request bound to the secret, the node's certificate and
     /// the observation configuration its folder holds.
     pub(super) fn to_request(
         &self,
@@ -415,17 +415,11 @@ impl RejoinProposal {
 
     /// Decodes and validates a rejoin request, which carries nothing a new node proposes.
     fn from_request(request: &JoinRequest) -> Result<Self, JoinProposalError> {
-        let rejoin_fields = JoinRequest {
-            join_secret: request.join_secret.clone(),
-            host: request.host.clone(),
-            private_port: request.private_port,
-            csr_der: request.csr_der.clone(),
-            manager_host: request.manager_host.clone(),
-            node_certificate_der: request.node_certificate_der.clone(),
-            node_observation: request.node_observation.clone(),
-            ..JoinRequest::default()
-        };
-        if *request != rejoin_fields {
+        if !request.display_name.is_empty()
+            || !request.model_targets.is_empty()
+            || !request.application_targets.is_empty()
+            || !request.accelerator_facts.is_empty()
+        {
             return Err(JoinProposalError::RejoinWithNewNodeFields);
         }
         if request.node_observation.is_none() {

@@ -679,7 +679,7 @@ impl ActiveJoin {
             } if *ticket == claim.ticket => {
                 progress.slot = Slot::Offered {
                     connection: *connection,
-                    offer,
+                    offer: Box::new(offer),
                 };
                 claim.armed = false;
                 Ok(())
@@ -706,7 +706,7 @@ impl ActiveJoin {
                 progress.slot = Slot::Committing {
                     node: offer.node.clone(),
                 };
-                Ok(offer)
+                Ok(*offer)
             }
             other => {
                 progress.slot = other;
@@ -923,7 +923,7 @@ enum Slot {
 
     Offered {
         connection: u64,
-        offer: PendingOffer,
+        offer: Box<PendingOffer>,
     },
 
     Committing {

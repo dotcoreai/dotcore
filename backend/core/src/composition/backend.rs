@@ -16,7 +16,7 @@ use dotcore_site::node::control::NodeLivenessAges;
 use dotcore_site::{
     initial::input_store::{SiteInputLock, SiteInputLockError, acquire_shared_site_lock},
     membership::{
-        MembershipRecorder,
+        MembershipRecorder, RescanRegistry,
         join::{JoinHostIdentity, JoinRegistry},
     },
     node::{
@@ -305,6 +305,13 @@ impl Backend {
         // Joins record into the manager's site and trust each joined node in the listener's live
         // pins; the listener admits joining machines while any join holds its gate open.
         let join_gate = JoinGate::default();
+        // Joins and re-scans record through the same membership recorder, which writes the manager's
+        // site and the trust pins of the nodes it changes.
+        let recorder = Arc::new(MembershipRecorder::new(
+            capabilities.manager.site_repository.clone(),
+            &configuration.site_paths.root,
+            private_configuration.peers.clone(),
+        ));
         let joins = JoinRegistry::new(
             JoinHostIdentity::new(
                 &private_configuration.site_id,
@@ -312,15 +319,14 @@ impl Backend {
                 private_configuration.trust_anchor_der.clone(),
                 private_configuration.certificate_der.clone(),
             ),
-            Arc::new(MembershipRecorder::new(
-                capabilities.manager.site_repository.clone(),
-                &configuration.site_paths.root,
-                private_configuration.peers.clone(),
-            )),
+            recorder.clone(),
             join_gate.clone(),
             timing.join,
             Arc::clone(&clock),
         );
+        // Re-scan invitations wait for the named worker to answer on the private listener, and the
+        // committed replacement is recorded through the same durable site path as a join.
+        let rescans = RescanRegistry::new(recorder, timing.rescan, Arc::clone(&clock));
         // The listener tells a node the site no longer declares that it was removed.
         let membership = capabilities.manager.site_repository.clone();
         let (routes, router, observers, manager_private_services, lifecycle, resource_watch) =
@@ -328,6 +334,7 @@ impl Backend {
                 capabilities,
                 routes::ManagerMembership {
                     registry: joins.clone(),
+                    rescans,
                     site_root: configuration.site_paths.root.clone(),
                     pins: private_configuration.peers.clone(),
                     clock,
@@ -680,6 +687,11 @@ pub struct BackendTestSupport {
     #[cfg(feature = "test-support")]
     pub clock: Option<Arc<dyn Clock>>,
 
+    /// A Docker backend factory injected in place of the real local daemon factory; `None`
+    /// keeps the production factory.
+    pub docker_factory:
+        Option<std::sync::Arc<dyn dotcore_runtime_backends::docker::DockerBackendFactory>>,
+
     /// Receives the site manager's metric recorder, so a test records metrics into the served
     /// history as in-process writers do. `None` keeps the recorder private.
     #[cfg(feature = "test-support")]
@@ -735,6 +747,7 @@ impl Default for BackendTestSupport {
             timing: Timing::production(),
             local_development_store_paths: BTreeMap::new(),
             native_launcher: None,
+            docker_factory: None,
             #[cfg(feature = "test-support")]
             clock: None,
             #[cfg(feature = "test-support")]

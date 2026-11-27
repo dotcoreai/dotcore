@@ -23,6 +23,7 @@ pub struct Timing {
     pub native: NativeTiming,
     pub simulated: SimulatedTiming,
     pub join: JoinTiming,
+    pub rescan: RescanTiming,
     pub private: PrivateTiming,
     pub terminal: TerminalTiming,
 }
@@ -78,6 +79,7 @@ impl Timing {
                     settled_interval: Duration::from_secs(30),
                 },
                 startup_window: Duration::from_secs(5 * 60),
+                docker_reconnect_interval: Duration::from_secs(5),
             },
             deployment: DeploymentTiming {
                 crash_window: Duration::from_secs(10 * 60),
@@ -109,6 +111,12 @@ impl Timing {
                 watcher_grace: Duration::from_secs(10),
                 ended_retention: Duration::from_secs(60),
                 start_countdown: Duration::from_secs(2),
+            },
+            rescan: RescanTiming {
+                connect_timeout: Duration::from_secs(10),
+                invitation_lifetime: Duration::from_secs(15 * 60),
+                watcher_grace: Duration::from_secs(10),
+                ended_retention: Duration::from_secs(60),
             },
             private: PrivateTiming {
                 keepalive_interval: Duration::from_secs(10),
@@ -168,6 +176,14 @@ impl Timing {
         if self.deployment.crash_window.is_zero() {
             return Err(TimingError::CrashWindow);
         }
+        let rescan = &self.rescan;
+        if rescan.connect_timeout.is_zero()
+            || rescan.invitation_lifetime.is_zero()
+            || rescan.ended_retention.is_zero()
+            || rescan.watcher_grace >= rescan.invitation_lifetime
+        {
+            return Err(TimingError::RescanLifetime);
+        }
         Ok(())
     }
 
@@ -225,6 +241,7 @@ impl Timing {
                     },
                     settled_interval: Duration::from_secs(1),
                 },
+                docker_reconnect_interval: Duration::from_millis(100),
                 ..production.application
             },
             // Short enough that a test spaces crashes beyond it with one clock advance, long enough
@@ -252,6 +269,7 @@ impl Timing {
                 start_countdown: Duration::from_millis(200),
                 ..production.join
             },
+            rescan: production.rescan,
             // A lost private connection is noticed within moments; a loopback ping answers far
             // sooner even on a loaded host.
             private: PrivateTiming {
@@ -300,6 +318,12 @@ pub enum TimingError {
 
     #[error("the crash window of deployments must be nonzero, or a crash loop never fails")]
     CrashWindow,
+
+    #[error(
+        "a rescan's connection bound, invitation lifetime and ended retention must be nonzero, \
+         and a rescan nobody follows must give up before its invitation expires"
+    )]
+    RescanLifetime,
 }
 
 /// Heartbeats a live node sends within the node silence, so missing all but one still keeps it
@@ -393,6 +417,10 @@ pub struct ApplicationTiming {
 
     /// How long an application deployment may boot before it no longer counts as starting.
     pub startup_window: Duration,
+
+    /// How long a Docker application target whose daemon could not be reached fails its calls
+    /// fast before the next call tries to reconnect.
+    pub docker_reconnect_interval: Duration,
 }
 
 /// Timing shared by the model and application controllers for the deployments they realize.
@@ -486,6 +514,25 @@ pub struct JoinTiming {
     pub start_countdown: Duration,
 }
 
+/// Bounds and lifetimes of re-scanning one declared node's targets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RescanTiming {
+    /// Bound on reaching the site manager to propose a replacement and completing the TLS
+    /// handshake on the private listener.
+    pub connect_timeout: Duration,
+
+    /// How long a started rescan stays open: the invitation waits for the node's proposal, and a
+    /// proposal waits for the operator's decision, within this one lifetime.
+    pub invitation_lifetime: Duration,
+
+    /// How long a rescan stays open with nobody following it, so an operator who left doesn't
+    /// keep it open until it expires.
+    pub watcher_grace: Duration,
+
+    /// How long an ended rescan stays readable and replays its outcome, so a node that lost the
+    /// answer to its proposal learns how it ended.
+    pub ended_retention: Duration,
+}
 /// Real-time keepalive of the private connections between the site manager and its workers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PrivateTiming {

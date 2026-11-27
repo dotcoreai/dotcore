@@ -1,20 +1,25 @@
-import { timestampDate } from "@bufbuild/protobuf/wkt";
+import { type Timestamp, timestampDate } from "@bufbuild/protobuf/wkt";
 import { LoaderCircle, X } from "lucide-react";
-
-import type { JoinAttemptOutcome } from "@/gen/dotcore/site/v1/membership_pb";
 
 import { formatTime } from "./join-format";
 
+/** One answer that ended without going through: when it ended, and why in the caller's words. */
+export interface AttemptRow {
+  at?: Timestamp;
+  text: string;
+}
+
 /**
- * The attempts the machine made so far, each with the time it ended and why it did not go
- * through, followed by the wait for the next one. Without attempts it is only the wait.
+ * The attempts made so far, each with the time it ended and why it did not go through, followed by
+ * the wait for the next one. Without attempts it is only the wait. A reason keeps the line breaks
+ * the manager gave it, so a reason listing several items stays readable.
  */
 export function AttemptLog({
   attempts,
-  machineName,
+  pendingLabel,
 }: {
-  attempts: JoinAttemptOutcome[];
-  machineName?: string;
+  attempts: AttemptRow[];
+  pendingLabel: string;
 }) {
   return (
     <div className="flex flex-col gap-2 text-[13px]">
@@ -32,7 +37,7 @@ export function AttemptLog({
                 {attempt.at ? formatTime(timestampDate(attempt.at)) : ""}
               </time>
               <X aria-hidden="true" className="mt-0.5 size-4 text-destructive" />
-              <span>{outcomeText(attempt, machineName)}</span>
+              <span className="break-words whitespace-pre-line">{attempt.text}</span>
             </li>
           ))}
         </ul>
@@ -42,19 +47,8 @@ export function AttemptLog({
           aria-hidden="true"
           className="size-4 animate-spin motion-reduce:animate-none"
         />
-        {attempts.length > 0 ? "Waiting for the next try" : "Waiting for the machine…"}
+        {attempts.length > 0 ? "Waiting for the next try" : pendingLabel}
       </p>
     </div>
   );
-}
-
-function outcomeText(attempt: JoinAttemptOutcome, machineName?: string): string {
-  switch (attempt.outcome.case) {
-    case "failed":
-      return attempt.outcome.value;
-    case "rejected":
-      return `You rejected ${machineName ?? "the machine"}.`;
-    default:
-      return "The attempt ended.";
-  }
 }
