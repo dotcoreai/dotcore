@@ -106,7 +106,7 @@ const ROUTER_FAILURE_DIAGNOSTIC_MAX_CHARS: usize = 256;
 const IMAGE_PROMPT: &str = "Identify the dominant color of this image. Reply with one color word.";
 const IMAGE_MAX_COMPLETION_TOKENS: u32 = 256;
 const RED_JPEG: &str = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/2wBDAQMDAwQDBAgEBAgQCwkLEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBD/wAARCABAAEADAREAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAj/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFgEBAQEAAAAAAAAAAAAAAAAAAAcJ/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AnRDGqYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD//Z";
-const BLUE_PNG: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABAAQMAAACQp+OdAAAAIGNIUk0AAHomAACAhAAA+gAAAIDoAAB1MAAA6mAAADqYAAAXcJy6UTwAAAAGUExURQAA/////3vcmSwAAAABYktHRAH/Ai3eAAAAD0lEQVQoz2NgGAWjgHwAAAJAAAGMxat3AAAAAElFTkSuQmCC";
+pub(crate) const BLUE_PNG: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABAAQMAAACQp+OdAAAAIGNIUk0AAHomAACAhAAA+gAAAIDoAAB1MAAA6mAAADqYAAAXcJy6UTwAAAAGUExURQAA/////3vcmSwAAAABYktHRAH/Ai3eAAAAD0lEQVQoz2NgGAWjgHwAAAJAAAGMxat3AAAAAElFTkSuQmCC";
 const VALID_LLAMA_CPP_CUSTOM_ARGUMENTS: [&str; 2] = ["--reasoning-format", "none"];
 const INVALID_LLAMA_CPP_ARGUMENT: &str = "--dotcore-invalid-llama-argument";
 const STRATA_RTX_5090_QWEN3_6: StrataCase = StrataCase {
@@ -115,6 +115,7 @@ const STRATA_RTX_5090_QWEN3_6: StrataCase = StrataCase {
     minimum_free_bytes: STRATA_RTX_5090_MINIMUM_FREE_BYTES,
     ready_timeout: DEPLOYMENT_TIMEOUT,
     built_pack_path: None,
+    vision: false,
 };
 const STRATA_GB10_QWEN3_6: StrataCase = StrataCase {
     model_id: "qwen3-6-35b-a3b",
@@ -122,6 +123,7 @@ const STRATA_GB10_QWEN3_6: StrataCase = StrataCase {
     minimum_free_bytes: STRATA_GB10_MINIMUM_FREE_BYTES,
     ready_timeout: DEPLOYMENT_TIMEOUT,
     built_pack_path: None,
+    vision: false,
 };
 /// The IQ2_XS profile builds its pack under the data storage on first start.
 const STRATA_RTX_5090_QWEN3_8_IQ2_XS: StrataCase = StrataCase {
@@ -130,6 +132,7 @@ const STRATA_RTX_5090_QWEN3_8_IQ2_XS: StrataCase = StrataCase {
     minimum_free_bytes: STRATA_RTX_5090_QWEN3_8_MINIMUM_FREE_BYTES,
     ready_timeout: STRATA_QWEN3_8_READY_TIMEOUT,
     built_pack_path: Some("pack"),
+    vision: false,
 };
 const STRATA_RTX_5090_INKLING_SQ_20: StrataCase = StrataCase {
     model_id: "inkling-2-mini",
@@ -137,6 +140,17 @@ const STRATA_RTX_5090_INKLING_SQ_20: StrataCase = StrataCase {
     minimum_free_bytes: STRATA_RTX_5090_INKLING_MINIMUM_FREE_BYTES,
     ready_timeout: DEPLOYMENT_TIMEOUT,
     built_pack_path: None,
+    vision: false,
+};
+/// Runs with the vision option on and sends images, which catches the upstream server silently
+/// dropping the vision file when the engine reports no image support.
+const STRATA_RTX_5090_INKLING_SQ_10_VISION: StrataCase = StrataCase {
+    model_id: "inkling-2-mini",
+    profile_id: "strata-sq-10",
+    minimum_free_bytes: STRATA_RTX_5090_INKLING_MINIMUM_FREE_BYTES,
+    ready_timeout: DEPLOYMENT_TIMEOUT,
+    built_pack_path: None,
+    vision: true,
 };
 const STRATA_GB10_INKLING_SQ_10: StrataCase = StrataCase {
     model_id: "inkling-2-mini",
@@ -144,6 +158,7 @@ const STRATA_GB10_INKLING_SQ_10: StrataCase = StrataCase {
     minimum_free_bytes: STRATA_GB10_INKLING_MINIMUM_FREE_BYTES,
     ready_timeout: DEPLOYMENT_TIMEOUT,
     built_pack_path: None,
+    vision: false,
 };
 /// Where Strata's deployment-scoped cache storage is mounted in its container.
 const STRATA_DATA_PATH: &str = "/data";
@@ -394,6 +409,16 @@ async fn hw_gb10_strata_serves_chat_through_the_router_and_removes_its_storage()
 async fn hw_nvidia5090_strata_inkling_sq_20_serves_chat_through_the_router_and_removes_its_storage()
 -> anyhow::Result<()> {
     qualify_strata_site(&STRATA_RTX_5090_INKLING_SQ_20).await
+}
+
+/// Qualifies Inkling 2 Mini SQ-10 on Strata with vision on, through the router on an RTX 5090: the
+/// deployment reaches Ready, a chat completion answers, and Chat and Responses requests with a red
+/// and a blue image name each image's color.
+#[tokio::test]
+#[ignore = "hardware: just backend::test-nvidia-5090"]
+async fn hw_nvidia5090_strata_inkling_sq_10_vision_reads_images_through_the_router()
+-> anyhow::Result<()> {
+    qualify_strata_site(&STRATA_RTX_5090_INKLING_SQ_10_VISION).await
 }
 
 /// Qualifies Inkling 2 Mini SQ-10 on Strata through the router on a GB10: the deployment reaches
@@ -1694,7 +1719,19 @@ fn strata_profile_defaults(
             model_artifact_binding_id: profile.default_model_artifact_binding_id,
             engine_parameter_values: profile.engine_parameter_defaults,
             custom_argument_tokens: Vec::new(),
-            option_overrides: Vec::new(),
+            option_overrides: if case.vision {
+                vec![dotcore_proto::dotcore::catalog::v1::ModelOptionValues {
+                    option_id: "vision".to_owned(),
+                    values: vec![dotcore_proto::dotcore::catalog::v1::ModelOptionParameterValue {
+                        parameter_id: "enabled".to_owned(),
+                        value: Some(
+                            dotcore_proto::dotcore::catalog::v1::model_option_parameter_value::Value::Boolean(true),
+                        ),
+                    }],
+                }]
+            } else {
+                Vec::new()
+            },
         },
     )
 }
@@ -1830,6 +1867,10 @@ async fn qualify_strata(
         "max_completion_tokens": 4096,
     }))?;
     let response = router_request(router.inference_address, &http_post(&body)).await;
+    if case.vision {
+        // Runs before the router stops; it panics on any answer that ignores the image.
+        assert_router_image_inputs(router.inference_address, model_id).await;
+    }
     router.stop().await;
     anyhow::ensure!(
         response.starts_with(b"HTTP/1.1 200"),
@@ -1892,6 +1933,8 @@ struct StrataCase {
     minimum_free_bytes: u64,
     ready_timeout: Duration,
     built_pack_path: Option<&'static str>,
+    /// Turns the vision option on and sends image requests.
+    vision: bool,
 }
 
 async fn assert_router_chat(
