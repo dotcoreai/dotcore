@@ -72,6 +72,11 @@ export interface ContextStart {
   /** The context per request, when lowered because one request at the asked size doesn't fit. */
   contextTokensPerRequest?: number;
   totalContextTokens?: number;
+  /**
+   * While the current context's read is pending, the largest total context the last read fit on
+   * the target; a following total stays under it until the read gives the starting values.
+   */
+  totalCeilingTokens?: number;
 }
 
 export type ModelDeployStep = (typeof MODEL_DEPLOY_STEPS)[number];
@@ -158,9 +163,12 @@ export function useLaunchEngineValues(
         tokenInput(start?.totalContextTokens) ??
         tokenInput(scenario?.totalContextTokens) ??
         inputs.get(TOTAL_CONTEXT_PARAMETER_ID) ??
-        product(
-          inputs.get(CONTEXT_PER_REQUEST_PARAMETER_ID),
-          inputs.get(PARALLEL_REQUESTS_PARAMETER_ID),
+        capped(
+          product(
+            inputs.get(CONTEXT_PER_REQUEST_PARAMETER_ID),
+            inputs.get(PARALLEL_REQUESTS_PARAMETER_ID),
+          ),
+          start?.totalCeilingTokens,
         ),
     );
     return { declaredValues: startingValues, engineParameterInputs: inputs };
@@ -320,6 +328,13 @@ function profileSpeculativeChoice(model: Model, profileId: string): SpeculativeC
 
 function tokenInput(value: number | undefined): string | undefined {
   return value === undefined ? undefined : String(value);
+}
+
+// A whole number input lowered to the ceiling, when there is one.
+function capped(input: string | undefined, ceiling: number | undefined): string | undefined {
+  return input !== undefined && ceiling !== undefined && BigInt(input) > BigInt(ceiling)
+    ? String(ceiling)
+    : input;
 }
 
 // The context per request times the parallel requests, while both inputs hold whole numbers.

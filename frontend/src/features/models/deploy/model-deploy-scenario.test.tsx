@@ -816,6 +816,45 @@ describe("ModelDeployDialog shared context", () => {
     ]);
   });
 
+  it.each([
+    { case: "above the last largest fit", largest: 196608, shown: "192k" },
+    { case: "below the last largest fit", largest: 1048576, shown: "256k" },
+  ])(
+    "keeps a following total at the same value while its read is pending and after, $case",
+    async ({ largest, shown }) => {
+      const user = setupUser();
+      const rule = ruleLoader(largest);
+      const release: (() => void)[] = [];
+      // The read of the 64k context per request waits until released.
+      const listProfileCompatibility = vi.fn((modelId: string, requested?: SizingScenario) => {
+        const response = rule(modelId, requested);
+        return requested?.contextTokensPerRequest === 65536
+          ? response.then(
+              (value) => new Promise<typeof value>((resolve) => release.push(() => resolve(value))),
+            )
+          : response;
+      });
+      renderDialog({ initialProfileId: "q4-xl", listProfileCompatibility });
+
+      await screen.findByRole("button", { name: "Runs on filter: this site" });
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      const total = screen.getByRole("textbox", { name: "Total context" });
+      await waitFor(() => expect(total).toHaveValue("128k"));
+
+      await user.click(
+        within(screen.getByRole("group", { name: "Context per request presets" })).getByRole(
+          "button",
+          { name: "64k" },
+        ),
+      );
+      await waitFor(() => expect(release).toHaveLength(1));
+      expect(total).toHaveValue(shown);
+
+      await act(async () => release[0]());
+      expect(total).toHaveValue(shown);
+    },
+  );
+
   it("follows the context per request and parallel requests with the read's starting total until edited, and relinks it", async () => {
     const user = setupUser();
     const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
