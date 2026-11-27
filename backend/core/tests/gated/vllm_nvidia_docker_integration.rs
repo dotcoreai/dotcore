@@ -61,7 +61,7 @@ use tokio::{
 use tonic::{Request, transport::Channel};
 
 use crate::{
-    nvidia_docker_integration::BLUE_PNG,
+    nvidia_docker_integration::{BLUE_PNG, MANY_IMAGE_COUNT, many_image_chat_request},
     nvidia_qualification::{self, EnginePin, GpuObservation, GpuWorkload, QualificationSite},
     support,
 };
@@ -308,7 +308,8 @@ async fn hardware_case(
 }
 
 /// Deploys Inkling with the vision option on, waits for Ready, asks for the color of a red and a
-/// blue image through the router, and removes the deployment.
+/// blue image and then of a request with the per-request cap of small images through the router,
+/// and removes the deployment.
 async fn qualify_inkling_images(
     backend: &support::RunningBackend,
     site: &QualificationSite,
@@ -377,7 +378,8 @@ async fn qualify_inkling_images(
         let address = backend.inference_address();
         wait_for_route(backend, address, INKLING_ROUTE_NAME).await?;
         assert_image_input(address, INKLING_ROUTE_NAME, RED_JPEG, "red").await?;
-        assert_image_input(address, INKLING_ROUTE_NAME, BLUE_PNG, "blue").await
+        assert_image_input(address, INKLING_ROUTE_NAME, BLUE_PNG, "blue").await?;
+        assert_many_images(address, INKLING_ROUTE_NAME).await
     }
     .await;
 
@@ -829,6 +831,25 @@ async fn assert_image_input(
     anyhow::ensure!(
         content.to_ascii_lowercase().contains(color),
         "multimodal response did not identify the fixture content: {content:?}"
+    );
+    Ok(())
+}
+
+/// Sends one conversation with `MANY_IMAGE_COUNT` small images and checks the answer names their
+/// shared color, so the engine accepted the whole count and read the images.
+async fn assert_many_images(address: std::net::SocketAddr, route_name: &str) -> anyhow::Result<()> {
+    let request = many_image_chat_request(route_name);
+    let response = post_json(address, "/v1/chat/completions", request)
+        .await
+        .with_context(|| format!("many-image request with {MANY_IMAGE_COUNT} images"))?;
+    let content = nonempty_string(
+        response.pointer("/choices/0/message/content"),
+        "many-image final content",
+    )
+    .with_context(|| format!("many-image response: {response}"))?;
+    anyhow::ensure!(
+        content.to_ascii_lowercase().contains("red"),
+        "many-image response did not identify the shared color: {content:?}"
     );
     Ok(())
 }
