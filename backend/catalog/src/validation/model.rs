@@ -13,8 +13,9 @@ use dotcore_domain::valid_id;
 use dotcore_proto::dotcore::catalog::v1::{
     EngineArtifact, EngineRelease, HardwareClass, HuggingFaceArtifactSource, InferenceRequestKind,
     IntelligenceScore, Model, ModelArtifact, ModelConfigurationOption, ModelEngineConfiguration,
-    ModelInputCapabilities, ModelInputModality, ModelOptionParameterDefinition, ModelProfile,
-    ParameterValue, ParameterValues, ParameterVisibility, SpeculativeDecodingMethod,
+    ModelImageInputCapacity, ModelInputCapabilities, ModelInputModality,
+    ModelOptionParameterDefinition, ModelOptionValues, ModelProfile, ParameterValue,
+    ParameterValues, ParameterVisibility, SpeculativeDecodingMethod,
     hugging_face_artifact_source::Content as HuggingFaceContent,
     model_option::Kind as ModelOptionKind,
     model_option_parameter_definition::ParameterType as ModelOptionParameterType,
@@ -32,8 +33,8 @@ use crate::{
     },
     selector::{SelectorRelation, selector_relation},
     shared_parameters::{
-        is_shared_parameter, profile_may_default, profile_visibility_problem,
-        resolution_applies_default,
+        is_shared_parameter, maximum_context_tokens, profile_may_default,
+        profile_visibility_problem, resolution_applies_default,
     },
     typed_parameters::{
         check_value, default_value, is_declared_visibility, is_secret, unsigned_range_contains,
@@ -83,7 +84,13 @@ pub fn validate_model(
         engine_validator,
         &mut errors,
     );
-    validate_profiles(model, &configurations, engines, &mut errors);
+    validate_profiles(
+        model,
+        &configurations,
+        engines,
+        hardware_classes,
+        &mut errors,
+    );
     errors
 }
 
@@ -770,6 +777,7 @@ fn validate_profiles(
     model: &Model,
     configurations: &BTreeSet<String>,
     engines: &BTreeMap<String, EngineRelease>,
+    hardware_classes: &BTreeMap<String, HardwareClass>,
     errors: &mut Vec<anyhow::Error>,
 ) {
     let mut ids = BTreeSet::new();
@@ -779,78 +787,268 @@ fn validate_profiles(
         ));
     }
     for profile in &model.profiles {
+        let mut variant_ids = BTreeSet::new();
         if !ids.insert(profile.profile_id.clone())
             || !valid_id(&profile.profile_id)
-            || !configurations.contains(&profile.configuration_id)
+            || profile.configuration_ids.is_empty()
+            || !profile
+                .configuration_ids
+                .iter()
+                .all(|id| configurations.contains(id) && variant_ids.insert(id))
         {
             errors.push(anyhow::anyhow!(
                 "profile {:?} has invalid provenance",
                 profile.profile_id
             ));
         }
-        let Some(configuration) = model
-            .configurations
-            .iter()
-            .find(|value| value.configuration_id == profile.configuration_id)
-        else {
-            continue;
-        };
-        if !configuration
-            .artifact_bindings
-            .iter()
-            .any(|binding| binding.binding_id == profile.default_model_artifact_binding_id)
-        {
+        if profile.engine_parameter_defaults.is_none() {
             errors.push(anyhow::anyhow!(
-                "profile {:?} references a missing default artifact binding",
+                "profile {:?} requires engine parameter defaults",
                 profile.profile_id
             ));
         }
-        let Some(engine) = configuration_engine_release(configuration, engines) else {
-            continue;
-        };
-        let engine = &*engine;
-        validate_visibility_overrides(profile, engine, errors);
-        match profile.engine_parameter_defaults.as_ref() {
-            Some(values) => {
-                validate_supplied_parameter_values(values, engine, &profile.profile_id, errors);
-                for value in values
-                    .values
+        let variants = profile
+            .configuration_ids
+            .iter()
+            .filter_map(|id| {
+                model
+                    .configurations
                     .iter()
-                    .filter(|value| !profile_may_default(&value.parameter_id))
-                {
-                    errors.push(anyhow::anyhow!(
-                        "profile {:?} sets engine parameter {:?}, which profiles leave to the engine default and the deployment",
-                        profile.profile_id,
-                        value.parameter_id
-                    ));
-                }
-                // A secret default would be a literal every deployment shares.
-                for value in values
-                    .values
-                    .iter()
-                    .filter(|value| is_secret_parameter(engine, &value.parameter_id))
-                {
-                    errors.push(anyhow::anyhow!(
-                        "profile {:?} sets secret engine parameter {:?}, which each deployment generates or receives",
-                        profile.profile_id,
-                        value.parameter_id
-                    ));
-                }
-            }
-            None => errors.push(anyhow::anyhow!(
-                "profile {:?} requires engine parameter defaults",
-                profile.profile_id
-            )),
+                    .find(|configuration| &configuration.configuration_id == id)
+            })
+            .collect::<Vec<_>>();
+        for configuration in &variants {
+            validate_profile_configuration(model, profile, configuration, engines, errors);
         }
-        validate_profile_option_defaults(profile, configuration, errors);
-        if let Err(error) = resolve_model_option_values(&model.options, configuration, profile, &[])
+        if variants.len() > 1 {
+            validate_profile_variants(model, profile, &variants, engines, hardware_classes, errors);
+        }
+    }
+}
+
+/// Validates one profile against one configuration it names: its default binding, visibility
+/// overrides, engine parameter defaults and option defaults.
+fn validate_profile_configuration(
+    model: &Model,
+    profile: &ModelProfile,
+    configuration: &ModelEngineConfiguration,
+    engines: &BTreeMap<String, EngineRelease>,
+    errors: &mut Vec<anyhow::Error>,
+) {
+    if !configuration
+        .artifact_bindings
+        .iter()
+        .any(|binding| binding.binding_id == profile.default_model_artifact_binding_id)
+    {
+        errors.push(anyhow::anyhow!(
+            "profile {:?} references a missing default artifact binding in configuration {:?}",
+            profile.profile_id,
+            configuration.configuration_id
+        ));
+    }
+    let Some(engine) = configuration_engine_release(configuration, engines) else {
+        return;
+    };
+    let engine = &*engine;
+    validate_visibility_overrides(profile, engine, errors);
+    if let Some(values) = profile.engine_parameter_defaults.as_ref() {
+        validate_supplied_parameter_values(values, engine, &profile.profile_id, errors);
+        for value in values
+            .values
+            .iter()
+            .filter(|value| !profile_may_default(&value.parameter_id))
         {
             errors.push(anyhow::anyhow!(
-                "profile {:?} has invalid resolved model options: {error}",
-                profile.profile_id
+                "profile {:?} sets engine parameter {:?}, which profiles leave to the engine default and the deployment",
+                profile.profile_id,
+                value.parameter_id
+            ));
+        }
+        // A secret default would be a literal every deployment shares.
+        for value in values
+            .values
+            .iter()
+            .filter(|value| is_secret_parameter(engine, &value.parameter_id))
+        {
+            errors.push(anyhow::anyhow!(
+                "profile {:?} sets secret engine parameter {:?}, which each deployment generates or receives",
+                profile.profile_id,
+                value.parameter_id
             ));
         }
     }
+    validate_profile_option_defaults(profile, configuration, errors);
+    if let Err(error) = resolve_model_option_values(&model.options, configuration, profile, &[]) {
+        errors.push(anyhow::anyhow!(
+            "profile {:?} has invalid resolved model options: {error}",
+            profile.profile_id
+        ));
+    }
+}
+
+/// Validates that the configurations one profile names are variants of one launch recipe, so the
+/// profile reads the same on every target and only the configuration resolution picks changes.
+/// They share the engine release, request kinds, input modalities, maximum context, execution
+/// capabilities, option schemas and defaults, and merged engine parameter defaults; a binding
+/// they share names the same artifacts, and their hardware classes are distinct and disjoint or
+/// strictly nested, so a target picks at most one of them.
+fn validate_profile_variants(
+    model: &Model,
+    profile: &ModelProfile,
+    variants: &[&ModelEngineConfiguration],
+    engines: &BTreeMap<String, EngineRelease>,
+    hardware_classes: &BTreeMap<String, HardwareClass>,
+    errors: &mut Vec<anyhow::Error>,
+) {
+    let profile_id = &profile.profile_id;
+    let first = variants[0];
+    let first_defaults = merged_profile_defaults(profile, first, engines);
+    for other in &variants[1..] {
+        let mut differ = |what: &str| {
+            errors.push(anyhow::anyhow!(
+                "profile {profile_id:?} configurations {:?} and {:?} differ in {what}; the configurations of one profile share it",
+                first.configuration_id,
+                other.configuration_id
+            ));
+        };
+        if engine_release_ids(first) != engine_release_ids(other) {
+            differ("engine release");
+        }
+        if as_set(&first.request_kinds) != as_set(&other.request_kinds) {
+            differ("request kinds");
+        }
+        if input_modalities(first) != input_modalities(other) {
+            differ("input modalities");
+        }
+        if image_input_capacity(first) != image_input_capacity(other) {
+            differ("image input limits");
+        }
+        if maximum_context_tokens(model, first) != maximum_context_tokens(model, other) {
+            differ("maximum context");
+        }
+        if first.execution_capabilities != other.execution_capabilities {
+            differ("execution capabilities");
+        }
+        if option_schemas(first) != option_schemas(other) {
+            differ("options");
+        }
+        if first_defaults.is_some()
+            && let Some(defaults) = merged_profile_defaults(profile, other, engines)
+            && first_defaults.as_ref() != Some(&defaults)
+        {
+            differ("merged engine parameter defaults");
+        }
+    }
+
+    let mut bindings = BTreeMap::new();
+    for configuration in variants {
+        for binding in &configuration.artifact_bindings {
+            if let Some(known) = bindings.insert(&binding.binding_id, binding)
+                && (known.model_artifact_id != binding.model_artifact_id
+                    || known.auxiliary_artifact_ids != binding.auxiliary_artifact_ids)
+            {
+                errors.push(anyhow::anyhow!(
+                    "profile {profile_id:?} configurations name binding {:?} with different artifacts",
+                    binding.binding_id
+                ));
+            }
+        }
+    }
+
+    let mut class_ids = BTreeSet::new();
+    let mut classes = Vec::new();
+    for support in variants
+        .iter()
+        .flat_map(|configuration| &configuration.hardware_support)
+    {
+        if !class_ids.insert(&support.hardware_class_id) {
+            errors.push(anyhow::anyhow!(
+                "profile {profile_id:?} configurations support hardware class {:?} more than once",
+                support.hardware_class_id
+            ));
+            continue;
+        }
+        if let Some(class) = hardware_classes.get(&support.hardware_class_id) {
+            classes.push(class);
+        }
+    }
+    if let Some((first, second)) = non_nested_classes(&classes) {
+        errors.push(anyhow::anyhow!(
+            "profile {profile_id:?} configurations support hardware classes {first:?} and {second:?}, whose selectors overlap without one nesting in the other"
+        ));
+    }
+}
+
+/// The profile's engine parameter defaults over one configuration's engine defaults, sorted by
+/// parameter; none when the configuration's engine release is unknown.
+fn merged_profile_defaults(
+    profile: &ModelProfile,
+    configuration: &ModelEngineConfiguration,
+    engines: &BTreeMap<String, EngineRelease>,
+) -> Option<Vec<ParameterValue>> {
+    let engine = configuration_engine_release(configuration, engines)?;
+    let mut merged = overlay_parameter_defaults(
+        &profile
+            .engine_parameter_defaults
+            .clone()
+            .unwrap_or_default(),
+        &engine_default_values(&engine),
+    )
+    .values;
+    merged.sort_by(|left, right| left.parameter_id.cmp(&right.parameter_id));
+    Some(merged)
+}
+
+fn engine_release_ids(configuration: &ModelEngineConfiguration) -> BTreeSet<&str> {
+    configuration
+        .engine_artifacts
+        .iter()
+        .map(|reference| reference.engine_release_id.as_str())
+        .collect()
+}
+
+fn input_modalities(configuration: &ModelEngineConfiguration) -> BTreeSet<i32> {
+    configuration
+        .input_capabilities
+        .iter()
+        .flat_map(|capabilities| capabilities.supported_modalities.iter().copied())
+        .collect()
+}
+
+fn image_input_capacity(
+    configuration: &ModelEngineConfiguration,
+) -> Option<&ModelImageInputCapacity> {
+    configuration
+        .input_capabilities
+        .as_ref()
+        .and_then(|capabilities| capabilities.image_input_capacity.as_ref())
+}
+
+/// Each option's identifier with its parameter schemas and defaults, leaving out how the engine
+/// realizes it.
+fn option_schemas(
+    configuration: &ModelEngineConfiguration,
+) -> BTreeMap<
+    &str,
+    (
+        &[ModelOptionParameterDefinition],
+        Option<&ModelOptionValues>,
+    ),
+> {
+    configuration
+        .options
+        .iter()
+        .map(|option| {
+            (
+                option.option_id.as_str(),
+                (option.parameters.as_slice(), option.default_values.as_ref()),
+            )
+        })
+        .collect()
+}
+
+fn as_set(values: &[i32]) -> BTreeSet<i32> {
+    values.iter().copied().collect()
 }
 
 /// Validates a profile's engine parameter visibility overrides: each names a parameter of the
@@ -1177,15 +1375,22 @@ fn valid_repository_component(value: &str) -> bool {
 mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
-    use dotcore_proto::dotcore::catalog::v1::{
-        BooleanModelOptionParameterSchema, EngineArtifact, EngineArtifactReference, EngineRelease,
-        HardwareClass, InferenceRequestKind, KvCachePrecisionModelOption, Model,
-        ModelArtifactBinding, ModelConfigurationOption, ModelEngineConfiguration, ModelOption,
-        ModelOptionParameterDefinition, ModelOptionParameterValue, ModelOptionValues, ModelProfile,
-        OciPlatform, ParameterValues, ParameterVisibility, Selector, SpeculativeDecodingMethod,
-        SpeculativeDecodingModelOption, StringEnumModelOptionParameterSchema,
-        UnsignedIntegerModelOptionParameterSchema, model_option,
-        model_option_parameter_definition::ParameterType, model_option_parameter_value::Value,
+    use dotcore_proto::dotcore::{
+        catalog::v1::{
+            BooleanModelOptionParameterSchema, BooleanParameterSchema, EngineArtifact,
+            EngineArtifactReference, EngineParameterSchema, EngineRelease, HardwareClass,
+            HardwareSupport, InferenceRequestKind, KvCachePrecisionModelOption, Model,
+            ModelArtifactBinding, ModelConfigurationOption, ModelEngineConfiguration,
+            ModelImageInputCapacity, ModelInputCapabilities, ModelInputModality, ModelOption,
+            ModelOptionParameterDefinition, ModelOptionParameterValue, ModelOptionValues,
+            ModelProfile, OciPlatform, ParameterDefinition, ParameterValues, ParameterVisibility,
+            Selector, SpeculativeDecodingMethod, SpeculativeDecodingModelOption,
+            StringEnumModelOptionParameterSchema, UnsignedIntegerModelOptionParameterSchema,
+            model_option, model_option_parameter_definition::ParameterType,
+            model_option_parameter_value::Value,
+            parameter_definition::ParameterType as EngineParameterType,
+        },
+        observation::v1::AcceleratorMemoryArchitecture,
     };
 
     use super::{
@@ -1701,6 +1906,138 @@ mod tests {
         }
     }
 
+    #[test]
+    fn profile_variants_must_share_their_launch_recipe_and_split_the_hardware() {
+        let differ = |what: &str| {
+            format!(
+                "profile \"balanced\" configurations \"dedicated\" and \"unified\" differ in {what}; the configurations of one profile share it"
+            )
+        };
+        let cases: [(&str, VariantMutation, Vec<String>); 11] = [
+            ("valid variants", |_| {}, Vec::new()),
+            (
+                "engine release",
+                |model| model.configurations[1].engine_artifacts[0].engine_release_id = "other-engine".to_owned(),
+                vec![differ("engine release")],
+            ),
+            (
+                "request kinds",
+                |model| {
+                    model.configurations[1]
+                        .request_kinds
+                        .push(InferenceRequestKind::Decision as i32);
+                },
+                vec![differ("request kinds")],
+            ),
+            (
+                "input modalities",
+                |model| {
+                    model.configurations[1].input_capabilities = Some(ModelInputCapabilities {
+                        supported_modalities: vec![
+                            ModelInputModality::Text as i32,
+                            ModelInputModality::Image as i32,
+                        ],
+                        ..Default::default()
+                    });
+                },
+                vec![differ("input modalities")],
+            ),
+            (
+                "image input limits",
+                |model| {
+                    let capabilities = |count| {
+                        Some(ModelInputCapabilities {
+                            supported_modalities: vec![
+                                ModelInputModality::Text as i32,
+                                ModelInputModality::Image as i32,
+                            ],
+                            image_input_capacity: Some(ModelImageInputCapacity {
+                                maximum_image_count: count,
+                                ..Default::default()
+                            }),
+                        })
+                    };
+                    model.configurations[0].input_capabilities = capabilities(4);
+                    model.configurations[1].input_capabilities = capabilities(8);
+                },
+                vec![differ("image input limits")],
+            ),
+            (
+                "maximum context",
+                |model| model.configurations[1].maximum_context_tokens = Some(4096),
+                vec![differ("maximum context")],
+            ),
+            (
+                "options",
+                |model| {
+                    model.configurations[1].options[0].default_values = Some(token_count("mtp", 2));
+                },
+                vec![differ("options")],
+            ),
+            (
+                "merged defaults",
+                |model| {
+                    model.configurations[1].excluded_engine_parameter_ids =
+                        vec!["fixture-flag".to_owned()];
+                },
+                vec![differ("merged engine parameter defaults")],
+            ),
+            (
+                "binding artifacts",
+                |model| {
+                    model.configurations[1].artifact_bindings[0].model_artifact_id =
+                        "other-weights".to_owned();
+                },
+                vec![
+                    "profile \"balanced\" configurations name binding \"weights\" with different artifacts"
+                        .to_owned(),
+                ],
+            ),
+            (
+                "shared class",
+                |model| {
+                    model.configurations[1].hardware_support[0].hardware_class_id =
+                        "nvidia-dedicated".to_owned();
+                },
+                vec![
+                    "profile \"balanced\" configurations support hardware class \"nvidia-dedicated\" more than once"
+                        .to_owned(),
+                ],
+            ),
+            (
+                "overlapping classes",
+                |model| {
+                    model.configurations[1].hardware_support[0].hardware_class_id =
+                        "nvidia-amd64".to_owned();
+                },
+                vec![
+                    "profile \"balanced\" configurations support hardware classes \"nvidia-dedicated\" and \"nvidia-amd64\", whose selectors overlap without one nesting in the other"
+                        .to_owned(),
+                ],
+            ),
+        ];
+        for (case, mutate, expected) in cases {
+            let mut model = variant_model();
+            mutate(&mut model);
+            assert_eq!(variant_errors(&model), expected, "{case}");
+        }
+    }
+
+    #[test]
+    fn a_nested_class_and_a_binding_only_one_variant_holds_are_accepted() {
+        let mut model = variant_model();
+        model.configurations[1].hardware_support[0].hardware_class_id = "nvidia".to_owned();
+        model.configurations[0]
+            .artifact_bindings
+            .push(ModelArtifactBinding {
+                binding_id: "small".to_owned(),
+                model_artifact_id: "small-weights".to_owned(),
+                ..Default::default()
+            });
+
+        assert_eq!(variant_errors(&model), Vec::<String>::new());
+    }
+
     /// Edit applied to a valid speculative configuration option.
     type OptionMutation = fn(&mut ModelConfigurationOption);
 
@@ -1731,9 +2068,126 @@ mod tests {
             model,
             &BTreeSet::from(["local".to_owned()]),
             &engines,
+            &BTreeMap::new(),
             &mut errors,
         );
         errors.iter().map(ToString::to_string).collect()
+    }
+
+    /// Edit applied to a valid two-configuration profile.
+    type VariantMutation = fn(&mut Model);
+
+    /// Profile errors of a model whose configurations use the variant fixture's engines and
+    /// hardware classes.
+    fn variant_errors(model: &Model) -> Vec<String> {
+        let flag = ParameterDefinition {
+            parameter_id: "fixture-flag".to_owned(),
+            display_name: "Fixture flag".to_owned(),
+            visibility: ParameterVisibility::Advanced as i32,
+            parameter_type: Some(EngineParameterType::Boolean(BooleanParameterSchema {
+                default_value: Some(true),
+            })),
+            ..Default::default()
+        };
+        let engines = ["fixture-engine", "other-engine"]
+            .map(|engine_release_id| {
+                (
+                    engine_release_id.to_owned(),
+                    EngineRelease {
+                        engine_release_id: engine_release_id.to_owned(),
+                        parameter_schema: Some(EngineParameterSchema {
+                            schema_id: "fixture".to_owned(),
+                            parameters: vec![flag.clone()],
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    },
+                )
+            })
+            .into_iter()
+            .collect();
+        let nvidia = |hardware_class_id: &str, selector: Selector| {
+            (
+                hardware_class_id.to_owned(),
+                HardwareClass {
+                    hardware_class_id: hardware_class_id.to_owned(),
+                    selector: Some(Selector {
+                        accelerators: vec!["nvidia".to_owned()],
+                        ..selector
+                    }),
+                    ..Default::default()
+                },
+            )
+        };
+        let hardware_classes = BTreeMap::from([
+            nvidia("nvidia", Selector::default()),
+            nvidia(
+                "nvidia-dedicated",
+                Selector {
+                    memory_architecture: AcceleratorMemoryArchitecture::Dedicated as i32,
+                    ..Default::default()
+                },
+            ),
+            nvidia(
+                "nvidia-unified",
+                Selector {
+                    memory_architecture: AcceleratorMemoryArchitecture::Unified as i32,
+                    ..Default::default()
+                },
+            ),
+            nvidia(
+                "nvidia-amd64",
+                Selector {
+                    platform: Some(OciPlatform {
+                        operating_system: "linux".to_owned(),
+                        architecture: "amd64".to_owned(),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+            ),
+        ]);
+        let configurations = model
+            .configurations
+            .iter()
+            .map(|configuration| configuration.configuration_id.clone())
+            .collect();
+        let mut errors = Vec::new();
+        validate_profiles(
+            model,
+            &configurations,
+            &engines,
+            &hardware_classes,
+            &mut errors,
+        );
+        errors.iter().map(ToString::to_string).collect()
+    }
+
+    /// Model whose `balanced` profile names a dedicated-memory and a unified-memory configuration
+    /// of one engine release, alike but for their engine artifact and hardware class.
+    fn variant_model() -> Model {
+        let mut model = speculative_model();
+        model.options.truncate(1);
+        model.maximum_context_tokens = 8192;
+        let mut dedicated = model.configurations.remove(0);
+        dedicated.options.truncate(1);
+        dedicated.request_kinds = vec![InferenceRequestKind::Chat as i32];
+        dedicated.input_capabilities = Some(ModelInputCapabilities {
+            supported_modalities: vec![ModelInputModality::Text as i32],
+            ..Default::default()
+        });
+        dedicated.configuration_id = "dedicated".to_owned();
+        dedicated.hardware_support = vec![HardwareSupport {
+            hardware_class_id: "nvidia-dedicated".to_owned(),
+            hardware_requirements: None,
+        }];
+        let mut unified = dedicated.clone();
+        unified.configuration_id = "unified".to_owned();
+        unified.engine_artifacts[0].engine_artifact_id = "arm64".to_owned();
+        unified.hardware_support[0].hardware_class_id = "nvidia-unified".to_owned();
+        model.configurations = vec![dedicated, unified];
+        model.profiles[0].configuration_ids = vec!["dedicated".to_owned(), "unified".to_owned()];
+        model
     }
 
     /// Model with two speculative options, both off by default in its only configuration.
@@ -1778,7 +2232,7 @@ mod tests {
             }],
             profiles: vec![ModelProfile {
                 profile_id: "balanced".to_owned(),
-                configuration_id: "local".to_owned(),
+                configuration_ids: vec!["local".to_owned()],
                 default_model_artifact_binding_id: "weights".to_owned(),
                 engine_parameter_defaults: Some(ParameterValues::default()),
                 ..Default::default()

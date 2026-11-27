@@ -940,6 +940,7 @@ fn profiles_without_an_estimate_have_unknown_fit_and_profiles_that_cant_run_have
                     status: ModelCompatibilityStatus::Runs as i32,
                     reason: None,
                     advisories: Vec::new(),
+                    configuration_id: "llama".to_owned(),
                     hardware_class_id: "dedicated".to_owned(),
                     memory_fit: MemoryFit::Unknown as i32,
                     free_memory_fit: MemoryFit::Unknown as i32,
@@ -962,6 +963,8 @@ fn profiles_without_an_estimate_have_unknown_fit_and_profiles_that_cant_run_have
                         ..Default::default()
                     }),
                     advisories: Vec::new(),
+                    // The device count fails the launch after the configuration is picked.
+                    configuration_id: "llama".to_owned(),
                     hardware_class_id: String::new(),
                     memory_fit: MemoryFit::Unspecified as i32,
                     free_memory_fit: MemoryFit::Unspecified as i32,
@@ -1441,6 +1444,7 @@ fn scenarios_without_a_shared_context_definition_leave_the_profile_unsized() {
         catalog
             .local_model_declarations(&CatalogModelId(model_id.to_owned()), profile_id, binding_id)
             .expect("declarations")
+            .remove(0)
     };
     let defaults =
         |declarations: &CatalogLocalModelDeclarations| LocalModelDeploymentConfiguration {
@@ -2011,7 +2015,7 @@ configurations:
 profiles:
   - profileId: "chat"
     displayName: "Chat"
-    configurationId: "llama"
+    configurationIds: ["llama"]
     defaultModelArtifactBindingId: "weights"
     engineParameterDefaults:
       values:
@@ -2047,7 +2051,7 @@ configurations:
 profiles:
   - profileId: "chat"
     displayName: "Chat"
-    configurationId: "llama"
+    configurationIds: ["llama"]
     defaultModelArtifactBindingId: "weights"
     engineParameterDefaults:
       values:
@@ -2139,7 +2143,7 @@ configurations:
 profiles:
   - profileId: "text"
     displayName: "Text"
-    configurationId: "vllm"
+    configurationIds: ["vllm"]
     defaultModelArtifactBindingId: "snapshot"
     engineParameterDefaults:
       values:
@@ -2235,7 +2239,7 @@ configurations:
 profiles:
   - profileId: "mtp"
     displayName: "MTP"
-    configurationId: "ninfer"
+    configurationIds: ["ninfer"]
     defaultModelArtifactBindingId: "weights"
     engineParameterDefaults:
       values:
@@ -2243,7 +2247,7 @@ profiles:
         - { parameterId: "host-context-mib", unsignedInteger: "20480" }
   - profileId: "no-mtp"
     displayName: "No MTP"
-    configurationId: "ninfer"
+    configurationIds: ["ninfer"]
     defaultModelArtifactBindingId: "weights"
     engineParameterDefaults:
       values:

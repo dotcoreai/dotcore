@@ -846,6 +846,9 @@ pub(crate) fn launch_resolution_error(
         }
         | crate::model::resolution::ModelLaunchResolutionError::HardwareClassSelection {
             ..
+        }
+        | crate::model::resolution::ModelLaunchResolutionError::BindingNotOnTarget {
+            ..
         }) => {
             ModelDeclarationRepositoryError::TargetIncompatible(Box::new(error))
         }

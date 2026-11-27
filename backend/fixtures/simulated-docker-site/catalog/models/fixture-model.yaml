@@ -27,7 +27,7 @@ configurations:
     inputCapabilities: { supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"] }
 profiles:
   - profileId: "fixture-profile"
-    configurationId: "fixture-configuration"
+    configurationIds: ["fixture-configuration"]
     defaultModelArtifactBindingId: "fixture-artifact"
     engineParameterDefaults:
       values:

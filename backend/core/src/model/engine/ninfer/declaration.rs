@@ -1121,7 +1121,7 @@ profiles:
   - profileId: "ninfer-nvfp4"
     displayName: "NVFP4 ninfer"
     description: "Runs the fixture through ninfer."
-    configurationId: "ninfer-nvidia"
+    configurationIds: ["ninfer-nvidia"]
     defaultModelArtifactBindingId: "fixture-ninfer-artifact"
     engineParameterDefaults:
       values:

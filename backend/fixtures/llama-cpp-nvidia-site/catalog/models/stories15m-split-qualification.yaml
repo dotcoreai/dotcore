@@ -42,7 +42,7 @@ configurations:
 profiles:
   - profileId: "split-text"
     displayName: "Split text qualification"
-    configurationId: "nvidia-cuda"
+    configurationIds: ["nvidia-cuda"]
     defaultModelArtifactBindingId: "split-q8"
     engineParameterDefaults:
       values:

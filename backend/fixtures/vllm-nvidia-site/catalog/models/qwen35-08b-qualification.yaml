@@ -137,7 +137,7 @@ configurations:
 profiles:
   - profileId: "small-text"
     displayName: "Small text qualification"
-    configurationId: "small-vllm-nvidia"
+    configurationIds: ["small-vllm-nvidia"]
     defaultModelArtifactBindingId: "qualification-binding"
     engineParameterDefaults:
       values:
@@ -154,7 +154,7 @@ profiles:
             boolean: false
   - profileId: "small-multimodal"
     displayName: "Small multimodal qualification"
-    configurationId: "small-vllm-nvidia"
+    configurationIds: ["small-vllm-nvidia"]
     defaultModelArtifactBindingId: "qualification-binding"
     engineParameterDefaults:
       values:

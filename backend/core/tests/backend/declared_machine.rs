@@ -1703,7 +1703,7 @@ profiles:
   - profileId: "probe-profile"
     displayName: "Probe profile"
     description: "Sizes linearly in the total context."
-    configurationId: "probe-configuration"
+    configurationIds: ["probe-configuration"]
     defaultModelArtifactBindingId: "probe-artifact"
     engineParameterDefaults:
       values:
@@ -1711,7 +1711,7 @@ profiles:
   - profileId: "host-probe-profile"
     displayName: "Host probe profile"
     description: "Sizes linearly in the total context in host memory."
-    configurationId: "host-probe-configuration"
+    configurationIds: ["host-probe-configuration"]
     defaultModelArtifactBindingId: "probe-artifact"
     engineParameterDefaults:
       values:

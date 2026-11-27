@@ -435,11 +435,11 @@ fn validate_sizing_coverage(
                 }
             }
 
-            for profile in model
-                .profiles
-                .iter()
-                .filter(|profile| profile.configuration_id == configuration.configuration_id)
-            {
+            for profile in model.profiles.iter().filter(|profile| {
+                profile
+                    .configuration_ids
+                    .contains(&configuration.configuration_id)
+            }) {
                 let Some(values) = profile.engine_parameter_defaults.as_ref() else {
                     continue;
                 };

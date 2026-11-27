@@ -545,7 +545,7 @@ fn qualification_case(
     let selected_artifact_id = model
         .configurations
         .iter()
-        .find(|configuration| configuration.configuration_id == profile.configuration_id)
+        .find(|configuration| configuration.configuration_id == local.configuration_id)
         .and_then(|configuration| {
             configuration
                 .artifact_bindings

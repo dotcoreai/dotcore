@@ -217,6 +217,8 @@ impl Catalog {
     /// Returns the profile-selected artifact binding and its engine parameter defaults: the
     /// profile's defaults, then the release's engine default of each parameter the profile leaves
     /// out. The context values and parameters with no default stay out for resolution to derive.
+    /// Validation keeps these defaults identical in every configuration the profile names, so
+    /// they don't depend on the target.
     pub fn local_defaults_for(
         &self,
         model_id: &CatalogModelId,
@@ -225,7 +227,10 @@ impl Catalog {
         let (model, profile) = self.selected_model_profile(model_id, profile_id)?;
         let engine_defaults = self
             .engine_defaults
-            .get(&(model.model_id.clone(), profile.configuration_id.clone()))
+            .get(&(
+                model.model_id.clone(),
+                profile.configuration_ids.first()?.clone(),
+            ))
             .cloned()
             .unwrap_or_default();
         Some((
@@ -247,112 +252,50 @@ impl Catalog {
         Some(profile.option_defaults.clone())
     }
 
-    /// Returns the validated immutable declarations of one local selection, with every approved
-    /// engine artifact and supported hardware class of its configuration. Choosing one artifact
-    /// and one class for a target is the inference controller's selection.
+    /// Returns the validated immutable declarations of one local selection, one per configuration
+    /// of the profile that holds the binding, in profile order. Each has every approved engine
+    /// artifact and supported hardware class of its configuration. Choosing one configuration, one
+    /// artifact and one class for a target is the inference controller's selection.
     pub fn local_model_declarations(
         &self,
         model_id: &CatalogModelId,
         profile_id: &str,
         binding_id: &str,
-    ) -> Result<CatalogLocalModelDeclarations, CatalogError> {
+    ) -> Result<Vec<CatalogLocalModelDeclarations>, CatalogError> {
         let (model, profile) = self
             .selected_model_profile(model_id, profile_id)
             .ok_or_else(|| {
                 CatalogError::Invalid(anyhow::anyhow!("selected model profile is stale"))
             })?;
-        let configuration = model
-            .configurations
-            .iter()
-            .find(|value| value.configuration_id == profile.configuration_id)
-            .ok_or_else(|| {
-                CatalogError::Invalid(anyhow::anyhow!("selected engine configuration is stale"))
-            })?;
-        let binding = configuration
-            .artifact_bindings
-            .iter()
-            .find(|value| value.binding_id == binding_id)
-            .ok_or_else(|| {
-                CatalogError::Invalid(anyhow::anyhow!(
-                    "selected model artifact binding is not supported by the profile configuration"
-                ))
-            })?;
-        let approved_engine_artifacts = configuration
-            .engine_artifacts
-            .iter()
-            .map(|reference| {
-                let engine_release =
-                    self.engines
-                        .get(&reference.engine_release_id)
-                        .ok_or_else(|| {
-                            CatalogError::Invalid(anyhow::anyhow!(
-                                "selected engine release is stale"
-                            ))
-                        })?;
-                let artifact = engine_release
-                    .artifacts
-                    .iter()
-                    .find(|artifact| artifact.artifact_id == reference.engine_artifact_id)
-                    .ok_or_else(|| {
-                        CatalogError::Invalid(anyhow::anyhow!(
-                            "selected approved engine artifact is stale"
-                        ))
-                    })?;
-                Ok(ApprovedEngineArtifact {
-                    engine_release: validation::release_for_configuration(
-                        engine_release,
-                        configuration,
-                    )
-                    .into_owned(),
-                    artifact: artifact.clone(),
-                })
-            })
-            .collect::<Result<Vec<_>, CatalogError>>()?;
-        let engine_kind = approved_engine_artifacts
-            .first()
-            .ok_or_else(|| {
-                CatalogError::Invalid(anyhow::anyhow!(
-                    "selected engine configuration has no approved engine artifacts"
-                ))
-            })?
-            .engine_release
-            .engine_kind;
-        let model_artifact = model
-            .artifacts
-            .iter()
-            .find(|value| value.artifact_id == binding.model_artifact_id)
-            .ok_or_else(|| {
-                CatalogError::Invalid(anyhow::anyhow!("selected model artifact is stale"))
-            })?;
-        let hardware_support = configuration
-            .hardware_support
-            .iter()
-            .map(|support| {
-                let hardware_class = self
-                    .hardware_classes
-                    .get(&support.hardware_class_id)
-                    .ok_or_else(|| {
-                        CatalogError::Invalid(anyhow::anyhow!(
-                            "selected configuration's hardware class is stale"
-                        ))
-                    })?;
-                Ok(SupportedHardwareClass {
-                    hardware_class: hardware_class.clone(),
-                    hardware_requirements: support.hardware_requirements,
-                })
-            })
-            .collect::<Result<Vec<_>, CatalogError>>()?;
-
-        Ok(CatalogLocalModelDeclarations {
-            model: model.clone(),
-            profile: profile.clone(),
-            configuration: configuration.clone(),
-            binding: binding.clone(),
-            engine_kind,
-            approved_engine_artifacts,
-            hardware_support,
-            model_artifact: model_artifact.clone(),
-        })
+        let mut variants = Vec::new();
+        for configuration_id in &profile.configuration_ids {
+            let configuration = model
+                .configurations
+                .iter()
+                .find(|value| &value.configuration_id == configuration_id)
+                .ok_or_else(|| {
+                    CatalogError::Invalid(anyhow::anyhow!("selected engine configuration is stale"))
+                })?;
+            let Some(binding) = configuration
+                .artifact_bindings
+                .iter()
+                .find(|value| value.binding_id == binding_id)
+            else {
+                continue;
+            };
+            variants.push(self.local_configuration_declarations(
+                model,
+                profile,
+                configuration,
+                binding,
+            )?);
+        }
+        if variants.is_empty() {
+            return Err(CatalogError::Invalid(anyhow::anyhow!(
+                "selected model artifact binding is not supported by any profile configuration"
+            )));
+        }
+        Ok(variants)
     }
 
     /// Derives the engine parameter values a local selection omitted on one hardware class, in
@@ -596,6 +539,92 @@ impl Catalog {
         Some((model, profile))
     }
 
+    /// Reads the declarations of one configuration of a profile with one of its bindings.
+    fn local_configuration_declarations(
+        &self,
+        model: &Model,
+        profile: &ModelProfile,
+        configuration: &ModelEngineConfiguration,
+        binding: &ModelArtifactBinding,
+    ) -> Result<CatalogLocalModelDeclarations, CatalogError> {
+        let approved_engine_artifacts = configuration
+            .engine_artifacts
+            .iter()
+            .map(|reference| {
+                let engine_release =
+                    self.engines
+                        .get(&reference.engine_release_id)
+                        .ok_or_else(|| {
+                            CatalogError::Invalid(anyhow::anyhow!(
+                                "selected engine release is stale"
+                            ))
+                        })?;
+                let artifact = engine_release
+                    .artifacts
+                    .iter()
+                    .find(|artifact| artifact.artifact_id == reference.engine_artifact_id)
+                    .ok_or_else(|| {
+                        CatalogError::Invalid(anyhow::anyhow!(
+                            "selected approved engine artifact is stale"
+                        ))
+                    })?;
+                Ok(ApprovedEngineArtifact {
+                    engine_release: validation::release_for_configuration(
+                        engine_release,
+                        configuration,
+                    )
+                    .into_owned(),
+                    artifact: artifact.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>, CatalogError>>()?;
+        let engine_kind = approved_engine_artifacts
+            .first()
+            .ok_or_else(|| {
+                CatalogError::Invalid(anyhow::anyhow!(
+                    "selected engine configuration has no approved engine artifacts"
+                ))
+            })?
+            .engine_release
+            .engine_kind;
+        let model_artifact = model
+            .artifacts
+            .iter()
+            .find(|value| value.artifact_id == binding.model_artifact_id)
+            .ok_or_else(|| {
+                CatalogError::Invalid(anyhow::anyhow!("selected model artifact is stale"))
+            })?;
+        let hardware_support = configuration
+            .hardware_support
+            .iter()
+            .map(|support| {
+                let hardware_class = self
+                    .hardware_classes
+                    .get(&support.hardware_class_id)
+                    .ok_or_else(|| {
+                        CatalogError::Invalid(anyhow::anyhow!(
+                            "selected configuration's hardware class is stale"
+                        ))
+                    })?;
+                Ok(SupportedHardwareClass {
+                    hardware_class: hardware_class.clone(),
+                    hardware_requirements: support.hardware_requirements,
+                })
+            })
+            .collect::<Result<Vec<_>, CatalogError>>()?;
+
+        Ok(CatalogLocalModelDeclarations {
+            model: model.clone(),
+            profile: profile.clone(),
+            configuration: configuration.clone(),
+            binding: binding.clone(),
+            engine_kind,
+            approved_engine_artifacts,
+            hardware_support,
+            model_artifact: model_artifact.clone(),
+        })
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     pub fn with_test_model_artifact_digests_omitted(mut self, model_id: &str) -> Self {
         let clear =
@@ -661,7 +690,8 @@ impl fmt::Debug for Catalog {
     }
 }
 
-/// Immutable catalog declarations of one local selection, for controller-owned resolution.
+/// Immutable catalog declarations of one local selection on one of its profile's configurations,
+/// for controller-owned resolution.
 ///
 /// The approved engine artifacts keep their declared order and the list is never empty. Their
 /// releases may differ but share one engine kind and identical parameter definitions, so the
@@ -1201,7 +1231,8 @@ artifacts:
                 "balanced",
                 "default",
             )
-            .expect("local declarations");
+            .expect("local declarations")
+            .remove(0);
         assert_eq!(declarations.engine_kind, EngineKind::LlamaCpp as i32);
         assert_eq!(
             declarations
@@ -1705,7 +1736,8 @@ artifacts:
                 "balanced",
                 "sized",
             )
-            .expect("local declarations");
+            .expect("local declarations")
+            .remove(0);
         assert_eq!(
             declarations
                 .hardware_support
@@ -1898,7 +1930,8 @@ artifacts:
         );
         let declarations = catalog
             .local_model_declarations(&model_id, "balanced", "sized")
-            .expect("local declarations");
+            .expect("local declarations")
+            .remove(0);
         let schema = declarations.approved_engine_artifacts[0]
             .engine_release
             .parameter_schema
@@ -3540,7 +3573,7 @@ configurations:
       supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
 profiles:
   - profileId: "balanced"
-    configurationId: "local"
+    configurationIds: ["local"]
     defaultModelArtifactBindingId: "default"
     engineParameterDefaults:
       values:

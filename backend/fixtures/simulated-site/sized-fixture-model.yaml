@@ -43,7 +43,7 @@ profiles:
   - profileId: "fixture-profile"
     displayName: "Fixture profile"
     description: "Exercises catalog-owned profile presentation fields."
-    configurationId: "fixture-configuration"
+    configurationIds: ["fixture-configuration"]
     defaultModelArtifactBindingId: "fixture-artifact"
     engineParameterDefaults:
       values:

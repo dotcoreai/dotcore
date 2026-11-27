@@ -5,8 +5,8 @@
 
 use dotcore_artifact::{ArtifactManager, LocalImageIdentityResolutionError};
 use dotcore_catalog::{
-    ACCELERATOR_MEMORY_RESOURCE, Catalog, CatalogError, CatalogModelId, HOST_MEMORY_RESOURCE,
-    ScalarResourceEstimate, SupportedHardwareClass,
+    ACCELERATOR_MEMORY_RESOURCE, Catalog, CatalogError, CatalogLocalModelDeclarations,
+    CatalogModelId, HOST_MEMORY_RESOURCE, ScalarResourceEstimate, SupportedHardwareClass,
     options::resolve_model_option_values,
     overlay_parameter_defaults, shared_parameters,
     typed_parameters::{unsigned_range_contains, unsigned_range_text},
@@ -981,8 +981,8 @@ pub(crate) fn evaluate_values(
     })
 }
 
-/// Reads one local selection's catalog declarations and chooses its approved engine artifact and
-/// most specific supported hardware class for the target.
+/// Reads one local selection's catalog declarations and picks the profile configuration, its
+/// approved engine artifact and the most specific supported hardware class for the target.
 fn select_local_model(
     catalog: &Catalog,
     model_id: &CatalogModelId,
@@ -990,31 +990,26 @@ fn select_local_model(
     binding_id: &str,
     target: &SelectedTargetCapabilities,
 ) -> Result<LocalModelSelection, ModelLaunchResolutionError> {
-    let declarations = catalog
-        .local_model_declarations(model_id, profile_id, binding_id)
-        .map_err(ModelLaunchResolutionError::CatalogResolution)?;
-    let mut approved = declarations.approved_engine_artifacts;
+    let PickedConfiguration {
+        declarations,
+        engine_artifact,
+        hardware_support,
+    } = pick_profile_configuration(catalog, model_id, profile_id, binding_id, target)?;
     let SelectedEngineArtifact {
         position,
         artifact: engine_artifact,
         target: engine_target,
-    } = select_approved_engine_artifact(
-        approved.iter().map(|approved| approved.artifact.clone()),
-        target,
-        engine_artifact_kinds(declarations.engine_kind),
-    )
-    .map_err(ModelLaunchResolutionError::EngineArtifactSelection)?;
+    } = engine_artifact;
     // The selected artifact pins its own release, since approved artifacts may come from several
     // releases of the engine.
-    let engine_release = approved.swap_remove(position).engine_release;
-    let hardware_support =
-        select_hardware_class(declarations.hardware_support, target).map_err(|source| {
-            ModelLaunchResolutionError::HardwareClassSelection {
-                model_id: model_id.0.clone(),
-                profile_id: profile_id.to_owned(),
-                source: Box::new(source),
-            }
-        })?;
+    let engine_release = declarations
+        .approved_engine_artifacts
+        .into_iter()
+        .nth(position)
+        .ok_or(ModelLaunchResolutionError::InvalidConfiguration(
+            "selected engine artifact is not approved",
+        ))?
+        .engine_release;
 
     Ok(LocalModelSelection {
         model: declarations.model,
@@ -1029,40 +1024,152 @@ fn select_local_model(
     })
 }
 
+/// Picks the configuration of a profile that one local selection runs on the target, and returns
+/// its catalog declarations.
+pub(crate) fn select_profile_configuration(
+    catalog: &Catalog,
+    model_id: &CatalogModelId,
+    profile_id: &str,
+    binding_id: &str,
+    target: &SelectedTargetCapabilities,
+) -> Result<CatalogLocalModelDeclarations, ModelLaunchResolutionError> {
+    pick_profile_configuration(catalog, model_id, profile_id, binding_id, target)
+        .map(|picked| picked.declarations)
+}
+
+/// One profile configuration picked for a target, with its engine artifact and hardware class.
+struct PickedConfiguration {
+    declarations: CatalogLocalModelDeclarations,
+    engine_artifact: SelectedEngineArtifact,
+    hardware_support: SupportedHardwareClass,
+}
+
+/// Picks the profile configuration for the target. The candidates are the profile's
+/// configurations holding the binding with an engine artifact for the target; the one owning the
+/// most specific matching hardware class wins.
+fn pick_profile_configuration(
+    catalog: &Catalog,
+    model_id: &CatalogModelId,
+    profile_id: &str,
+    binding_id: &str,
+    target: &SelectedTargetCapabilities,
+) -> Result<PickedConfiguration, ModelLaunchResolutionError> {
+    let variants = catalog
+        .local_model_declarations(model_id, profile_id, binding_id)
+        .map_err(ModelLaunchResolutionError::CatalogResolution)?;
+    // Configurations without the binding are left out, and the failure names them.
+    let without_binding = variants.first().map_or(0, |declarations| {
+        declarations.profile.configuration_ids.len() - variants.len()
+    });
+    let mut candidates = Vec::new();
+    let mut artifact_failure: Option<EngineArtifactSelectionError> = None;
+    for declarations in variants {
+        match select_approved_engine_artifact(
+            declarations
+                .approved_engine_artifacts
+                .iter()
+                .map(|approved| approved.artifact.clone()),
+            target,
+            engine_artifact_kinds(declarations.engine_kind),
+        ) {
+            Ok(selected) => candidates.push((declarations, selected)),
+            // A configuration whose artifact matched the platform explains more than one whose
+            // artifacts didn't.
+            Err(error) => {
+                if artifact_failure
+                    .as_ref()
+                    .is_none_or(|kept| matches!(kept, EngineArtifactSelectionError::NoMatch { .. }))
+                {
+                    artifact_failure = Some(error);
+                }
+            }
+        }
+    }
+    if candidates.is_empty() {
+        let error = artifact_failure.ok_or(ModelLaunchResolutionError::InvalidConfiguration(
+            "selected profile has no configuration",
+        ))?;
+        if without_binding == 0 {
+            return Err(ModelLaunchResolutionError::EngineArtifactSelection(error));
+        }
+        return Err(ModelLaunchResolutionError::BindingNotOnTarget {
+            model_id: model_id.0.clone(),
+            profile_id: profile_id.to_owned(),
+            binding_id: binding_id.to_owned(),
+            source: Box::new(error),
+        });
+    }
+
+    let supported = candidates
+        .iter()
+        .flat_map(|(declarations, _)| declarations.hardware_support.iter().cloned())
+        .collect();
+    let hardware_support = select_hardware_class(supported, target).map_err(|source| {
+        ModelLaunchResolutionError::HardwareClassSelection {
+            model_id: model_id.0.clone(),
+            profile_id: profile_id.to_owned(),
+            source: Box::new(source),
+        }
+    })?;
+    let hardware_class_id = &hardware_support.hardware_class.hardware_class_id;
+    // Catalog validation keeps hardware class ids unique across a profile's configurations.
+    let (declarations, engine_artifact) = candidates
+        .into_iter()
+        .find(|(declarations, _)| {
+            declarations
+                .hardware_support
+                .iter()
+                .any(|support| &support.hardware_class.hardware_class_id == hardware_class_id)
+        })
+        .ok_or(ModelLaunchResolutionError::InvalidConfiguration(
+            "selected hardware class belongs to no profile configuration",
+        ))?;
+    Ok(PickedConfiguration {
+        declarations,
+        engine_artifact,
+        hardware_support,
+    })
+}
+
 /// Reads one local selection's catalog declarations without a target: one selection per supported
-/// hardware class in declaration order, each with the first approved engine artifact.
+/// hardware class of each profile configuration holding the binding, in declaration order, each
+/// with its configuration's first approved engine artifact.
 fn select_local_model_per_class(
     catalog: &Catalog,
     model_id: &CatalogModelId,
     profile_id: &str,
     binding_id: &str,
 ) -> Result<Vec<LocalModelSelection>, ModelLaunchResolutionError> {
-    let declarations = catalog
+    let variants = catalog
         .local_model_declarations(model_id, profile_id, binding_id)
         .map_err(ModelLaunchResolutionError::CatalogResolution)?;
-    let first = declarations
-        .approved_engine_artifacts
-        .into_iter()
-        .next()
-        .ok_or(ModelLaunchResolutionError::InvalidConfiguration(
-            "selected engine configuration has no approved engine artifacts",
-        ))?;
-
-    Ok(declarations
-        .hardware_support
-        .into_iter()
-        .map(|hardware_support| LocalModelSelection {
-            model: declarations.model.clone(),
-            profile: declarations.profile.clone(),
-            configuration: declarations.configuration.clone(),
-            binding: declarations.binding.clone(),
-            engine_release: first.engine_release.clone(),
-            engine_artifact: first.artifact.clone(),
-            engine_target: None,
-            hardware_support,
-            model_artifact: declarations.model_artifact.clone(),
-        })
-        .collect())
+    let mut selections = Vec::new();
+    for declarations in variants {
+        let first = declarations
+            .approved_engine_artifacts
+            .into_iter()
+            .next()
+            .ok_or(ModelLaunchResolutionError::InvalidConfiguration(
+                "selected engine configuration has no approved engine artifacts",
+            ))?;
+        selections.extend(
+            declarations
+                .hardware_support
+                .into_iter()
+                .map(|hardware_support| LocalModelSelection {
+                    model: declarations.model.clone(),
+                    profile: declarations.profile.clone(),
+                    configuration: declarations.configuration.clone(),
+                    binding: declarations.binding.clone(),
+                    engine_release: first.engine_release.clone(),
+                    engine_artifact: first.artifact.clone(),
+                    engine_target: None,
+                    hardware_support,
+                    model_artifact: declarations.model_artifact.clone(),
+                }),
+        );
+    }
+    Ok(selections)
 }
 
 /// Captures one upstream template in an immutable controller-owned deployment snapshot.
@@ -1114,6 +1221,17 @@ pub enum ModelLaunchResolutionError {
         execution_target_id: String,
         device_count: usize,
         required: u32,
+    },
+
+    #[error(
+        "profile {profile_id:?} of catalog model {model_id:?} cannot run binding {binding_id:?} on the target: the configurations holding it have no engine artifact for the target ({source}), and the binding is not in the other configurations"
+    )]
+    BindingNotOnTarget {
+        model_id: String,
+        profile_id: String,
+        binding_id: String,
+        #[source]
+        source: Box<EngineArtifactSelectionError>,
     },
 
     #[error("could not resolve catalog model: {0}")]
@@ -1336,6 +1454,7 @@ mod tests {
         },
     };
     use dotcore_domain::test_support::nix;
+    use dotcore_domain::{ExecutionPlatform, MemoryArchitecture};
     use dotcore_proto::dotcore::model::v1::portable_model_launch_argument_token::Value as LaunchArgumentValue;
     use dotcore_proto::dotcore::site::v1::{
         ModelRuntimeBinding, execution_target, model_runtime_binding,
@@ -1358,9 +1477,10 @@ mod tests {
         EngineLaunchIdentity, ModelLaunchResolutionError, NixArtifact,
         ResolvedHardwareRequirementsValue, ResolvedLocalModelDeploymentSnapshot,
         ResolvedLocalModelValues, apply_profile_defaults, engine_launch_identity,
-        estimate_local_values_per_class, resolve_local_launch, select_engine_artifact,
-        validate_target_accelerator_devices,
+        estimate_local_values_per_class, resolve_local_launch, resolve_local_values_on_target,
+        select_engine_artifact, validate_target_accelerator_devices,
     };
+    use crate::hardware::selection::HardwareClassSelectionError;
     use crate::model::engine::declaration_validator;
     use crate::test_support::TAG_ONLY_ENGINE_REFERENCE;
 
@@ -2158,6 +2278,154 @@ mod tests {
     }
 
     #[test]
+    fn a_profile_with_two_configurations_resolves_the_one_matching_the_target() {
+        let catalog = variant_catalog(|model| model);
+        let configuration = context_and_request_configuration();
+        let resolve = |platform: ExecutionPlatform, memory_architecture| {
+            let (target, inventory) =
+                crate::test_support::execution_target_capabilities_with_memory(
+                    platform,
+                    memory_architecture,
+                );
+            resolve_local_values_on_target(
+                &catalog,
+                &derived_model_id(),
+                "balanced",
+                &configuration,
+                &target,
+                &inventory,
+            )
+        };
+        for (platform, memory_architecture, expected) in [
+            (
+                ExecutionPlatform::linux_amd64(),
+                MemoryArchitecture::Dedicated,
+                ("local", "nvidia", "linux-amd64", 100 + 3 * 4096),
+            ),
+            (
+                ExecutionPlatform::linux_arm64(),
+                MemoryArchitecture::Unified,
+                ("unified", "nvidia-unified", "linux-arm64", 200 + 3 * 4096),
+            ),
+            // Only the first configuration has an artifact for amd64, so its wider class serves
+            // a unified target there.
+            (
+                ExecutionPlatform::linux_amd64(),
+                MemoryArchitecture::Unified,
+                ("local", "nvidia", "linux-amd64", 100 + 3 * 4096),
+            ),
+        ] {
+            let label = format!("{platform:?} {memory_architecture:?}");
+            let resolved = resolve(platform, memory_architecture).expect(&label);
+            let selection = &resolved.selection;
+            assert_eq!(
+                (
+                    selection.configuration.configuration_id.as_str(),
+                    selection
+                        .hardware_support
+                        .hardware_class
+                        .hardware_class_id
+                        .as_str(),
+                    selection.engine_artifact.artifact_id.as_str(),
+                    resolved
+                        .estimate()
+                        .accelerator_bytes
+                        .expect("accelerator estimate"),
+                ),
+                expected,
+                "{label}"
+            );
+        }
+
+        // The arm64 artifact belongs to a configuration whose class needs unified memory.
+        let Err(error) = resolve(
+            ExecutionPlatform::linux_arm64(),
+            MemoryArchitecture::Dedicated,
+        ) else {
+            panic!("no class serves a dedicated arm64 target");
+        };
+        assert!(
+            matches!(
+                &error,
+                ModelLaunchResolutionError::HardwareClassSelection { source, .. }
+                    if matches!(**source, HardwareClassSelectionError::NoMatch { .. })
+            ),
+            "{error}"
+        );
+
+        let classes = estimate_local_values_per_class(
+            &catalog,
+            &derived_model_id(),
+            "balanced",
+            &configuration,
+        )
+        .expect("estimates per class");
+        assert_eq!(
+            classes
+                .iter()
+                .map(|values| (
+                    values.selection.configuration.configuration_id.as_str(),
+                    values
+                        .selection
+                        .hardware_support
+                        .hardware_class
+                        .hardware_class_id
+                        .as_str(),
+                    values
+                        .estimate()
+                        .accelerator_bytes
+                        .expect("accelerator estimate"),
+                ))
+                .collect::<Vec<_>>(),
+            [
+                ("local", "nvidia", 100 + 3 * 4096),
+                ("unified", "nvidia-unified", 200 + 3 * 4096),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_binding_only_another_configuration_holds_names_both_reasons_on_the_target() {
+        let catalog = variant_catalog(|model| {
+            let unified = model
+                .rfind("  - configurationId: \"unified\"")
+                .expect("unified");
+            let (local, unified) = model.split_at(unified);
+            let unified = unified
+                .replacen(
+                    "      - bindingId: \"second\"\n        modelArtifactId: \"second-weights\"\n",
+                    "",
+                    1,
+                )
+                .replacen("          - bindingId: \"second\"\n", "", 1);
+            format!("{local}{unified}")
+        });
+        let (target, inventory) = crate::test_support::execution_target_capabilities_with_memory(
+            ExecutionPlatform::linux_arm64(),
+            MemoryArchitecture::Unified,
+        );
+        let configuration = LocalModelDeploymentConfiguration {
+            model_artifact_binding_id: "second".to_owned(),
+            ..context_and_request_configuration()
+        };
+
+        let Err(error) = resolve_local_values_on_target(
+            &catalog,
+            &derived_model_id(),
+            "balanced",
+            &configuration,
+            &target,
+            &inventory,
+        ) else {
+            panic!("a binding only the amd64 configuration holds must not resolve on arm64");
+        };
+        assert_eq!(
+            error.to_string(),
+            "profile \"balanced\" of catalog model \"fixture-model\" cannot run binding \"second\" on the target: the configurations holding it have no engine artifact for the target (no approved engine artifact supports target platform linux/arm64 with nvidia accelerators in an artifact kind the target's runtime can realize), and the binding is not in the other configurations"
+        );
+    }
+
+    #[test]
     fn a_supplied_value_wins_over_profile_and_engine_defaults() {
         let catalog = shared_parameter_catalog(
             "        - parameterId: \"parallel-requests\"\n          unsignedInteger: \"2\"\n",
@@ -2437,7 +2705,7 @@ mod tests {
             .expect("unsupported binding");
         assert_eq!(
             error.to_string(),
-            "could not resolve catalog model: Invalid catalog: selected model artifact binding is not supported by the profile configuration"
+            "could not resolve catalog model: Invalid catalog: selected model artifact binding is not supported by any profile configuration"
         );
     }
 
@@ -3180,6 +3448,46 @@ mod tests {
             declaration_validator(),
         )
         .expect("derived sizing catalog")
+    }
+
+    /// Derived sizing catalog whose `balanced` profile names the `local` configuration and its
+    /// `unified` copy for arm64 on unified memory, which adds 100 more base bytes. `edit` changes
+    /// the model YAML.
+    fn variant_catalog(edit: impl FnOnce(String) -> String) -> Catalog {
+        let root = dotcore_catalog::test_support::temporary_catalog_root();
+        dotcore_catalog::test_support::create_empty_catalog_source(&root);
+        dotcore_catalog::test_support::write_sizing_engine(&root);
+        dotcore_catalog::test_support::write_sizing_model_with(
+            &root,
+            r#"    sizing:
+      parameters:
+        baseBytes: 100
+      derivedParameters:
+        prompt-cache-memory-mib: "4096"
+      estimates:
+        acceleratorMemory:
+          unit: bytes
+          equation: "${baseBytes} + 3 * ${prompt-cache-memory-mib}"
+"#,
+            dotcore_catalog::test_support::UNPARAMETERIZED_BINDING_SIZING,
+            "      values: []\n",
+        );
+        dotcore_catalog::test_support::add_unified_sizing_variant(&root);
+        let model_path = root.join("models/fixture.yaml");
+        let model = fs::read_to_string(&model_path).expect("fixture model");
+        let unified = model.rfind("baseBytes: 100").expect("unified sizing");
+        let model = format!(
+            "{}baseBytes: 200{}",
+            &model[..unified],
+            &model[unified + "baseBytes: 100".len()..]
+        );
+        fs::write(&model_path, edit(model)).expect("fixture model");
+        Catalog::load_with_policy(
+            &root,
+            OciArtifactPolicy::Development,
+            declaration_validator(),
+        )
+        .expect("variant catalog")
     }
 
     /// Profile `balanced` defaults to binding `sized` with a prompt cache of 30000 MiB;

@@ -795,7 +795,7 @@ profiles:
   - profileId: "strata-q4"
     displayName: "Q4 Strata"
     description: "Runs the fixture through Strata."
-    configurationId: "strata-nvidia"
+    configurationIds: ["strata-nvidia"]
     defaultModelArtifactBindingId: "fixture-strata-artifact"
     engineParameterDefaults: {}
     "#;

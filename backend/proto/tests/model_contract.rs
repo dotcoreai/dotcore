@@ -614,7 +614,7 @@ fn generated_bindings_round_trip_model_configurations_and_typed_context_schema()
     };
     let profile = ModelProfile {
         profile_id: "fast-start".to_owned(),
-        configuration_id: "cuda".to_owned(),
+        configuration_ids: vec!["cuda".to_owned()],
         default_model_artifact_binding_id: "q4-k-m".to_owned(),
         engine_parameter_defaults: Some(ParameterValues {
             values: vec![ParameterValue {
@@ -756,7 +756,7 @@ fn generated_bindings_preserve_typed_option_defaults_overrides_and_resolved_valu
         ],
         profiles: vec![ModelProfile {
             profile_id: "balanced".to_owned(),
-            configuration_id: "cuda".to_owned(),
+            configuration_ids: vec!["cuda".to_owned()],
             option_defaults: vec![defaults.clone()],
             ..Default::default()
         }],
@@ -1217,7 +1217,7 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
         field_numbers(catalog, "ModelProfile"),
         [
             ("profile_id", 1),
-            ("configuration_id", 2),
+            ("configuration_ids", 2),
             ("default_model_artifact_binding_id", 3),
             ("engine_parameter_defaults", 4),
             ("engine_parameter_visibility_overrides", 9),
@@ -1533,6 +1533,7 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
             ("reason", 5),
             ("advisories", 6),
             ("hardware_class_id", 7),
+            ("configuration_id", 16),
             ("memory_fit", 8),
             ("free_memory_fit", 11),
             ("unsupported_reason", 9),

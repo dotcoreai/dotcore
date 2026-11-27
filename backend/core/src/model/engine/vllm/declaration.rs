@@ -1279,7 +1279,7 @@ configurations:
 profiles:
   - profileId: "text"
     displayName: "Text"
-    configurationId: "vllm-nvidia"
+    configurationIds: ["vllm-nvidia"]
     defaultModelArtifactBindingId: "snapshot"
     engineParameterDefaults:
       values:
@@ -1288,7 +1288,7 @@ profiles:
         - { parameterId: "kv-offloading-size-gib", unsignedInteger: "0" }
   - profileId: "mtp"
     displayName: "MTP"
-    configurationId: "vllm-nvidia"
+    configurationIds: ["vllm-nvidia"]
     defaultModelArtifactBindingId: "snapshot"
     engineParameterDefaults:
       values:
