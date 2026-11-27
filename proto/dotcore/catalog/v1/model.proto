@@ -170,14 +170,14 @@ message ModelArtifactBinding {
   repeated string auxiliary_artifact_ids = 3;
 }
 
-// Supplies independent preset defaults for one model-local engine
-// configuration without becoming deployment authority.
+// Supplies independent preset defaults for one or more model-local engine configurations
+// without becoming deployment authority.
 message ModelProfile {
   // Stable identifier for this model profile.
   string profile_id = 1;
 
-  // Stable model-local engine configuration selected by this profile.
-  string configuration_id = 2;
+  // Configurations this profile presets; resolution picks one per target.
+  repeated string configuration_ids = 2;
 
   // Default artifact binding selected by this profile.
   string default_model_artifact_binding_id = 3;
