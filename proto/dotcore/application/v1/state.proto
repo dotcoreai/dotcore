@@ -49,10 +49,12 @@ message ApplicationDeploymentState {
   // Exact placement observed by the apps controller for a realized workload group.
   dotcore.deployment.v1.ExactPlacement observed_placement = 9;
 
-  // Whether this is the last observation of a node whose status is no longer current, or whose
-  // current status has not yet listed this deployment; the node endpoint may still answer, but
-  // the manager cannot confirm the state until it reports.
+  // Whether this is the node's last observation, which the manager can't confirm until the node
+  // reports it again; the node endpoint may still answer.
   bool observation_stale = 10;
+
+  // Why the stale observation can't be confirmed, when the manager knows; empty otherwise.
+  string observation_stale_reason = 12;
 
   // Ordered start steps and the current one; absent unless the deployment is preparing or starting.
   ApplicationDeploymentSteps steps = 11;
