@@ -219,6 +219,9 @@ message ModelOption {
   // Operator-facing explanation of what turning the option on does and costs. Required.
   string description = 6;
 
+  // One-line summary for newcomers, shown under the option's label. Required.
+  string summary = 8;
+
   // Where the console shows the option, in every configuration and profile. Required: catalog
   // validation rejects an unspecified visibility.
   ParameterVisibility visibility = 7;
