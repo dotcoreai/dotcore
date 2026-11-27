@@ -43,6 +43,20 @@ impl ExponentialHistogram {
         }
     }
 
+    /// A histogram another writer computed, such as one saved before a restart, from its scale,
+    /// zero bucket count, first bucket index and consecutive bucket counts. `None` unless the scale
+    /// is supported and the buckets fit within the bucket limit.
+    pub fn from_parts(scale: i8, zero_count: u64, offset: i32, counts: Vec<u64>) -> Option<Self> {
+        let supported = (MIN_HISTOGRAM_SCALE..=MAX_HISTOGRAM_SCALE).contains(&scale);
+        let fits = counts.len() <= MAX_HISTOGRAM_BUCKETS;
+        (supported && fits).then_some(Self {
+            scale,
+            zero_count,
+            offset,
+            counts,
+        })
+    }
+
     /// Counts one sample; `value` must be finite and non-negative.
     pub fn record(&mut self, value: f64) {
         if value < f64::MIN_POSITIVE {
@@ -302,6 +316,36 @@ mod tests {
         coarser_into_finer.merge(&histogram(2, &second));
         assert_eq!(finer_into_coarser, histogram(2, &[first, second].concat()));
         assert_eq!(coarser_into_finer, histogram(2, &[first, second].concat()));
+    }
+
+    #[test]
+    fn a_histogram_rebuilt_from_its_parts_equals_the_original() {
+        let mut original = ExponentialHistogram::new(2);
+        [0.0, 0.5, 3.0, 3.1, 140.0]
+            .iter()
+            .for_each(|value| original.record(*value));
+
+        let rebuilt = ExponentialHistogram::from_parts(
+            original.scale(),
+            original.zero_count(),
+            original.offset(),
+            original.counts().to_vec(),
+        );
+
+        assert_eq!(rebuilt.as_ref(), Some(&original));
+        let mut merged = rebuilt.expect("rebuilt histogram");
+        merged.record(3.0);
+        original.record(3.0);
+        assert_eq!(merged, original);
+        assert_eq!(merged.count(), 6);
+        assert_eq!(
+            ExponentialHistogram::from_parts(MAX_HISTOGRAM_SCALE + 1, 0, 0, Vec::new()),
+            None
+        );
+        assert_eq!(
+            ExponentialHistogram::from_parts(2, 0, 0, vec![1; MAX_HISTOGRAM_BUCKETS + 1]),
+            None
+        );
     }
 
     #[test]
