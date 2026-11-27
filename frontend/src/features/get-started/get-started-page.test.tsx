@@ -832,7 +832,7 @@ describe("GetStartedPage", () => {
           kind: "Model",
           name: "Qwen3.8 27B",
           status: "Downloading",
-          steps: "Downloading artifacts, Step 2 of 5 · 1 GiB / 4 GiB · 25%",
+          steps: "Downloading artifacts, Step 2 of 5 · 1 GiB / 4 GiB downloaded · 25%",
         },
         {
           kind: "App",
