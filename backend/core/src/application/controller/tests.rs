@@ -47,9 +47,12 @@ use dotcore_proto::dotcore::{
         AcceleratorMemoryUsageSet, ArtifactPreparationPolicy, ExactPlacement,
         accelerator_memory_observation,
     },
-    site::v1::{
-        ApplicationRuntimeBinding, DockerApplicationRuntimeAdapter, ExecutionTarget,
-        application_runtime_binding, execution_target,
+    site::{
+        private::v1::DesiredViewRejectionCode,
+        v1::{
+            ApplicationRuntimeBinding, DockerApplicationRuntimeAdapter, ExecutionTarget,
+            application_runtime_binding, execution_target,
+        },
     },
 };
 use dotcore_runtime::{
@@ -63,7 +66,10 @@ use dotcore_site::{
     },
     repository::{SiteRepository, SiteRepositoryError, SiteWriteFault},
     store::{FileCurrentState, InMemoryCurrentState},
-    view::{contract::application_cleanup_evidence, fencing::NodeIncarnation},
+    view::{
+        contract::application_cleanup_evidence, desired::view_rejection_message,
+        fencing::NodeIncarnation,
+    },
 };
 use tokio::{io::AsyncWriteExt, sync::Notify};
 use tonic::Request;
@@ -6978,6 +6984,61 @@ async fn create_accepts_a_fresh_node_target_and_rejects_ineligible_pairs_with_th
             .deployments
             .len(),
         2
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn node_that_rejects_its_view_explains_why_its_deployments_are_stale() {
+    let directory = crate::test_support::canonical_tempdir().expect("Site directory");
+    let (desired, current) = open_node_site_with(directory.path(), |_| {});
+    let controller =
+        manager_controller(desired.clone(), current.clone(), node_target_capabilities());
+    let mut node = ConnectedWorker::new(desired.clone(), current.clone());
+    controller.set_remote_status_source(node.coordinator.clone());
+    let created = controller
+        .create_deployment(CreateApplicationDeploymentRequest {
+            application_id: "open-webui".to_owned(),
+            placement: Some(exact_placement()),
+            inference_route_id: None,
+            expected_inference_route_generation: 0,
+            application_deployment_name: None,
+            parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
+        })
+        .await
+        .expect("node deployment");
+    let id = created.application_deployment_id.clone();
+    let listed = listed_state(&controller, &id).await;
+    assert_eq!(
+        (
+            listed.observation_stale,
+            listed.observation_stale_reason.as_str()
+        ),
+        (true, ""),
+        "no node has reported yet"
+    );
+
+    node.connect();
+    let view = node.publish();
+    node.coordinator
+        .reject_view_for_test(
+            "node-one",
+            &node.incarnation,
+            view,
+            DesiredViewRejectionCode::ContentConflict,
+        )
+        .expect("rejection acknowledgement");
+
+    let listed = listed_state(&controller, &id).await;
+    assert_eq!(
+        (
+            listed.observation_stale,
+            listed.observation_stale_reason.as_str()
+        ),
+        (
+            true,
+            view_rejection_message(DesiredViewRejectionCode::ContentConflict)
+        )
     );
 }
 

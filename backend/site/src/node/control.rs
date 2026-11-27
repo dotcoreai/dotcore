@@ -17,9 +17,10 @@ use dotcore_proto::{
         deployment::v1::AcceleratorMemoryObservation,
         model::private::v1::ModelDeploymentStatus,
         site::private::v1::{
-            NodeControllerStatus, NodeControllerStatusAcceptance, NodeDesiredView, NodeObservation,
-            NodeObservationAcceptance, NodeObservationSnapshot, NodeViewAcknowledgement,
-            NodeViewAcknowledgementAcceptance, controller_status_section,
+            DesiredViewRejectionCode, NodeControllerStatus, NodeControllerStatusAcceptance,
+            NodeDesiredView, NodeObservation, NodeObservationAcceptance, NodeObservationSnapshot,
+            NodeViewAcknowledgement, NodeViewAcknowledgementAcceptance, controller_status_section,
+            node_view_acknowledgement,
         },
     },
     google::protobuf::Timestamp,
@@ -30,6 +31,7 @@ use tokio::{
     sync::{Notify, watch},
     time::Instant,
 };
+use tracing::warn;
 
 use crate::{
     node::observation_configuration::NodeObservationConfigurationDigest,
@@ -316,7 +318,8 @@ impl ManagerNodeControlCoordinator {
         Ok((response, true))
     }
 
-    /// Accepts an acknowledgement only for an offered view and records its exact reply.
+    /// Accepts an acknowledgement only for an offered view and records its exact reply and its
+    /// outcome, so a rejection of the published view becomes status evidence.
     pub(crate) fn acknowledge(
         &self,
         node_id: &str,
@@ -354,14 +357,28 @@ impl ManagerNodeControlCoordinator {
         let response = NodeViewAcknowledgementAcceptance {
             accepted_acknowledgement_sequence: request.acknowledgement_sequence,
         };
-        node.incarnations
+        let acknowledged = AcknowledgedView::new(offered_view, request);
+        if let Some(code) = acknowledged.rejection {
+            warn!(event_kind = "manager_node_view_rejected", outcome = "rejected", node_id, view_revision = offered_view.0, rejection_code = ?code, "Node rejected its desired view");
+        }
+        let incarnation_state = node
+            .incarnations
             .get_mut(incarnation)
-            .expect("registered incarnation")
-            .acknowledgement_exchange = Some(CompletedExchange::new(
+            .expect("registered incarnation");
+        incarnation_state.acknowledgement_exchange = Some(CompletedExchange::new(
             request.acknowledgement_sequence,
             digest,
             response,
         ));
+        // Revisions only grow, so a late acknowledgement of an older offered view never replaces
+        // the outcome for a newer one.
+        if incarnation_state
+            .acknowledged_view
+            .as_ref()
+            .is_none_or(|current| current.view_revision <= acknowledged.view_revision)
+        {
+            incarnation_state.acknowledged_view = Some(acknowledged);
+        }
         Ok(response)
     }
 
@@ -649,12 +666,15 @@ impl ManagerNodeControlCoordinator {
         deployments
             .iter()
             .map(|deployment| {
-                let Some(status) = state
-                    .nodes
-                    .get(deployment.node_id)
-                    .and_then(|node| node.public_status(now, *self.timing))
+                let node = state.nodes.get(deployment.node_id);
+                // A rejected view only explains a deployment the node's status doesn't vouch for.
+                let unconfirmed = |fallback| {
+                    node.and_then(|node| node.view_rejection(now, *self.timing))
+                        .map_or(fallback, DeploymentStatusEvidence::ViewRejected)
+                };
+                let Some(status) = node.and_then(|node| node.public_status(now, *self.timing))
                 else {
-                    return (DeploymentStatusEvidence::Unavailable, None);
+                    return (unconfirmed(DeploymentStatusEvidence::Unavailable), None);
                 };
                 // The status's view revision is not compared: a status accepted against an
                 // older view stays evidence for every deployment it lists at the declared
@@ -667,7 +687,10 @@ impl ManagerNodeControlCoordinator {
                 });
                 match reported {
                     Some(reported) => (DeploymentStatusEvidence::Current, Some(reported)),
-                    None => (DeploymentStatusEvidence::AcknowledgementPending, None),
+                    None => (
+                        unconfirmed(DeploymentStatusEvidence::AcknowledgementPending),
+                        None,
+                    ),
                 }
             })
             .collect()
@@ -695,6 +718,29 @@ impl ManagerNodeControlCoordinator {
         observation: &AcceptedNodeObservation,
     ) -> CoordinatorConnectionState {
         connection_state(incarnation, observation, self.clock.now(), *self.timing)
+    }
+
+    /// Records `incarnation`'s first acknowledgement as a rejection of `view` with `code`, as a
+    /// node whose installation of that view failed would send it.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn reject_view_for_test(
+        &self,
+        node_id: &str,
+        incarnation: &NodeIncarnation,
+        view: dotcore_proto::dotcore::site::private::v1::NodeViewReference,
+        code: DesiredViewRejectionCode,
+    ) -> Result<NodeViewAcknowledgementAcceptance, IncarnationFenceError> {
+        let offered = (view.view_revision, view.content_sha256.clone());
+        let request = NodeViewAcknowledgement {
+            view: Some(view),
+            acknowledgement_sequence: 1,
+            outcome: Some(node_view_acknowledgement::Outcome::Rejected(
+                dotcore_proto::dotcore::site::private::v1::DesiredViewRejection {
+                    code: code as i32,
+                },
+            )),
+        };
+        self.acknowledge(node_id, incarnation, &request, (offered.0, &offered.1))
     }
 
     /// Opens a node control stream of `incarnation` for `node_id`, publishes `input` as its first
@@ -806,6 +852,11 @@ pub enum DeploymentStatusEvidence {
     /// The node is unknown, silent past the liveness window, replaced, or has no fresh
     /// accepted status.
     Unavailable,
+
+    /// The node is live, but its current incarnation rejected the view published to it, so no
+    /// fresh status lists the declared generation. It ends when the node accepts a view, goes
+    /// silent, or is replaced, or when a newer view is published.
+    ViewRejected(DesiredViewRejectionCode),
 }
 
 /// One node's current-incarnation serving evidence, copied out of coordinator custody.
@@ -936,6 +987,25 @@ impl CoordinatorNode {
         })
     }
 
+    /// Returns why the live current incarnation rejected the view published to this node, when
+    /// its acknowledgement of that view did. Acknowledgements of older offered views say nothing about
+    /// the published one.
+    fn view_rejection(
+        &self,
+        now: Instant,
+        timing: NodeControlTiming,
+    ) -> Option<DesiredViewRejectionCode> {
+        let incarnation = self.incarnations.get(self.current_incarnation.as_ref()?)?;
+        let acknowledged = incarnation.acknowledged_view.as_ref()?;
+        let published = self.published.as_ref()?;
+        let names_published = acknowledged.view_revision == published.revision
+            && acknowledged.content_sha256 == published.projection.digest().as_str();
+        if !incarnation.live_at(now, timing.node_silence) || !names_published {
+            return None;
+        }
+        acknowledged.rejection
+    }
+
     /// Records authenticated contact from `incarnation` when it is the current one; a replaced
     /// or unknown incarnation, or one whose stream closed, never renews liveness.
     fn renew_contact(&mut self, incarnation: &NodeIncarnation, now: Instant) {
@@ -1053,6 +1123,7 @@ struct IncarnationState {
     observation: Option<AcceptedNodeObservation>,
     observation_exchange: Option<CompletedExchange<NodeObservationAcceptance>>,
     acknowledgement_exchange: Option<CompletedExchange<NodeViewAcknowledgementAcceptance>>,
+    acknowledged_view: Option<AcknowledgedView>,
     status_exchange: Option<CompletedExchange<NodeControllerStatusAcceptance>>,
     accepted_status: Option<AcceptedControllerStatus>,
     /// Manager monotonic time of the latest authenticated, fenced contact.
@@ -1089,6 +1160,7 @@ impl IncarnationState {
 
     fn retire(&mut self) {
         self.observation = None;
+        self.acknowledged_view = None;
         self.accepted_status = None;
         self.last_contact = None;
         if let Some(exchange) = self.observation_exchange.as_mut() {
@@ -1099,6 +1171,30 @@ impl IncarnationState {
         }
         if let Some(exchange) = self.status_exchange.as_mut() {
             exchange.retire();
+        }
+    }
+}
+
+/// The newest view one incarnation acknowledged and whether it rejected it.
+struct AcknowledgedView {
+    view_revision: u64,
+    content_sha256: String,
+    rejection: Option<DesiredViewRejectionCode>,
+}
+
+impl AcknowledgedView {
+    fn new(view: (u64, &str), request: &NodeViewAcknowledgement) -> Self {
+        let rejection = match request.outcome.as_ref() {
+            Some(node_view_acknowledgement::Outcome::Rejected(rejection)) => Some(
+                DesiredViewRejectionCode::try_from(rejection.code)
+                    .unwrap_or(DesiredViewRejectionCode::Unspecified),
+            ),
+            Some(node_view_acknowledgement::Outcome::Accepted(_)) | None => None,
+        };
+        Self {
+            view_revision: view.0,
+            content_sha256: view.1.to_owned(),
+            rejection,
         }
     }
 }
@@ -1300,9 +1396,10 @@ mod tests {
             },
             site::{
                 private::v1::{
-                    ControllerStatusSection, NodeControllerStatus, NodeControllerStatusAcceptance,
-                    NodeObservation, NodeObservationSnapshot, NodeViewAcknowledgement,
-                    NodeViewReference, controller_status_section, node_view_acknowledgement,
+                    ControllerStatusSection, DesiredViewRejection, NodeControllerStatus,
+                    NodeControllerStatusAcceptance, NodeObservation, NodeObservationSnapshot,
+                    NodeViewAcknowledgement, NodeViewReference, controller_status_section,
+                    node_view_acknowledgement,
                 },
                 v1::ExecutionTarget,
             },
@@ -1787,6 +1884,252 @@ mod tests {
                 "node no longer Connected"
             );
         }
+    }
+
+    #[test]
+    fn rejection_of_the_published_view_holds_until_the_node_accepts_it() {
+        let coordinator = coordinator();
+        let incarnation = incarnation('1');
+        coordinator
+            .register_observation(
+                &observation_request(&incarnation, 1),
+                observation_input(&incarnation, 1),
+            )
+            .expect("observation");
+        let view = publish(&coordinator, &incarnation, "view").expect("publication");
+
+        coordinator
+            .acknowledge(
+                "worker-one",
+                &incarnation,
+                &rejection(view.clone(), 1, DesiredViewRejectionCode::ContentConflict),
+                offered(&view),
+            )
+            .expect("rejection acknowledgement");
+        assert_eq!(
+            evidence(&coordinator, "model-one", 7),
+            DeploymentStatusEvidence::ViewRejected(DesiredViewRejectionCode::ContentConflict)
+        );
+
+        coordinator
+            .acknowledge(
+                "worker-one",
+                &incarnation,
+                &acknowledgement(view.clone(), 2),
+                offered(&view),
+            )
+            .expect("acceptance acknowledgement");
+        assert_eq!(
+            evidence(&coordinator, "model-one", 7),
+            DeploymentStatusEvidence::Unavailable
+        );
+    }
+
+    #[test]
+    fn late_acceptance_of_an_older_view_keeps_the_published_view_rejected() {
+        let coordinator = coordinator();
+        let incarnation = incarnation('1');
+        coordinator
+            .register_observation(
+                &observation_request(&incarnation, 1),
+                observation_input(&incarnation, 1),
+            )
+            .expect("observation");
+        let old = publish(&coordinator, &incarnation, "old").expect("old publication");
+        let new = publish(&coordinator, &incarnation, "new").expect("new publication");
+        coordinator
+            .acknowledge(
+                "worker-one",
+                &incarnation,
+                &rejection(new.clone(), 1, DesiredViewRejectionCode::ContentConflict),
+                offered(&new),
+            )
+            .expect("rejection acknowledgement");
+
+        coordinator
+            .acknowledge(
+                "worker-one",
+                &incarnation,
+                &acknowledgement(old.clone(), 2),
+                offered(&old),
+            )
+            .expect("late acceptance of the older view");
+
+        assert_eq!(
+            evidence(&coordinator, "model-one", 7),
+            DeploymentStatusEvidence::ViewRejected(DesiredViewRejectionCode::ContentConflict)
+        );
+    }
+
+    #[test]
+    fn rejection_stops_applying_once_a_newer_view_is_published() {
+        let coordinator = coordinator();
+        let incarnation = incarnation('1');
+        coordinator
+            .register_observation(
+                &observation_request(&incarnation, 1),
+                observation_input(&incarnation, 1),
+            )
+            .expect("observation");
+        let view = publish(&coordinator, &incarnation, "view").expect("publication");
+        coordinator
+            .acknowledge(
+                "worker-one",
+                &incarnation,
+                &rejection(view.clone(), 1, DesiredViewRejectionCode::ContentConflict),
+                offered(&view),
+            )
+            .expect("rejection acknowledgement");
+
+        publish(&coordinator, &incarnation, "newer").expect("newer publication");
+
+        assert_eq!(
+            evidence(&coordinator, "model-one", 7),
+            DeploymentStatusEvidence::Unavailable
+        );
+    }
+
+    #[test]
+    fn replayed_rejection_returns_its_reply_and_keeps_the_rejection() {
+        let coordinator = coordinator();
+        let incarnation = incarnation('1');
+        coordinator
+            .register_observation(
+                &observation_request(&incarnation, 1),
+                observation_input(&incarnation, 1),
+            )
+            .expect("observation");
+        let view = publish(&coordinator, &incarnation, "view").expect("publication");
+        let rejected = rejection(view.clone(), 1, DesiredViewRejectionCode::LimitExceeded);
+        let first = coordinator
+            .acknowledge("worker-one", &incarnation, &rejected, offered(&view))
+            .expect("rejection acknowledgement");
+
+        let replay = coordinator
+            .acknowledge("worker-one", &incarnation, &rejected, offered(&view))
+            .expect("exact rejection retry");
+
+        assert_eq!(replay, first);
+        assert_eq!(
+            evidence(&coordinator, "model-one", 7),
+            DeploymentStatusEvidence::ViewRejected(DesiredViewRejectionCode::LimitExceeded)
+        );
+    }
+
+    #[test]
+    fn replacement_incarnation_starts_without_the_rejection() {
+        let clock = ManualClock::new();
+        let coordinator = controlled_coordinator(&clock);
+        let first = incarnation('1');
+        let replacement = incarnation('2');
+        coordinator
+            .register_observation(
+                &observation_request(&first, 1),
+                observation_input(&first, 1),
+            )
+            .expect("first observation");
+        let view = publish(&coordinator, &first, "view").expect("publication");
+        coordinator
+            .acknowledge(
+                "worker-one",
+                &first,
+                &rejection(view.clone(), 1, DesiredViewRejectionCode::ContentConflict),
+                offered(&view),
+            )
+            .expect("rejection acknowledgement");
+
+        clock.advance(Timing::production().node_control.node_silence + Duration::from_secs(1));
+        coordinator
+            .register_observation(
+                &observation_request(&replacement, 1),
+                observation_input(&replacement, 1),
+            )
+            .expect("replacement observation");
+
+        assert_eq!(
+            evidence(&coordinator, "model-one", 7),
+            DeploymentStatusEvidence::Unavailable
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn silent_rejecting_node_is_unavailable() {
+        let coordinator = coordinator();
+        let incarnation = incarnation('1');
+        coordinator
+            .register_observation(
+                &observation_request(&incarnation, 1),
+                observation_input(&incarnation, 1),
+            )
+            .expect("observation");
+        let view = publish(&coordinator, &incarnation, "view").expect("publication");
+        coordinator
+            .acknowledge(
+                "worker-one",
+                &incarnation,
+                &rejection(view.clone(), 1, DesiredViewRejectionCode::ContentConflict),
+                offered(&view),
+            )
+            .expect("rejection acknowledgement");
+
+        tokio::time::advance(
+            Timing::production().node_control.node_silence + Duration::from_secs(1),
+        )
+        .await;
+
+        assert_eq!(
+            evidence(&coordinator, "model-one", 7),
+            DeploymentStatusEvidence::Unavailable
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn rejection_explains_deployments_the_fresh_status_does_not_vouch_for() {
+        let coordinator = coordinator();
+        let incarnation = incarnation('1');
+        coordinator
+            .register_observation(
+                &observation_request(&incarnation, 1),
+                observation_input(&incarnation, 1),
+            )
+            .expect("observation");
+        let old = publish(&coordinator, &incarnation, "old").expect("old publication");
+        accept_model_status(&coordinator, &incarnation, &old, 1, "model-one", 7);
+        let new = publish(&coordinator, &incarnation, "new").expect("new publication");
+        coordinator
+            .acknowledge(
+                "worker-one",
+                &incarnation,
+                &rejection(new.clone(), 1, DesiredViewRejectionCode::ContentConflict),
+                offered(&new),
+            )
+            .expect("rejection acknowledgement");
+        let rejected =
+            DeploymentStatusEvidence::ViewRejected(DesiredViewRejectionCode::ContentConflict);
+
+        assert_eq!(
+            evidence(&coordinator, "model-one", 7),
+            DeploymentStatusEvidence::Current,
+            "listed in the fresh status"
+        );
+        assert_eq!(
+            evidence(&coordinator, "model-one", 8),
+            rejected,
+            "not listed in the fresh status"
+        );
+
+        stay_in_contact(
+            &coordinator,
+            &incarnation,
+            Timing::production().node_control.controller_status_max_age + Duration::from_secs(1),
+        )
+        .await;
+
+        assert_eq!(
+            evidence(&coordinator, "model-one", 7),
+            rejected,
+            "listed in an expired status"
+        );
     }
 
     #[test]
@@ -2480,6 +2823,19 @@ mod tests {
             view: Some(view),
             acknowledgement_sequence,
             outcome: Some(node_view_acknowledgement::Outcome::Accepted(Empty {})),
+        }
+    }
+
+    fn rejection(
+        view: NodeViewReference,
+        acknowledgement_sequence: u64,
+        code: DesiredViewRejectionCode,
+    ) -> NodeViewAcknowledgement {
+        NodeViewAcknowledgement {
+            outcome: Some(node_view_acknowledgement::Outcome::Rejected(
+                DesiredViewRejection { code: code as i32 },
+            )),
+            ..acknowledgement(view, acknowledgement_sequence)
         }
     }
 

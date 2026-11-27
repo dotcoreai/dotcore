@@ -1128,3 +1128,24 @@ impl ApplicationNodeViewOwner for TestApplications {
             .collect()
     }
 }
+
+#[test]
+fn view_rejection_message_names_different_builds_only_for_the_codes_they_cause() {
+    let builds = "This machine can't apply the site's configuration, so its deployments can't be \
+                  confirmed. The site manager and this machine likely run different Dotcore builds; \
+                  run the same build on both.";
+    let logs = "This machine can't apply the site's configuration, so its deployments can't be \
+                confirmed. Its logs give the reason.";
+
+    assert_eq!(
+        [
+            DesiredViewRejectionCode::ContentConflict,
+            DesiredViewRejectionCode::RequiredSectionUnsupported,
+            DesiredViewRejectionCode::SectionPayloadInvalid,
+            DesiredViewRejectionCode::IdentityMismatch,
+            DesiredViewRejectionCode::Unspecified,
+        ]
+        .map(view_rejection_message),
+        [builds, builds, logs, logs, logs]
+    );
+}
