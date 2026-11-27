@@ -306,7 +306,7 @@ describe("ModelsPage table", () => {
 
     const status = within(panel).getByRole("region", { name: "Status" });
     expect(status).toHaveTextContent("Downloading model artifacts");
-    expect(status).toHaveTextContent("40 bytes / 100 bytes · 40%");
+    expect(status).toHaveTextContent("40 bytes / 100 bytes downloaded · 40%");
     expect(
       within(status).getByRole("progressbar", { name: "Downloading artifacts" }),
     ).toBeVisible();

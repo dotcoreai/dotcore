@@ -668,7 +668,7 @@ describe("model inspectors", () => {
     const bar = within(status).getByRole("progressbar", { name: "Downloading artifacts" });
     expect(bar).toHaveAttribute("aria-valuenow", "1");
     expect(bar).toHaveAttribute("aria-valuemax", "5");
-    expect(bar).toHaveTextContent("Step 2 of 5 · 40 MiB / 100 MiB · 40%");
+    expect(bar).toHaveTextContent("Step 2 of 5 · 40 MiB / 100 MiB downloaded · 40%");
     expect(
       [...bar.querySelectorAll('[data-slot="step-progress-segment"]')].map((segment) =>
         segment.getAttribute("data-state"),
@@ -693,6 +693,48 @@ describe("model inspectors", () => {
     expect(bar).not.toHaveTextContent("%");
     expect(bar.querySelector('[data-slot="step-progress-fill"]')).toBeNull();
     expect(bar.querySelector('[data-slot="step-progress-block"]')).not.toBeNull();
+  });
+
+  it("shows verified bytes while checking artifacts and after their download", () => {
+    const progress = {
+      percent: 25,
+      completed: 1n * 1024n * 1024n * 1024n,
+      total: 4n * 1024n * 1024n * 1024n,
+      unit: ModelDeploymentProgressUnit.BYTES,
+    };
+    const { rerender } = renderInspector(
+      transitioningDeployment({
+        status: ModelDeploymentStatus.LOADING,
+        statusMessage: "Verifying model artifacts",
+        progress,
+        steps: { current: 0, steps: startSteps },
+      }),
+    );
+
+    const checking = screen.getByRole("progressbar", { name: "Checking artifacts" });
+    expect(checking).toHaveTextContent("Step 1 of 5 · 1 GiB / 4 GiB verified · 25%");
+    expect(checking.querySelector('[data-slot="step-progress-fill"]')).toHaveStyle({
+      width: "25%",
+    });
+
+    rerender(
+      <DeploymentModelInspector
+        deployment={transitioningDeployment({
+          status: ModelDeploymentStatus.LOADING,
+          statusMessage: "Verifying model artifacts",
+          progress,
+          steps: { current: 1, steps: startSteps },
+        })}
+        onOpenChange={vi.fn()}
+        onUnload={vi.fn()}
+        open
+        openerRef={createRef<HTMLElement>()}
+        pending={false}
+      />,
+    );
+    expect(screen.getByRole("progressbar", { name: "Downloading artifacts" })).toHaveTextContent(
+      "Step 2 of 5 · 1 GiB / 4 GiB verified · 25%",
+    );
   });
 
   it("drops the byte progress once the download step is passed", () => {

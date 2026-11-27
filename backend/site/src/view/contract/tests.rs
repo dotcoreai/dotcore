@@ -435,7 +435,7 @@ fn binding_token_and_realization_generation_follow_binding_readiness() {
 }
 
 #[test]
-fn byte_progress_validates_only_while_downloading() {
+fn byte_progress_validates_only_while_downloading_or_verifying() {
     let with_progress = |lifecycle: ModelLifecycleObservation, completed, total| {
         validate_preparation_status(|status| {
             status.lifecycle = lifecycle as i32;
@@ -452,12 +452,14 @@ fn byte_progress_validates_only_while_downloading() {
     with_progress(downloading, 40, None).expect("download of unknown size");
     with_progress(downloading, 101, Some(100)).expect_err("completed beyond total");
     with_progress(downloading, 0, Some(0)).expect_err("zero total");
+    let loading = ModelLifecycleObservation::Loading;
+    with_progress(loading, 40, Some(100)).expect("partial verification");
+    with_progress(loading, 101, Some(100)).expect_err("verified beyond total");
     for lifecycle in [
         ModelLifecycleObservation::Preparing,
-        ModelLifecycleObservation::Loading,
         ModelLifecycleObservation::WarmingUp,
     ] {
-        with_progress(lifecycle, 0, None).expect_err("progress outside Downloading");
+        with_progress(lifecycle, 0, None).expect_err("progress outside Downloading or Loading");
     }
 }
 

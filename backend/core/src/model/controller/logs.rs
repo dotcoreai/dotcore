@@ -965,7 +965,7 @@ mod tests {
             [
                 (
                     "prepare:download",
-                    "Model download",
+                    "Model artifacts",
                     Some(vec!["downloading weights".to_owned()])
                 ),
                 (
@@ -1014,7 +1014,7 @@ mod tests {
             opened,
             Frame::Opened(DeploymentLogFollowOpened {
                 sources: vec![
-                    follow_opening("prepare:download", "Model download", None),
+                    follow_opening("prepare:download", "Model artifacts", None),
                     follow_opening("prepare:engine-build", "Engine build", None),
                     follow_opening(
                         "model",

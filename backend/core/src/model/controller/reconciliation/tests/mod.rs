@@ -813,6 +813,44 @@ async fn artifact_stage_observer_retains_transfer_order_across_transitions() {
     );
 }
 
+#[tokio::test]
+async fn verification_observer_tells_hashed_bytes_from_transfer_bytes() {
+    let declaration =
+        test_desired_deployment("fixture-model", ModelDeploymentDesiredState::Present);
+    let coordinator = PreparationCoordinator::from_deployments(std::slice::from_ref(&declaration))
+        .expect("preparation coordinator");
+    let lease = coordinator
+        .entry(&declaration.model_deployment_id)
+        .register(declaration)
+        .expect("preparation lease");
+    let mut publication = DownloadProgressPublication::new(
+        lease.ticket(),
+        DownloadProgressKind::Artifact,
+        Timing::test().model,
+    );
+    let notification = Arc::new(Notify::new());
+    let progress = publication.observer(notification.clone());
+    let verification = publication.verification_observer(notification.clone());
+    let stage = publication.stage_observer(notification);
+    let bytes = |completed| ModelArtifactProgress {
+        completed,
+        total: Some(100),
+    };
+    progress(bytes(100));
+    stage(dotcore_artifact::ModelArtifactStage::Verify);
+    verification(bytes(60));
+    publication.collect_observed();
+
+    assert_eq!(
+        publication.pending_stages[0].progress_before,
+        Some(ObservedPreparationProgress::artifact(bytes(100)))
+    );
+    assert_eq!(
+        publication.pending_trailing,
+        Some(ObservedPreparationProgress::verification(bytes(60)))
+    );
+}
+
 struct OwnedOrphanRuntime {
     calls: Arc<Mutex<Vec<&'static str>>>,
     orphan: ObservedWorkload,

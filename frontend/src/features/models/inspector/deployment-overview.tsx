@@ -38,6 +38,7 @@ import {
 } from "@/gen/dotcore/model/v1/deployment_pb";
 import {
   type ModelDeploymentProgress,
+  ModelDeploymentStatus,
   ModelDeploymentStep,
   type ModelDeploymentSteps,
 } from "@/gen/dotcore/model/v1/state_pb";
@@ -150,7 +151,7 @@ export function DeploymentOverview({
           {failure?.code ? <Detail label="Failure code" value={failure.code} /> : null}
         </DetailList>
         {state?.steps?.steps.length ? (
-          <DeploymentSteps progress={state.progress} steps={state.steps} />
+          <DeploymentSteps progress={state.progress} status={state.status} steps={state.steps} />
         ) : null}
         {failure?.message ? (
           <div className="mt-3">
@@ -231,37 +232,50 @@ export function DeploymentOverview({
 }
 
 /**
- * The step bar of a starting deployment. The download step also shows the artifacts' byte progress,
- * with a percentage once the total size is known.
+ * The step bar of a starting deployment. The artifact checking and download steps also show the
+ * artifacts' byte progress: bytes downloaded while downloading, bytes verified while loading, with
+ * a percentage once the total size is known.
  */
 export function DeploymentSteps({
   className = "mt-3",
   progress,
+  status,
   steps,
 }: {
   className?: string;
   progress: ModelDeploymentProgress | undefined;
+  status: ModelDeploymentStatus;
   steps: ModelDeploymentSteps;
 }) {
-  const downloading = steps.steps[steps.current] === ModelDeploymentStep.DOWNLOADING_ARTIFACTS;
+  const current = steps.steps[steps.current];
+  const artifactStep =
+    current === ModelDeploymentStep.CHECKING_ARTIFACTS ||
+    current === ModelDeploymentStep.DOWNLOADING_ARTIFACTS;
 
   return (
     <StepProgress
       className={className}
       current={steps.current}
-      currentProgress={downloading && progress ? downloadProgress(progress) : undefined}
+      currentProgress={artifactStep && progress ? artifactProgress(progress, status) : undefined}
       steps={steps.steps.map(modelStepLabel)}
     />
   );
 }
 
-function downloadProgress(progress: ModelDeploymentProgress): StepProgressDetail {
+function artifactProgress(
+  progress: ModelDeploymentProgress,
+  status: ModelDeploymentStatus,
+): StepProgressDetail {
   const { completed, percent, total } = progress;
+  const verb = status === ModelDeploymentStatus.LOADING ? "verified" : "downloaded";
   if (total === undefined || percent === undefined) {
-    return { text: `${formatBytes(completed)} downloaded` };
+    return { text: `${formatBytes(completed)} ${verb}` };
   }
 
-  return { percent, text: `${formatBytes(completed)} / ${formatBytes(total)} · ${percent}%` };
+  return {
+    percent,
+    text: `${formatBytes(completed)} / ${formatBytes(total)} ${verb} · ${percent}%`,
+  };
 }
 
 function modelStepLabel(step: ModelDeploymentStep): string {

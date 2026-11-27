@@ -38,7 +38,7 @@ use super::{
     output::{OutputStream, StepOutput},
     progress::{
         ModelArtifactProgressObserver, ModelArtifactProgressSlot, ModelArtifactProgressTracker,
-        ModelArtifactStage, ModelArtifactStageObserver,
+        ModelArtifactStage, ModelArtifactStageObserver, ModelArtifactVerificationTracker,
     },
 };
 
@@ -87,6 +87,7 @@ impl ModelArtifactCache {
             &CancellationToken::new(),
             None,
             None,
+            None,
             &StepOutput::discard(),
         )
         .await
@@ -105,6 +106,7 @@ impl ModelArtifactCache {
             cancellation,
             progress,
             None,
+            None,
             &StepOutput::discard(),
         )
         .await
@@ -118,23 +120,34 @@ impl ModelArtifactCache {
         cancellation: &CancellationToken,
         progress: Option<ModelArtifactProgressObserver>,
         stage: Option<ModelArtifactStageObserver>,
+        verification: Option<ModelArtifactProgressObserver>,
         output: &StepOutput,
     ) -> Result<ModelArtifactPreparation, ArtifactCacheError> {
         check_cancellation(cancellation)?;
         let invocation = cancellation.child_token();
         let tracker =
             progress.map(|observer| ModelArtifactProgressTracker::new(artifacts.len(), observer));
+        let verification =
+            verification.map(|observer| Arc::new(ModelArtifactVerificationTracker::new(observer)));
         let mut pending = FuturesUnordered::new();
         for (index, (binding_id, artifact)) in artifacts.iter().enumerate() {
             let binding_id = binding_id.clone();
             let invocation = invocation.clone();
             let progress = tracker.as_ref().map(|tracker| tracker.slot(index));
             let stage = stage.as_ref();
+            let verification = verification.as_ref();
             pending.push(async move {
                 (
                     binding_id,
-                    self.materialize_invocation(artifact, &invocation, progress, stage, output)
-                        .await,
+                    self.materialize_invocation(
+                        artifact,
+                        &invocation,
+                        progress,
+                        stage,
+                        verification,
+                        output,
+                    )
+                    .await,
                 )
             });
         }
@@ -172,6 +185,7 @@ impl ModelArtifactCache {
         invocation: &CancellationToken,
         progress: Option<ModelArtifactProgressSlot>,
         stage: Option<&ModelArtifactStageObserver>,
+        verification: Option<&Arc<ModelArtifactVerificationTracker>>,
         output: &StepOutput,
     ) -> Result<MaterializedArtifact, ArtifactCacheError> {
         let result = self
@@ -179,8 +193,9 @@ impl ModelArtifactCache {
                 artifact,
                 invocation,
                 stage,
-                DownloadReports {
+                ArtifactReports {
                     progress: progress.as_ref(),
+                    verification,
                     output,
                 },
             )
@@ -237,8 +252,9 @@ impl ModelArtifactCache {
             artifact,
             &CancellationToken::new(),
             None,
-            DownloadReports {
+            ArtifactReports {
                 progress: None,
+                verification: None,
                 output: &StepOutput::discard(),
             },
         )
@@ -250,7 +266,7 @@ impl ModelArtifactCache {
         artifact: &ModelArtifactSource,
         cancellation: &CancellationToken,
         stage: Option<&ModelArtifactStageObserver>,
-        reports: DownloadReports<'_>,
+        reports: ArtifactReports<'_>,
     ) -> Result<MaterializedArtifact, ArtifactCacheError> {
         if matches!(artifact, ModelArtifactSource::HuggingFaceSnapshot { .. }) {
             return self
@@ -275,7 +291,14 @@ impl ModelArtifactCache {
         }
         if let Some(path) = self.cached_path(artifact, cancellation).await? {
             let validated = self
-                .validate_or_repair_cached_artifact(artifact, path, false, cancellation, reports)
+                .validate_or_repair_cached_artifact(
+                    artifact,
+                    path,
+                    false,
+                    cancellation,
+                    stage,
+                    reports,
+                )
                 .await;
             return self.finish_materialization(&failed_digest, validated, cancellation);
         }
@@ -305,7 +328,7 @@ impl ModelArtifactCache {
             .required_cached_path(artifact, "requested", cancellation)
             .await?;
         let validated = self
-            .validate_or_repair_cached_artifact(artifact, path, true, cancellation, reports)
+            .validate_or_repair_cached_artifact(artifact, path, true, cancellation, stage, reports)
             .await;
         let result = self.finish_materialization(&failed_digest, validated, cancellation);
         drop(lock);
@@ -317,7 +340,7 @@ impl ModelArtifactCache {
         artifact: &ModelArtifactSource,
         cancellation: &CancellationToken,
         stage: Option<&ModelArtifactStageObserver>,
-        reports: DownloadReports<'_>,
+        reports: ArtifactReports<'_>,
     ) -> Result<MaterializedArtifact, ArtifactCacheError> {
         check_cancellation(cancellation)?;
         let coordinate = ArtifactCacheError::artifact_coordinate(artifact)?;
@@ -341,7 +364,12 @@ impl ModelArtifactCache {
             stage(ModelArtifactStage::Verify);
         }
         if self
-            .snapshot_publication_is_valid(artifact, &publication, cancellation)
+            .snapshot_publication_is_valid(
+                artifact,
+                &publication,
+                self.digest_reports(reports),
+                cancellation,
+            )
             .await?
         {
             self.clear_snapshot_repair_failure(&state_path)?;
@@ -441,7 +469,12 @@ impl ModelArtifactCache {
                 stage(ModelArtifactStage::Verify);
             }
             if self
-                .snapshot_publication_is_valid(artifact, &publication, cancellation)
+                .snapshot_publication_is_valid(
+                    artifact,
+                    &publication,
+                    self.digest_reports(reports),
+                    cancellation,
+                )
                 .await?
             {
                 self.clear_snapshot_repair_failure(&state_path)?;
@@ -454,7 +487,14 @@ impl ModelArtifactCache {
                 });
             }
             let published = self
-                .publish_snapshot(artifact, &publication, sources.clone(), cancellation, stage)
+                .publish_snapshot(
+                    artifact,
+                    &publication,
+                    sources.clone(),
+                    self.digest_reports(reports),
+                    cancellation,
+                    stage,
+                )
                 .await
                 .map(|replaced| MaterializedArtifact {
                     path: publication.clone(),
@@ -765,7 +805,7 @@ impl ModelArtifactCache {
         path: &str,
         force: bool,
         cancellation: &CancellationToken,
-        reports: DownloadReports<'_>,
+        reports: ArtifactReports<'_>,
     ) -> Result<(), ArtifactCacheError> {
         check_cancellation(cancellation)?;
         let (owner, name) = repository
@@ -808,6 +848,7 @@ impl ModelArtifactCache {
         &self,
         artifact: &ModelArtifactSource,
         publication: &Path,
+        reports: DigestReports,
         cancellation: &CancellationToken,
     ) -> Result<bool, ArtifactCacheError> {
         check_cancellation(cancellation)?;
@@ -820,7 +861,6 @@ impl ModelArtifactCache {
         let revision = revision.to_owned();
         let publication = publication.to_owned();
         let files = files.clone();
-        let digest_count = self.digest_count.clone();
         let task_cancellation = cancellation.clone();
         let validation = tokio::task::spawn_blocking(move || {
             validate_snapshot_tree(
@@ -829,7 +869,7 @@ impl ModelArtifactCache {
                 &revision,
                 &files,
                 &marker_path,
-                digest_count.as_deref(),
+                &reports,
                 &task_cancellation,
             )
         })
@@ -864,6 +904,7 @@ impl ModelArtifactCache {
         artifact: &ModelArtifactSource,
         publication: &Path,
         sources: BTreeMap<String, PathBuf>,
+        reports: DigestReports,
         cancellation: &CancellationToken,
         stage: Option<&ModelArtifactStageObserver>,
     ) -> Result<bool, ArtifactCacheError> {
@@ -875,7 +916,6 @@ impl ModelArtifactCache {
         let revision = revision.to_owned();
         let publication = publication.to_owned();
         let files = files.clone();
-        let digest_count = self.digest_count.clone();
         let task_cancellation = cancellation.clone();
         let blocking_work = self.blocking_work.clone();
         let refuse_hard_links = self.refuse_hard_links;
@@ -893,7 +933,7 @@ impl ModelArtifactCache {
                     files: &files,
                     refuse_hard_links,
                 },
-                digest_count.as_deref(),
+                &reports,
                 blocking_work.as_deref(),
                 &task_cancellation,
                 stage.as_ref(),
@@ -953,18 +993,25 @@ impl ModelArtifactCache {
         path: PathBuf,
         replaced: bool,
         cancellation: &CancellationToken,
-        reports: DownloadReports<'_>,
+        stage: Option<&ModelArtifactStageObserver>,
+        reports: ArtifactReports<'_>,
     ) -> Result<MaterializedArtifact, ArtifactCacheError> {
         check_cancellation(cancellation)?;
         if replaced {
             self.remove_verification_marker(artifact, cancellation)
                 .await?;
         }
+        if let Some(stage) = stage {
+            stage(ModelArtifactStage::Verify);
+        }
         if self
-            .declared_digest_is_valid(artifact, &path, cancellation)
+            .declared_digest_is_valid(artifact, &path, reports, cancellation)
             .await?
         {
             check_cancellation(cancellation)?;
+            if !replaced && let Some(stage) = stage {
+                stage(ModelArtifactStage::Reuse);
+            }
             return Ok(MaterializedArtifact { path, replaced });
         }
 
@@ -976,7 +1023,7 @@ impl ModelArtifactCache {
         &self,
         artifact: &ModelArtifactSource,
         cancellation: &CancellationToken,
-        reports: DownloadReports<'_>,
+        reports: ArtifactReports<'_>,
     ) -> Result<MaterializedArtifact, ArtifactCacheError> {
         self.remove_verification_marker(artifact, cancellation)
             .await?;
@@ -991,7 +1038,7 @@ impl ModelArtifactCache {
             .required_cached_path(artifact, "repaired", cancellation)
             .await?;
         if !self
-            .declared_digest_is_valid(artifact, &repaired, cancellation)
+            .declared_digest_is_valid(artifact, &repaired, reports, cancellation)
             .await?
         {
             return Err(ArtifactCacheError::DeclaredDigestMismatch);
@@ -1034,7 +1081,7 @@ impl ModelArtifactCache {
         artifact: &ModelArtifactSource,
         force: bool,
         cancellation: &CancellationToken,
-        reports: DownloadReports<'_>,
+        reports: ArtifactReports<'_>,
     ) -> Result<(), ArtifactCacheError> {
         check_cancellation(cancellation)?;
         let (repository, revision, file, _) = ArtifactCacheError::artifact_parts(artifact)?;
@@ -1076,7 +1123,7 @@ impl ModelArtifactCache {
 
     /// Returns the progress handler of one file's download, which feeds the transfer progress
     /// and reports throttled progress lines to the step output.
-    fn download_progress(&self, reports: DownloadReports<'_>, path: &str) -> Option<Progress> {
+    fn download_progress(&self, reports: ArtifactReports<'_>, path: &str) -> Option<Progress> {
         if reports.progress.is_none() && !reports.output.is_observed() {
             return self.progress.clone();
         }
@@ -1132,6 +1179,14 @@ impl ModelArtifactCache {
             .join(path)
     }
 
+    fn digest_reports(&self, reports: ArtifactReports<'_>) -> DigestReports {
+        DigestReports {
+            output: reports.output.clone(),
+            verification: reports.verification.cloned(),
+            digest_count: self.digest_count.clone(),
+        }
+    }
+
     fn verification_marker_path(&self, coordinate: &str) -> PathBuf {
         self.root
             .join(".dotcore-coordinate-locks")
@@ -1142,6 +1197,7 @@ impl ModelArtifactCache {
         &self,
         artifact: &ModelArtifactSource,
         path: &Path,
+        reports: ArtifactReports<'_>,
         cancellation: &CancellationToken,
     ) -> Result<bool, ArtifactCacheError> {
         check_cancellation(cancellation)?;
@@ -1168,7 +1224,7 @@ impl ModelArtifactCache {
         }
 
         let verified_identity = self
-            .verify_file_digest(path, declared_digest, cancellation)
+            .verify_file_digest(path, file, declared_digest, reports, cancellation)
             .await?;
         let Some(identity) = verified_identity else {
             return Ok(false);
@@ -1203,24 +1259,23 @@ impl ModelArtifactCache {
     async fn verify_file_digest(
         &self,
         path: &Path,
+        name: &str,
         declared_digest: &str,
+        reports: ArtifactReports<'_>,
         cancellation: &CancellationToken,
     ) -> Result<Option<FileIdentity>, ArtifactCacheError> {
         let path = path.to_owned();
+        let name = name.to_owned();
         let declared_digest = declared_digest.to_owned();
-        let digest_count = self.digest_count.clone();
+        let reports = self.digest_reports(reports);
         let blocking_work = self.blocking_work.clone();
         let cancellation = cancellation.clone();
         tokio::task::spawn_blocking(move || {
             if let Some(blocking_work) = blocking_work {
                 blocking_work.wait();
             }
-            FileIdentity::verify_digest(
-                &path,
-                &declared_digest,
-                digest_count.as_deref(),
-                &cancellation,
-            )
+            reports.expect(fs::metadata(&path).map_or(0, |metadata| metadata.len()));
+            FileIdentity::verify_digest(&path, &name, &declared_digest, &reports, &cancellation)
         })
         .await
         .map_err(|error| ArtifactCacheError::context("artifact digest task failed", error))?
@@ -1933,28 +1988,27 @@ impl FileIdentity {
             && self.modified_nanoseconds == other.modified_nanoseconds
     }
 
+    /// Hashes the file at `path`, reported under `name`, and returns its identity when its
+    /// digest is `declared_digest` and it did not change while hashed.
     fn verify_digest(
         path: &Path,
+        name: &str,
         declared_digest: &str,
-        digest_count: Option<&AtomicUsize>,
+        reports: &DigestReports,
         cancellation: &CancellationToken,
     ) -> Result<Option<Self>, ArtifactCacheError> {
         let file = File::open(path)
             .map_err(|error| ArtifactCacheError::context("artifact file open failed", error))?;
         let before = Self::from_path(path)?;
-        if let Some(digest_count) = digest_count {
+        if let Some(digest_count) = &reports.digest_count {
             digest_count.fetch_add(1, Ordering::SeqCst);
         }
-        let actual = digest_file(file, cancellation)?;
+        let mut report = reports.file(name, before.size);
+        let actual = digest_file(file, cancellation, |bytes| report.read(bytes))?;
         let after = Self::from_path(path)?;
-        if before != after {
-            return Ok(None);
-        }
-        if actual == declared_digest {
-            Ok(Some(after))
-        } else {
-            Ok(None)
-        }
+        let verified = before == after && actual == declared_digest;
+        report.finished(verified);
+        Ok(verified.then_some(after))
     }
 }
 
@@ -1994,7 +2048,7 @@ fn validate_snapshot_tree(
     revision: &str,
     files: &BTreeMap<String, String>,
     marker_path: &Path,
-    digest_count: Option<&AtomicUsize>,
+    reports: &DigestReports,
     cancellation: &CancellationToken,
 ) -> Result<SnapshotTreeValidation, ArtifactCacheError> {
     check_cancellation(cancellation)?;
@@ -2035,12 +2089,13 @@ fn validate_snapshot_tree(
     if identity_marker.matches_path(marker_path)? {
         return Ok(SnapshotTreeValidation::VerifiedByIdentity);
     }
+    reports.expect(identities.values().map(|identity| identity.size).sum());
 
     let mut verified_identities = BTreeMap::new();
     for (path, digest) in files {
         check_cancellation(cancellation)?;
         let Some(identity) =
-            FileIdentity::verify_digest(&root.join(path), digest, digest_count, cancellation)?
+            FileIdentity::verify_digest(&root.join(path), path, digest, reports, cancellation)?
         else {
             return Ok(SnapshotTreeValidation::Invalid);
         };
@@ -2113,7 +2168,7 @@ fn snapshot_tree_entries(
 
 fn publish_snapshot_tree(
     snapshot: SnapshotPublication<'_>,
-    digest_count: Option<&AtomicUsize>,
+    reports: &DigestReports,
     blocking_work: Option<&BlockingWorkGate>,
     cancellation: &CancellationToken,
     stage: Option<&ModelArtifactStageObserver>,
@@ -2202,6 +2257,15 @@ fn publish_snapshot_tree(
             }
         }
 
+        // Each declared file is hashed once, from its retained copy or its staged source.
+        reports.expect(
+            files
+                .keys()
+                .filter_map(|path| sources.get(path))
+                .filter_map(|source| fs::metadata(source).ok())
+                .map(|metadata| metadata.len())
+                .sum(),
+        );
         let mut retained = BTreeMap::new();
         let mut replacements = Vec::new();
         let mut placements = SnapshotPlacements::default();
@@ -2218,8 +2282,9 @@ fn publish_snapshot_tree(
                 Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
                     if let Some(identity) = FileIdentity::verify_digest(
                         &destination,
+                        path,
                         digest,
-                        digest_count,
+                        reports,
                         cancellation,
                     )? {
                         retained.insert(path.clone(), identity);
@@ -2250,7 +2315,7 @@ fn publish_snapshot_tree(
             )?;
             let placement = stage_snapshot_file(source, &staged, refuse_hard_links)?;
             let Some(staged_identity) =
-                FileIdentity::verify_digest(&staged, digest, digest_count, cancellation)?
+                FileIdentity::verify_digest(&staged, path, digest, reports, cancellation)?
             else {
                 return Err(ArtifactCacheError::SnapshotSourceUnavailable { path: path.clone() });
             };
@@ -2617,7 +2682,12 @@ async fn canonical_regular_path(
     result
 }
 
-fn digest_file(file: File, cancellation: &CancellationToken) -> Result<String, ArtifactCacheError> {
+/// Hashes a file with SHA-256, passing the size of each chunk read to `on_read`.
+fn digest_file(
+    file: File,
+    cancellation: &CancellationToken,
+    mut on_read: impl FnMut(u64),
+) -> Result<String, ArtifactCacheError> {
     let mut reader = BufReader::new(file);
     let mut digest = Sha256::new();
     let mut buffer = [0_u8; 64 * 1024];
@@ -2630,6 +2700,7 @@ fn digest_file(file: File, cancellation: &CancellationToken) -> Result<String, A
             return Ok(hex::encode(digest.finalize()));
         }
         digest.update(&buffer[..bytes]);
+        on_read(bytes as u64);
     }
 }
 
@@ -2673,11 +2744,12 @@ fn valid_digest(value: &str) -> bool {
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
-/// Where one artifact's downloads report: the invocation's transfer progress, when observed, and
-/// the output of the model download step.
+/// Where one artifact's preparation reports: the invocation's transfer and verification progress,
+/// when observed, and the output of the model download step.
 #[derive(Clone, Copy)]
-struct DownloadReports<'a> {
+struct ArtifactReports<'a> {
     progress: Option<&'a ModelArtifactProgressSlot>,
+    verification: Option<&'a Arc<ModelArtifactVerificationTracker>>,
     output: &'a StepOutput,
 }
 
@@ -2702,7 +2774,7 @@ impl HuggingFaceDownloadProgress {
         if total == 0 || completed >= total {
             return;
         }
-        let tenths = (u128::from(completed) * 10 / u128::from(total)) as u64;
+        let tenths = completed_tenths(completed, total);
         if self.reported_tenths.fetch_max(tenths, Ordering::SeqCst) < tenths {
             self.output.line(
                 OutputStream::Stdout,
@@ -2749,6 +2821,90 @@ impl ProgressHandler for HuggingFaceDownloadProgress {
             }
         }
     }
+}
+
+/// Where one artifact's digest verification reports: the output of the model download step,
+/// which gets a line when hashing a file starts, at each new tenth of it hashed, and when it ends;
+/// the invocation's verification progress, when observed; and the count of files hashed when a
+/// test observes it.
+#[derive(Clone)]
+struct DigestReports {
+    output: StepOutput,
+    verification: Option<Arc<ModelArtifactVerificationTracker>>,
+    digest_count: Option<Arc<AtomicUsize>>,
+}
+
+impl DigestReports {
+    /// Announces `bytes` about to be hashed to the verification progress.
+    fn expect(&self, bytes: u64) {
+        if let Some(verification) = &self.verification {
+            verification.expect(bytes);
+        }
+    }
+
+    /// Starts reporting the hashing of the file at `path`, `total` bytes long.
+    fn file<'a>(&'a self, path: &'a str, total: u64) -> FileDigestReport<'a> {
+        self.output.line(
+            OutputStream::Stdout,
+            format!("verifying {path} ({})", human_bytes(total)),
+        );
+        FileDigestReport {
+            output: &self.output,
+            verification: self.verification.as_deref(),
+            path,
+            total,
+            completed: 0,
+            reported_tenths: 0,
+        }
+    }
+}
+
+/// Hashing progress of one file, reported as a line each time another tenth of it was hashed.
+struct FileDigestReport<'a> {
+    output: &'a StepOutput,
+    verification: Option<&'a ModelArtifactVerificationTracker>,
+    path: &'a str,
+    total: u64,
+    completed: u64,
+    reported_tenths: u64,
+}
+
+impl FileDigestReport<'_> {
+    fn read(&mut self, bytes: u64) {
+        if let Some(verification) = self.verification {
+            verification.hashed(bytes);
+        }
+        self.completed += bytes;
+        // A completed file is reported by its own line.
+        if self.total == 0 || self.completed >= self.total {
+            return;
+        }
+        let tenths = completed_tenths(self.completed, self.total);
+        if tenths > self.reported_tenths {
+            self.reported_tenths = tenths;
+            self.output.line(
+                OutputStream::Stdout,
+                format!("{}: {}% verified", self.path, tenths * 10),
+            );
+        }
+    }
+
+    fn finished(&self, verified: bool) {
+        if let Some(verification) = self.verification {
+            verification.file_finished();
+        }
+        let text = if verified {
+            format!("verified {}", self.path)
+        } else {
+            format!("{} failed verification", self.path)
+        };
+        self.output.line(OutputStream::Stdout, text);
+    }
+}
+
+/// Number of whole tenths of `total` that `completed` covers.
+fn completed_tenths(completed: u64, total: u64) -> u64 {
+    (u128::from(completed) * 10 / u128::from(total)) as u64
 }
 
 /// Renders a byte count with a binary unit and one decimal, for example `1.5 GiB`.

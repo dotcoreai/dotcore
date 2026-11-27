@@ -415,7 +415,12 @@ pub(super) fn current_record(
     let progress = status
         .preparation_progress
         .as_ref()
-        .filter(|_| public_status == ModelDeploymentStatus::Downloading)
+        .filter(|_| {
+            matches!(
+                public_status,
+                ModelDeploymentStatus::Downloading | ModelDeploymentStatus::Loading
+            )
+        })
         .map(stored_progress);
     let mut state = ModelDeploymentState {
         status: public_status as i32,
@@ -1000,9 +1005,11 @@ mod tests {
     #[test]
     fn node_hosted_progress_steps_project_like_manager_local_records() {
         use super::super::state::{
-            acquiring_engine_image_state, checking_model_artifacts_state, deployment_status_state,
-            downloading_state, paused_state, pausing_state, realization_prepared_state,
-            resuming_state, runtime_startup_progress_state, unavailable_state, unloading_state,
+            acquiring_engine_image_state, artifact_preparation_stage_state,
+            checking_model_artifacts_state, deployment_status_state, downloading_state,
+            paused_state, pausing_state, realization_prepared_state, resuming_state,
+            runtime_startup_progress_state, start_requested_state, unavailable_state,
+            unloading_state, verification_progress_state,
         };
         let progress = dotcore_artifact::ModelArtifactProgress {
             completed: 40,
@@ -1015,8 +1022,17 @@ mod tests {
                 progress.clone(),
                 "Simulating model artifact download",
             ),
-            checking_model_artifacts_state(Some(&downloading_state(None, progress)))
+            checking_model_artifacts_state(Some(&downloading_state(None, progress.clone())))
                 .expect("checking state"),
+            verification_progress_state(
+                artifact_preparation_stage_state(
+                    Some(&start_requested_state()),
+                    dotcore_artifact::ModelArtifactStage::Verify,
+                )
+                .as_ref(),
+                progress,
+            )
+            .expect("verification state"),
             acquiring_engine_image_state(None).expect("engine state"),
             realization_prepared_state(None),
             resuming_state(3),

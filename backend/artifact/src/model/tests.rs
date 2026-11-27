@@ -361,6 +361,7 @@ async fn snapshot_preparation_reports_verify_publish_and_warm_reuse() {
             &cancellation,
             None,
             Some(stages.clone()),
+            None,
             &discarded(),
         )
         .await
@@ -373,7 +374,14 @@ async fn snapshot_preparation_reports_verify_publish_and_warm_reuse() {
     observed.lock().expect("stages").clear();
     fixture.set_failure();
     cache
-        .prepare_artifacts_cancellable(&artifacts, &cancellation, None, Some(stages), &discarded())
+        .prepare_artifacts_cancellable(
+            &artifacts,
+            &cancellation,
+            None,
+            Some(stages),
+            None,
+            &discarded(),
+        )
         .await
         .expect("warm reuse");
     assert_eq!(
@@ -498,7 +506,16 @@ async fn snapshot_digest_mismatch_never_publishes_partial_state() {
     assert!(matches!(error, ArtifactCacheError::DeclaredDigestMismatch));
     assert!(
         !cache
-            .snapshot_publication_is_valid(&artifact, &publication, &CancellationToken::new())
+            .snapshot_publication_is_valid(
+                &artifact,
+                &publication,
+                cache.digest_reports(ArtifactReports {
+                    progress: None,
+                    verification: None,
+                    output: &discarded(),
+                }),
+                &CancellationToken::new(),
+            )
             .await
             .expect("partial publication validation")
     );
@@ -905,7 +922,16 @@ async fn repeated_snapshot_mismatch_is_reacquired_once_before_quarantine() {
     assert_eq!(fixture.get_requests.load(Ordering::SeqCst), 2);
     assert!(
         !cache
-            .snapshot_publication_is_valid(&artifact, &publication, &CancellationToken::new())
+            .snapshot_publication_is_valid(
+                &artifact,
+                &publication,
+                cache.digest_reports(ArtifactReports {
+                    progress: None,
+                    verification: None,
+                    output: &discarded(),
+                }),
+                &CancellationToken::new(),
+            )
             .await
             .expect("mismatched publication validation")
     );
@@ -1245,7 +1271,16 @@ async fn interrupted_snapshot_cleanup_remains_unaccepted_until_entries_are_exact
 
     assert!(
         !cache
-            .snapshot_publication_is_valid(&artifact, &initial.path, &CancellationToken::new())
+            .snapshot_publication_is_valid(
+                &artifact,
+                &initial.path,
+                cache.digest_reports(ArtifactReports {
+                    progress: None,
+                    verification: None,
+                    output: &discarded(),
+                }),
+                &CancellationToken::new(),
+            )
             .await
             .expect("incomplete cleanup validation")
     );
@@ -1288,7 +1323,16 @@ async fn interrupted_per_file_repair_cannot_accept_an_incomplete_tree() {
 
     assert!(
         !cache
-            .snapshot_publication_is_valid(&artifact, &initial.path, &CancellationToken::new())
+            .snapshot_publication_is_valid(
+                &artifact,
+                &initial.path,
+                cache.digest_reports(ArtifactReports {
+                    progress: None,
+                    verification: None,
+                    output: &discarded(),
+                }),
+                &CancellationToken::new(),
+            )
             .await
             .expect("incomplete repair validation")
     );
@@ -1457,8 +1501,9 @@ async fn cache_probe_waits_for_an_in_flight_pointer_rewrite() {
                         "config.json",
                         false,
                         &cancellation,
-                        DownloadReports {
+                        ArtifactReports {
                             progress: None,
+                            verification: None,
                             output: &discarded(),
                         },
                     ),
@@ -1499,8 +1544,9 @@ async fn cancelled_snapshot_preparation_does_not_publish_state() {
             &artifact,
             &cancellation,
             None,
-            DownloadReports {
+            ArtifactReports {
                 progress: None,
+                verification: None,
                 output: &discarded(),
             },
         )
@@ -1537,8 +1583,9 @@ async fn cancellation_drains_snapshot_publication_without_exposing_temporary_sta
                     &artifact,
                     &cancellation,
                     None,
-                    DownloadReports {
+                    ArtifactReports {
                         progress: None,
+                        verification: None,
                         output: &discarded(),
                     },
                 )
@@ -1885,6 +1932,7 @@ async fn reports_each_download_as_step_output_and_warm_reuse_as_already_prepared
                 &CancellationToken::new(),
                 None,
                 None,
+                None,
                 &recorded.output(),
             )
             .await
@@ -1908,6 +1956,8 @@ async fn reports_each_download_as_step_output_and_warm_reuse_as_already_prepared
             ),
             download_line("downloading model.gguf from owner/repository"),
             download_line("downloaded model.gguf"),
+            download_line("verifying model.gguf (5 B)"),
+            download_line("verified model.gguf"),
             (
                 PreparationStep::ModelDownload,
                 PreparationEventKind::Finished {
@@ -1978,6 +2028,148 @@ fn download_progress_lines_report_each_new_tenth_of_a_file_once() {
             download_line("model.gguf: 30% of 3.0 GiB"),
         ]
     );
+}
+
+#[test]
+fn digest_lines_report_start_each_new_tenth_and_end_of_a_file() {
+    let recorded = RecordedOutput::new();
+    let reports = DigestReports {
+        output: recorded
+            .output()
+            .step(PreparationStep::ModelDownload, "model.gguf"),
+        verification: None,
+        digest_count: None,
+    };
+    let gib = 1024 * 1024 * 1024;
+
+    let mut report = reports.file("model.gguf", 3 * gib);
+    for bytes in [gib / 100, gib / 3, gib / 6, gib / 2, 2 * gib] {
+        report.read(bytes);
+    }
+    report.finished(true);
+    reports.file("other.gguf", gib).finished(false);
+
+    assert_eq!(
+        recorded.kinds(),
+        [
+            (
+                PreparationStep::ModelDownload,
+                PreparationEventKind::Started {
+                    artifact: "model.gguf".to_owned()
+                }
+            ),
+            download_line("verifying model.gguf (3.0 GiB)"),
+            download_line("model.gguf: 10% verified"),
+            download_line("model.gguf: 30% verified"),
+            download_line("verified model.gguf"),
+            download_line("verifying other.gguf (1.0 GiB)"),
+            download_line("other.gguf failed verification"),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn reports_verification_progress_over_every_hashed_file_and_none_when_warm() {
+    let fixture = Fixture::new().await;
+    fixture.set_response(b"shared");
+    let cache = fixture.cache();
+    let artifacts = BTreeMap::from([
+        ("model".to_owned(), artifact("shared")),
+        (
+            "tokenizer".to_owned(),
+            snapshot_artifact(
+                "owner/tokenizer",
+                [("config.json", "shared"), ("vocab.json", "shared")],
+            ),
+        ),
+    ]);
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let verification: ModelArtifactProgressObserver = {
+        let observed = observed.clone();
+        Arc::new(move |progress| observed.lock().expect("verification").push(progress))
+    };
+    let cancellation = CancellationToken::new();
+    let prepare = async || {
+        cache
+            .prepare_artifacts_cancellable(
+                &artifacts,
+                &cancellation,
+                None,
+                None,
+                Some(verification.clone()),
+                &discarded(),
+            )
+            .await
+    };
+
+    prepare().await.expect("cold preparation");
+    let cold = observed.lock().expect("verification").clone();
+    // One six-byte model file and two six-byte snapshot files, each hashed once.
+    assert_eq!(
+        cold.last(),
+        Some(&crate::ModelArtifactProgress {
+            completed: 18,
+            total: Some(18),
+        })
+    );
+    assert!(
+        cold.windows(2)
+            .all(|pair| pair[0].completed <= pair[1].completed),
+        "{cold:?}"
+    );
+
+    observed.lock().expect("verification").clear();
+    prepare().await.expect("warm preparation");
+    assert_eq!(*observed.lock().expect("verification"), []);
+}
+
+#[tokio::test]
+async fn single_file_preparation_reports_verify_and_warm_reuse_without_rehashing() {
+    let fixture = Fixture::new().await;
+    fixture.set_response(b"model");
+    let cache = fixture.counting_cache();
+    let artifacts = launch_with_artifact(artifact("model"));
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let stages: ModelArtifactStageObserver = {
+        let observed = observed.clone();
+        Arc::new(move |stage| observed.lock().expect("stages").push(stage))
+    };
+    let cancellation = CancellationToken::new();
+
+    cache
+        .prepare_artifacts_cancellable(
+            &artifacts,
+            &cancellation,
+            None,
+            Some(stages.clone()),
+            None,
+            &discarded(),
+        )
+        .await
+        .expect("downloaded artifact");
+    assert_eq!(
+        *observed.lock().expect("stages"),
+        [ModelArtifactStage::Verify]
+    );
+    assert_eq!(fixture.digest_count.load(Ordering::SeqCst), 1);
+
+    observed.lock().expect("stages").clear();
+    cache
+        .prepare_artifacts_cancellable(
+            &artifacts,
+            &cancellation,
+            None,
+            Some(stages),
+            None,
+            &discarded(),
+        )
+        .await
+        .expect("warm reuse");
+    assert_eq!(
+        *observed.lock().expect("stages"),
+        [ModelArtifactStage::Verify, ModelArtifactStage::Reuse]
+    );
+    assert_eq!(fixture.digest_count.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]

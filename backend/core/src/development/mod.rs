@@ -391,6 +391,7 @@ impl DirectWorkloadFacade {
                 &cancellation,
                 None,
                 None,
+                None,
                 &dotcore_artifact::PreparationOutput::discard(),
             )
             .await

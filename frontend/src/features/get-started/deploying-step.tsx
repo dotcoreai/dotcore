@@ -96,6 +96,7 @@ export function DeployingStep({
             <DeploymentSteps
               className="mt-0"
               progress={modelDeployment.state.progress}
+              status={modelDeployment.state.status}
               steps={modelDeployment.state.steps}
             />
           ) : null}

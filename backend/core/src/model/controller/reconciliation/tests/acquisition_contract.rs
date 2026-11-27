@@ -443,6 +443,12 @@ async fn engine_image_pulls_write_their_step_log_once_and_failures_say_why() {
     let downloaded = harness
         .preparation_log("pulled", PreparationStep::ModelDownload)
         .await;
+    let mut model_logs = [
+        downloaded.clone(),
+        harness
+            .preparation_log("failing", PreparationStep::ModelDownload)
+            .await,
+    ];
     harness.reconcile_until_settled().await.expect("warm pass");
 
     assert_eq!(
@@ -461,9 +467,20 @@ async fn engine_image_pulls_write_their_step_log_once_and_failures_say_why() {
             "Failed: OCI image pull was rejected by the daemon: injected OCI daemon failure",
         ]
     );
-    // The model files were already cached, so their step only states it; the engine is an OCI
-    // image, so it has no build step. A settled deployment writes nothing more.
-    assert_eq!(downloaded, [CACHED_MODEL_DECISION]);
+    // Both deployments share the cached model file: whichever prepares it first verifies it, and
+    // the other only states it. The engine is an OCI image, so it has no build step. A settled
+    // deployment writes nothing more.
+    model_logs.sort();
+    let [decided, verified] = &model_logs;
+    assert_eq!(decided, &[CACHED_MODEL_DECISION]);
+    assert_eq!(
+        verified[..3],
+        [
+            "Preparing",
+            "verifying fixture-Q8_0.gguf (7 B)",
+            "verified fixture-Q8_0.gguf",
+        ]
+    );
     assert_eq!(
         harness.prepared_steps("pulled"),
         [PreparationStep::ModelDownload, PreparationStep::EngineImage]
@@ -513,12 +530,23 @@ async fn a_fully_warm_deployment_writes_one_decision_line_per_step_once() {
         .await
         .expect("second pass");
 
+    // The cached model file was never verified on this node, so the first pass hashes it.
+    let [model, engine] = &first;
     assert_eq!(
-        first,
+        model[..3],
         [
-            vec![CACHED_MODEL_DECISION.to_owned()],
-            vec![format!("Already present: {LOCAL_ENGINE_IMAGE_ID}")],
+            "Preparing",
+            "verifying fixture-Q8_0.gguf (7 B)",
+            "verified fixture-Q8_0.gguf",
         ]
+    );
+    assert!(
+        model[3].starts_with("Finished in ") && model.len() == 4,
+        "{model:?}"
+    );
+    assert_eq!(
+        engine,
+        &[format!("Already present: {LOCAL_ENGINE_IMAGE_ID}")]
     );
     // Steps list in the order they ran, the model download first.
     assert_eq!(
@@ -529,4 +557,4 @@ async fn a_fully_warm_deployment_writes_one_decision_line_per_step_once() {
 }
 
 /// The decision line of the model artifact every fixture deployment finds already cached.
-const CACHED_MODEL_DECISION: &str = "Already downloaded: dotcore/fixture/fixture-Q8_0.gguf@0123456789abcdef0123456789abcdef01234567";
+const CACHED_MODEL_DECISION: &str = "Already downloaded and verified: dotcore/fixture/fixture-Q8_0.gguf@0123456789abcdef0123456789abcdef01234567";

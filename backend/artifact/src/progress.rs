@@ -1,15 +1,17 @@
-//! Aggregates model artifact transfer observations and preparation stages for one invocation.
+//! Aggregates model artifact transfer observations, verification progress and preparation stages
+//! for one invocation.
 //!
 //! Transfer adapters update independent artifact slots without asynchronous locks. Callers receive
 //! deployment-level byte snapshots only after every artifact has been classified, while stage
-//! observers report verification, publication, and reuse separately.
+//! observers report verification, publication, and reuse separately. Verification progress counts
+//! the bytes hashed against the bytes each verification announced before hashing them.
 
 use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
 };
 
-/// Cumulative transfer progress across the model artifacts selected by one launch.
+/// Cumulative transfer or verification progress across the model artifacts selected by one launch.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModelArtifactProgress {
     pub completed: u64,
@@ -39,6 +41,56 @@ impl ModelArtifactStage {
 
 pub type ModelArtifactStageObserver = Arc<dyn Fn(ModelArtifactStage) + Send + Sync>;
 pub type ModelArtifactProgressObserver = Arc<dyn Fn(ModelArtifactProgress) + Send + Sync>;
+
+/// Cumulative hashing progress of one invocation's artifacts. Each verification announces the
+/// bytes it will hash before hashing them, so the total grows when another artifact starts
+/// verifying. Observers hear of it when the total grows, at every further step of hashed bytes,
+/// and when a file ends.
+pub(super) struct ModelArtifactVerificationTracker {
+    completed: AtomicU64,
+    total: AtomicU64,
+    observer: ModelArtifactProgressObserver,
+}
+
+impl ModelArtifactVerificationTracker {
+    pub(super) fn new(observer: ModelArtifactProgressObserver) -> Self {
+        Self {
+            completed: AtomicU64::new(0),
+            total: AtomicU64::new(0),
+            observer,
+        }
+    }
+
+    /// Adds `bytes` about to be hashed to the total.
+    pub(super) fn expect(&self, bytes: u64) {
+        self.total.fetch_add(bytes, Ordering::SeqCst);
+        self.publish();
+    }
+
+    pub(super) fn hashed(&self, bytes: u64) {
+        let before = self.completed.fetch_add(bytes, Ordering::SeqCst);
+        if before / VERIFICATION_PUBLISH_BYTES != (before + bytes) / VERIFICATION_PUBLISH_BYTES {
+            self.publish();
+        }
+    }
+
+    pub(super) fn file_finished(&self) {
+        self.publish();
+    }
+
+    fn publish(&self) {
+        let completed = self.completed.load(Ordering::SeqCst);
+        // A file hashed again after a failed check counts twice, so the total never trails.
+        let total = self.total.load(Ordering::SeqCst).max(completed);
+        if total == 0 {
+            return;
+        }
+        (self.observer)(ModelArtifactProgress {
+            completed,
+            total: Some(total),
+        });
+    }
+}
 
 #[derive(Clone)]
 pub(super) struct ModelArtifactProgressTracker {
@@ -225,6 +277,9 @@ impl TransferSlot {
     }
 }
 
+// Hashing reads small chunks, so observers hear of hashed bytes in coarser steps.
+const VERIFICATION_PUBLISH_BYTES: u64 = 16 * 1024 * 1024;
+
 const PENDING: u8 = 0;
 const CACHE_SATISFIED: u8 = 1;
 const TRANSFERRING: u8 = 2;
@@ -235,6 +290,43 @@ mod tests {
     use std::sync::Mutex;
 
     use super::*;
+
+    #[test]
+    fn verification_reports_growing_totals_coarse_hashed_steps_and_file_ends() {
+        let snapshots = Arc::new(Mutex::new(Vec::new()));
+        let observed = snapshots.clone();
+        let tracker = ModelArtifactVerificationTracker::new(Arc::new(move |progress| {
+            observed.lock().expect("snapshots").push(progress);
+        }));
+        let step = VERIFICATION_PUBLISH_BYTES;
+
+        tracker.expect(0);
+        tracker.expect(2 * step);
+        tracker.hashed(step - 1);
+        tracker.hashed(1);
+        tracker.hashed(step / 2);
+        tracker.file_finished();
+        tracker.expect(step);
+        // A file hashed again after a failed check counts beyond the announced total.
+        tracker.hashed(2 * step);
+        tracker.file_finished();
+
+        let progress = |completed, total| ModelArtifactProgress {
+            completed,
+            total: Some(total),
+        };
+        assert_eq!(
+            *snapshots.lock().expect("snapshots"),
+            [
+                progress(0, 2 * step),
+                progress(step, 2 * step),
+                progress(3 * step / 2, 2 * step),
+                progress(3 * step / 2, 3 * step),
+                progress(7 * step / 2, 7 * step / 2),
+                progress(7 * step / 2, 7 * step / 2),
+            ]
+        );
+    }
 
     #[test]
     fn aggregates_known_concurrent_transfers_after_every_artifact_is_classified() {

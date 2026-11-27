@@ -55,7 +55,7 @@ use super::{
         reconciled_generation, register_observation_status, resolve_observation_status,
         resume_matches_generation, resume_matches_lifecycle, resume_phase, resume_start_state,
         resume_start_uncertain_state, resuming_state, runtime_startup_progress_state,
-        unavailable_state,
+        unavailable_state, verification_progress_state,
     },
 };
 use crate::{
@@ -317,6 +317,8 @@ where
                 publication.quiet_revalidation = quiet_revalidation;
                 let artifact_progress = publication.observer(progress_notification.clone());
                 let artifact_stage = publication.stage_observer(progress_notification.clone());
+                let artifact_verification =
+                    publication.verification_observer(progress_notification.clone());
                 let startup_progress = publication.runtime_observer(progress_notification.clone());
                 progress_publications.insert(deployment_id.clone(), publication);
                 let artifacts = self.artifacts.clone();
@@ -345,6 +347,7 @@ where
                                     &cancellation,
                                     Some(artifact_progress),
                                     Some(artifact_stage),
+                                    Some(artifact_verification),
                                     &preparation_output,
                                 )
                                 .await
@@ -962,19 +965,29 @@ where
         };
         let progress = observed.progress.clone();
         let current = self
-            .update_preparation_state_fenced(deployment_id, &ticket, operation, |previous| {
-                match kind {
-                    DownloadProgressKind::Artifact => downloading_state(previous, progress.clone()),
-                    DownloadProgressKind::RuntimeStartup => runtime_startup_progress_state(
-                        previous,
-                        progress.clone(),
-                        observed
-                            .detail
-                            .as_deref()
-                            .unwrap_or("Preparing model realization"),
-                    ),
-                }
-            })
+            .update_preparation_state_if_inner(
+                deployment_id,
+                &ticket,
+                Some(operation),
+                |previous| match (kind, observed.verification) {
+                    (DownloadProgressKind::Artifact, true) => {
+                        verification_progress_state(previous, progress.clone())
+                    }
+                    (DownloadProgressKind::Artifact, false) => {
+                        Some(downloading_state(previous, progress.clone()))
+                    }
+                    (DownloadProgressKind::RuntimeStartup, _) => {
+                        Some(runtime_startup_progress_state(
+                            previous,
+                            progress.clone(),
+                            observed
+                                .detail
+                                .as_deref()
+                                .unwrap_or("Preparing model realization"),
+                        ))
+                    }
+                },
+            )
             .await?;
         if current {
             if let Some(publication) = publications.get_mut(deployment_id) {
@@ -2836,10 +2849,13 @@ enum DownloadProgressKind {
     RuntimeStartup,
 }
 
+/// Progress observed for one deployment's preparation: bytes transferred, or bytes hashed when
+/// `verification` is set.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ObservedPreparationProgress {
     progress: ModelArtifactProgress,
     detail: Option<String>,
+    verification: bool,
 }
 
 impl ObservedPreparationProgress {
@@ -2847,6 +2863,15 @@ impl ObservedPreparationProgress {
         Self {
             progress,
             detail: None,
+            verification: false,
+        }
+    }
+
+    fn verification(progress: ModelArtifactProgress) -> Self {
+        Self {
+            progress,
+            detail: None,
+            verification: true,
         }
     }
 }
@@ -2903,6 +2928,17 @@ impl DownloadProgressPublication {
         })
     }
 
+    fn verification_observer(&self, notification: Arc<Notify>) -> ModelArtifactProgressObserver {
+        let observed = self.observed.clone();
+        Arc::new(move |progress| {
+            observed
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .progress = Some(ObservedPreparationProgress::verification(progress));
+            notification.notify_one();
+        })
+    }
+
     fn stage_observer(&self, notification: Arc<Notify>) -> ModelArtifactStageObserver {
         let observed = self.observed.clone();
         Arc::new(move |stage| {
@@ -2936,6 +2972,7 @@ impl DownloadProgressPublication {
                     total: progress.total,
                 },
                 detail: activity.detail,
+                verification: false,
             });
             notification.notify_one();
         })

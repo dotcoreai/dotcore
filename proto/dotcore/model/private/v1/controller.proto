@@ -56,7 +56,8 @@ message ModelDeploymentStatus {
   // Status explanation the hosting node records, at most 512 bytes; empty while reconciling.
   string status_message = 14;
 
-  // Cumulative byte progress while Downloading; absent for any other lifecycle.
+  // Cumulative byte progress: transferred bytes while Downloading, hashed bytes while Loading
+  // verifies model artifacts; absent otherwise.
   ModelPreparationProgress preparation_progress = 12;
 
   // Exact binding readiness without an endpoint or process-local capability.
