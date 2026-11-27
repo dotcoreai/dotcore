@@ -286,6 +286,9 @@ pub(crate) enum AdapterTransportError {
     #[error("adapter transport stream terminal policy error: {0}")]
     StreamPolicy(#[source] crate::router::openai_compatible_codec::CodecError),
 
+    #[error("adapter transport stream ended with an engine error")]
+    EngineStreamError(#[source] crate::router::openai_compatible_codec::StreamErrorFrame),
+
     #[error("adapter transport limit exceeded: {0}")]
     Limit(&'static str),
 
@@ -326,6 +329,7 @@ impl AdapterTransportError {
             Self::StreamDecode(_) => "sse_decoding",
             Self::DecisionDecode(_) => "decision_decoding",
             Self::StreamPolicy(_) => "terminal_policy",
+            Self::EngineStreamError(_) => "engine_error",
             Self::Limit(_) => "limit",
             Self::Connect(_) => "connect",
             Self::Io(_) => "transport_io",

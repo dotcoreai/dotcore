@@ -161,6 +161,7 @@ async fn forward_stream(
     let mut done = false;
     let include_usage = request.include_stream_usage.unwrap_or(false);
     let mut validator = codec::StreamValidator::new(include_usage);
+    let mut forwarded = false;
     loop {
         while !done {
             let Some((end, separator_length)) = sse_frame_end(&pending) else {
@@ -186,9 +187,16 @@ async fn forward_stream(
                 done = true;
                 break;
             }
-            for mut event in codec::decode_sse_frame(&data)
+            let events = match codec::decode_sse_frame(&data)
                 .map_err(|error| AdapterError::from(AdapterTransportError::StreamDecode(error)))?
             {
+                codec::SseFrame::Events(events) => events,
+                codec::SseFrame::Error(error) => {
+                    error.log_failure(forwarded);
+                    return Err(AdapterTransportError::EngineStreamError(error).into());
+                }
+            };
+            for mut event in events {
                 if validator.apply(&event).map_err(|error| {
                     AdapterError::from(AdapterTransportError::StreamPolicy(error))
                 })? == codec::StreamAction::Filter
@@ -198,6 +206,7 @@ async fn forward_stream(
                 if let Some(Event::Started(started)) = &mut event.event {
                     started.model_id = request.model_id.clone();
                 }
+                forwarded = true;
                 tokio::select! {
                     biased;
                     reason = cancellation.cancelled() => return Err(AdapterError::Cancelled(reason)),

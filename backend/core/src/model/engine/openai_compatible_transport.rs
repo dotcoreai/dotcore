@@ -1,10 +1,10 @@
 //! Loopback chat transport for local OpenAI-compatible engines.
 //!
-//! The llama.cpp, vLLM, and ninfer bindings share this one-attempt transport: it sends the
+//! The llama.cpp, vLLM, ninfer and oMLX bindings share this one-attempt transport: it sends the
 //! validated request under the engine's served model id, with its instruction messages shaped for
-//! model chat templates, decodes complete or streamed answers,
-//! and passes unsuccessful engine responses through unchanged. Streams are checked for order
-//! and completeness before any event reaches the router.
+//! model chat templates, decodes complete or streamed answers, and passes unsuccessful engine
+//! responses through unchanged. Streams are checked for order and completeness before any event
+//! reaches the router, and an engine failing a stream ends it with a typed engine error.
 
 #[cfg(test)]
 use dotcore_proto::dotcore::inference::v1::{ChatMessage, ChatMessageRole, chat_message};
@@ -190,6 +190,7 @@ async fn read_stream(
             let result = forward_stream(
                 &mut stream,
                 &request,
+                classify,
                 &mut cancellation,
                 pending,
                 chunked,
@@ -218,6 +219,7 @@ async fn read_stream(
 async fn forward_stream(
     stream: &mut TcpStream,
     request: &ChatRequest,
+    classify: Option<RejectionClassifier>,
     cancellation: &mut RequestCancellation,
     mut pending: Vec<u8>,
     mut chunked: Option<ChunkedBodyDecoder>,
@@ -225,6 +227,7 @@ async fn forward_stream(
 ) -> Result<(), AdapterError> {
     const MAX_UPSTREAM_STREAM_BUFFER_BYTES: usize = 1024 * 1024;
     let mut done = false;
+    let mut forwarded = false;
     let include_usage = request.include_stream_usage.unwrap_or(false);
     let mut validator = codec::StreamValidator::new(include_usage);
     loop {
@@ -244,9 +247,15 @@ async fn forward_stream(
                 done = true;
                 break;
             }
-            for mut event in codec::decode_sse_frame(data)
+            let events = match codec::decode_sse_frame(data)
                 .map_err(|error| upstream_transport(TransportError::StreamDecode(error)))?
             {
+                codec::SseFrame::Events(events) => events,
+                codec::SseFrame::Error(error) => {
+                    return Err(stream_failure(error, forwarded, classify));
+                }
+            };
+            for mut event in events {
                 if validator
                     .apply(&event)
                     .map_err(|error| upstream_transport(TransportError::StreamPolicy(error)))?
@@ -264,6 +273,7 @@ async fn forward_stream(
                         if result.is_err() {
                             return Ok(());
                         }
+                        forwarded = true;
                     }
                 }
             }
@@ -319,6 +329,28 @@ async fn forward_stream(
     Ok(())
 }
 
+/// Fails a stream the engine ended with an error frame. Before any event reached the router, the
+/// response is not committed yet, so a rejection `classify` recognizes fails as an invalid
+/// request; any other error frame is an engine failure.
+fn stream_failure(
+    error: codec::StreamErrorFrame,
+    forwarded: bool,
+    classify: Option<RejectionClassifier>,
+) -> AdapterError {
+    error.log_failure(forwarded);
+    if !forwarded
+        && let Some(invalid) = classify.and_then(|classify| classify(error.status, &error.body))
+    {
+        debug!(
+            status = error.status,
+            category = %invalid.category,
+            "Engine stream error classified as an invalid request"
+        );
+        return AdapterError::InvalidRequest(invalid);
+    }
+    upstream_transport(TransportError::EngineStreamError(error))
+}
+
 fn sse_frame_end(pending: &[u8]) -> Option<(usize, usize)> {
     pending
         .windows(2)
@@ -336,16 +368,20 @@ fn sse_frame_end(pending: &[u8]) -> Option<(usize, usize)> {
 mod tests {
     use std::{io, sync::Arc};
 
-    use dotcore_proto::dotcore::inference::v1::{FunctionToolDefinition, chat_stream_event::Event};
+    use dotcore_domain::test_support::tracing::{Record, capture_records_async};
+    use dotcore_proto::dotcore::inference::v1::{
+        ChatStreamStarted, ChatTextDelta, FunctionToolDefinition, chat_stream_event::Event,
+        chat_text_delta,
+    };
     use tokio::{io::AsyncWriteExt, sync::watch};
 
     use super::*;
-    use crate::inference::{InferenceAttemptDisposition, InferenceError};
+    use crate::inference::{InferenceAttemptDisposition, InferenceError, InvalidRequest};
     use crate::test_support::http::read_request;
     use crate::{
         model::controller::serving_targets::ServingTargetsRevocationReason,
         router::{
-            adapters::{AdapterAttempt, AdapterAttemptDisposition},
+            adapters::{AdapterAttempt, AdapterAttemptDisposition, failure_stage},
             cancellation::RequestCancellationReason,
             openai::OpenAiRequest,
         },
@@ -906,6 +942,73 @@ mod tests {
         assert!(error.to_string().contains("after [DONE]"));
     }
 
+    #[tokio::test]
+    async fn an_error_frame_before_any_event_fails_as_the_rejection_its_engine_recognizes() {
+        let refusal = b"data: {\"error\":{\"message\":\"prompt is too long\",\"type\":\"BadRequestError\",\"param\":null,\"code\":400}}\n\ndata: [DONE]\n\n";
+
+        let (events, error) = engine_stream_failure(refusal, Some(reject_long_prompts)).await;
+
+        assert_eq!(events, []);
+        assert!(
+            matches!(error, AdapterError::InvalidRequest(invalid) if invalid == InvalidRequest::context_length()),
+            "{error:?}"
+        );
+
+        let (events, error) = engine_stream_failure(refusal, None).await;
+
+        assert_eq!(events, []);
+        assert!(matches!(error, AdapterError::Upstream(_)), "{error:?}");
+        assert_eq!(failure_stage(&error), "engine_error");
+    }
+
+    #[tokio::test]
+    async fn an_error_frame_after_the_first_chunk_fails_as_an_engine_error_with_its_safe_fields_logged()
+     {
+        let ((events, error), records, _) = capture_records_async(|| {
+            engine_stream_failure(
+                b"data: {\"id\":\"chatcmpl_failed\",\"model\":\"served-model\",\"created\":7,\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"Hi\"},\"finish_reason\":null}]}\n\ndata: {\"error\":{\"message\":\"prompt is too long\",\"type\":\"BadRequestError\",\"param\":null,\"code\":400}}\n\ndata: [DONE]\n\n",
+                Some(reject_long_prompts),
+            )
+        })
+        .await;
+
+        assert_eq!(
+            events,
+            [
+                ChatStreamEvent {
+                    event: Some(Event::Started(ChatStreamStarted {
+                        completion_id: "chatcmpl_failed".to_owned(),
+                        model_id: "requested-model".to_owned(),
+                        created_at_unix_seconds: 7,
+                    })),
+                },
+                ChatStreamEvent {
+                    event: Some(Event::TextDelta(ChatTextDelta {
+                        choice_index: 0,
+                        role: Some(ChatMessageRole::Assistant as i32),
+                        content: Some(chat_text_delta::Content::TextContent("Hi".to_owned())),
+                    })),
+                },
+            ]
+        );
+        assert!(matches!(error, AdapterError::Upstream(_)), "{error:?}");
+        assert_eq!(failure_stage(&error), "engine_error");
+        assert!(
+            records.iter().any(|record| matches!(
+                record,
+                Record::Event { level, fields }
+                    if level == "WARN"
+                        && fields.get("error_code") == Some(&"\"400\"".to_owned())
+                        && fields.get("error_type") == Some(&"\"BadRequestError\"".to_owned())
+                        && !fields.contains_key("engine_message")
+                        && !format!("{fields:?}").contains("prompt is too long")
+                        && fields.get("status") == Some(&"400".to_owned())
+                        && fields.get("forwarded") == Some(&"true".to_owned())
+            )),
+            "{records:?}"
+        );
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn route_revocation_before_connect_returns_typed_cancellation() {
         let (cancellation, _client, route) = uncancelled();
@@ -1193,6 +1296,57 @@ mod tests {
         };
         upstream.await.expect("upstream task");
         error
+    }
+
+    /// Streams `body` from an engine whose chat rejections `classify` recognizes, and returns the
+    /// events forwarded before the stream failed with its error.
+    async fn engine_stream_failure(
+        body: &'static [u8],
+        classify: Option<RejectionClassifier>,
+    ) -> (Vec<ChatStreamEvent>, AdapterError) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("upstream listener");
+        let port = listener.local_addr().expect("upstream address").port();
+        let upstream = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("upstream connection");
+            read_request(&mut stream).await;
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n")
+                .await
+                .expect("upstream headers");
+            stream.write_all(body).await.expect("upstream body");
+        });
+        let (cancellation, _client, _route) = uncancelled();
+        let response = invoke_loopback(
+            port,
+            TEST_SERVED_MODEL_ID,
+            request(true),
+            classify,
+            cancellation,
+        )
+        .await
+        .expect("stream response");
+        let AdapterResponse::Stream(mut events) = response else {
+            panic!("stream response")
+        };
+        let mut forwarded = Vec::new();
+        let error = loop {
+            match events.recv().await {
+                Some(Ok(event)) => forwarded.push(event),
+                Some(Err(error)) => break error,
+                None => panic!("a failed stream must report its error"),
+            }
+        };
+        assert!(events.recv().await.is_none(), "the error ends the stream");
+        upstream.await.expect("upstream task");
+        (forwarded, error)
+    }
+
+    /// Recognizes an engine's refusal of a prompt longer than its context.
+    fn reject_long_prompts(status: u16, body: &[u8]) -> Option<InvalidRequest> {
+        (status == 400 && http::error_message(body).as_deref() == Some("prompt is too long"))
+            .then(InvalidRequest::context_length)
     }
 
     fn assert_no_fallback(attempt: &AdapterAttempt) {

@@ -289,6 +289,10 @@ fn cancelled(
 
 #[cfg(test)]
 mod tests {
+    use dotcore_proto::dotcore::inference::v1::{
+        ChatMessageRole, ChatStreamStarted, ChatTextDelta, chat_stream_event::Event,
+        chat_text_delta,
+    };
     use serde_json::{Value, json};
     use tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
@@ -301,8 +305,9 @@ mod tests {
     use crate::{
         model::controller::serving_targets::ServingTargetsRevocationReason,
         router::{
-            adapters::AdapterError,
+            adapters::{AdapterError, AdapterTransportError},
             cancellation::{RequestCancellation, RequestCancellationReason},
+            openai_compatible_codec::StreamErrorFrame,
         },
     };
 
@@ -434,6 +439,120 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_engine_error_frame_before_start_answers_its_classified_rejection_or_bad_gateway() {
+        let cases = [
+            (
+                AdapterError::InvalidRequest(crate::inference::InvalidRequest::context_length()),
+                StreamWriteOutcome::Failed {
+                    error_kind: "invalid_request",
+                    failure_stage: "invalid_request",
+                    committed: false,
+                    status: 400,
+                },
+                "HTTP/1.1 400 Bad Request\r\n",
+                json!({"error":{"message":"The request is larger than the deployment's context.","type":"invalid_request_error","param":null,"code":"context_length_exceeded"}}),
+            ),
+            (
+                engine_stream_error(),
+                StreamWriteOutcome::Failed {
+                    error_kind: "upstream",
+                    failure_stage: "engine_error",
+                    committed: false,
+                    status: 502,
+                },
+                "HTTP/1.1 502 Bad Gateway\r\n",
+                json!({"error":{"message":"The inference engine returned an invalid response.","type":"upstream_error","param":null,"code":null}}),
+            ),
+        ];
+        for (error, expected_outcome, status_line, expected_body) in cases {
+            let (mut client, mut writer) = connected_writer().await;
+            let (sender, receiver) = mpsc::channel(1);
+            sender.send(Err(error)).await.expect("stream receiver");
+            drop(sender);
+
+            let result = write_openai_stream(
+                &mut writer,
+                receiver,
+                uncancelled(),
+                "fixture-route".to_owned(),
+                false,
+                &mut |_| {},
+            )
+            .await;
+            writer.shutdown().await.expect("stream writer shutdown");
+            let body = read_stream(&mut client).await;
+
+            assert_eq!(result.expect("stream write"), expected_outcome);
+            assert!(body.starts_with(status_line), "{body}");
+            assert_eq!(response_body(&body), expected_body);
+            assert!(!body.contains("prompt is too long"));
+        }
+    }
+
+    #[tokio::test]
+    async fn an_engine_error_frame_after_start_ends_the_committed_stream_with_the_safe_frame() {
+        let (mut client, mut writer) = connected_writer().await;
+        let (sender, receiver) = mpsc::channel(3);
+        for event in [
+            Event::Started(ChatStreamStarted {
+                completion_id: "chatcmpl_failed".to_owned(),
+                model_id: "served-model".to_owned(),
+                created_at_unix_seconds: 7,
+            }),
+            Event::TextDelta(ChatTextDelta {
+                choice_index: 0,
+                role: Some(ChatMessageRole::Assistant as i32),
+                content: Some(chat_text_delta::Content::TextContent("Hi".to_owned())),
+            }),
+        ] {
+            sender
+                .send(Ok(ChatStreamEvent { event: Some(event) }))
+                .await
+                .expect("stream receiver");
+        }
+        sender
+            .send(Err(engine_stream_error()))
+            .await
+            .expect("stream receiver");
+        drop(sender);
+
+        let result = write_openai_stream(
+            &mut writer,
+            receiver,
+            uncancelled(),
+            "fixture-route".to_owned(),
+            false,
+            &mut |_| {},
+        )
+        .await;
+        writer.shutdown().await.expect("stream writer shutdown");
+        let body = read_stream(&mut client).await;
+
+        assert_eq!(
+            result.expect("stream write"),
+            StreamWriteOutcome::Failed {
+                error_kind: "upstream",
+                failure_stage: "engine_error",
+                committed: true,
+                status: 200,
+            }
+        );
+        let (head, frames) = body.split_once("\r\n\r\n").expect("HTTP response");
+        assert!(head.starts_with("HTTP/1.1 200 OK\r\n"), "{head}");
+        assert_eq!(
+            frames,
+            concat!(
+                r#"data: {"choices":[],"created":7,"id":"chatcmpl_failed","model":"fixture-route","object":"chat.completion.chunk"}"#,
+                "\n\n",
+                r#"data: {"choices":[{"delta":{"content":"Hi","role":"assistant"},"finish_reason":null,"index":0}],"created":7,"id":"chatcmpl_failed","model":"fixture-route","object":"chat.completion.chunk"}"#,
+                "\n\n",
+                r#"data: {"error":{"code":null,"message":"The inference engine returned an invalid response.","param":null,"type":"upstream_error"}}"#,
+                "\n\n",
+            )
+        );
+    }
+
+    #[tokio::test]
     async fn a_failure_answer_cancelled_before_its_write_reports_the_cancellation() {
         let (mut client, mut writer) = connected_writer().await;
         let (_client, client_cancellation) =
@@ -484,6 +603,15 @@ mod tests {
     fn response_body(body: &str) -> Value {
         let (_, body) = body.split_once("\r\n\r\n").expect("HTTP response body");
         serde_json::from_str(body).expect("OpenAI response JSON")
+    }
+
+    /// The failure the OpenAI-compatible transport reports for an engine's error frame.
+    fn engine_stream_error() -> AdapterError {
+        AdapterTransportError::EngineStreamError(StreamErrorFrame {
+            status: 400,
+            body: br#"{"error":{"message":"prompt is too long","code":400}}"#.to_vec(),
+        })
+        .into()
     }
 
     fn uncancelled() -> RequestCancellation {

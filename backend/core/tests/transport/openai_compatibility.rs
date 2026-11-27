@@ -1464,6 +1464,15 @@ async fn engine_stream_failures_are_terminal_attributable_and_never_retried() {
         "no event is emitted per streamed token"
     );
 
+    // An engine error frame whose message echoes the prompt is logged without its message.
+    engine.script(
+        200,
+        "text/event-stream",
+        b"data: {\"error\":{\"message\":\"prompt-sentinel is too long\",\"type\":\"BadRequestError\",\"param\":null,\"code\":400}}\n\ndata: [DONE]\n\n",
+    );
+    let response = engine.request("/v1/chat/completions", request).await;
+    assert!(response.status >= 400, "{}", response.status);
+
     // A complete Responses result with a second choice is refused and attributed once.
     engine.script(
         200,

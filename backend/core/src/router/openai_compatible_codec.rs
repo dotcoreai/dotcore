@@ -349,11 +349,74 @@ pub(crate) fn decode_completion(body: &[u8]) -> Result<ChatCompletionResult, Cod
     completion_from_value(&value)
 }
 
-/// Decodes one complete upstream SSE JSON payload.
-pub(crate) fn decode_sse_frame(data: &str) -> Result<Vec<ChatStreamEvent>, CodecError> {
-    let value = serde_json::from_str(data)?;
-    stream_events_from_value(&value)
+/// Decodes one complete upstream SSE JSON payload: the stream events of a chunk, or the error
+/// an engine sends in place of a chunk when it fails the stream.
+pub(crate) fn decode_sse_frame(data: &str) -> Result<SseFrame, CodecError> {
+    let value: Value = serde_json::from_str(data)?;
+    if let Some(error) = stream_error(&value) {
+        return Ok(SseFrame::Error(StreamErrorFrame {
+            status: stream_error_status(error),
+            body: data.as_bytes().to_vec(),
+        }));
+    }
+    stream_events_from_value(&value).map(SseFrame::Events)
 }
+
+/// One decoded upstream SSE JSON payload.
+#[derive(Debug, PartialEq)]
+pub(crate) enum SseFrame {
+    /// The stream events a chunk carries.
+    Events(Vec<ChatStreamEvent>),
+
+    /// The engine failed the stream.
+    Error(StreamErrorFrame),
+}
+
+/// An OpenAI error object an engine streamed in place of a chunk, ending the stream.
+///
+/// It keeps the status the error stands for and the frame's payload, which has the shape of an
+/// unsuccessful response body, so an engine's rejection rules can read it as one.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("OpenAI-compatible engine failed the stream with status {status}")]
+pub(crate) struct StreamErrorFrame {
+    /// The error's numeric code when it is an HTTP error status, otherwise 500.
+    pub(crate) status: u16,
+
+    /// The frame's JSON payload, unchanged.
+    pub(crate) body: Vec<u8>,
+}
+
+impl StreamErrorFrame {
+    /// Logs that the engine failed the stream, with the error's status, code and type but never
+    /// its message, which can echo request content. `forwarded` tells whether events already
+    /// reached the router.
+    pub(crate) fn log_failure(&self, forwarded: bool) {
+        let error = serde_json::from_slice::<Value>(&self.body).ok();
+        let field = |key: &str| {
+            let value = error.as_ref()?.pointer("/error")?.get(key)?;
+            let text = match value {
+                Value::String(text) => text.clone(),
+                Value::Number(number) => number.to_string(),
+                _ => return None,
+            };
+            Some(
+                text.chars()
+                    .take(MAX_LOGGED_ERROR_FIELD_CHARS)
+                    .collect::<String>(),
+            )
+        };
+        tracing::warn!(
+            status = self.status,
+            forwarded,
+            error_code = field("code").as_deref(),
+            error_type = field("type").as_deref(),
+            "Engine failed the chat stream"
+        );
+    }
+}
+
+/// The most characters of an error's code or type that a log record keeps.
+const MAX_LOGGED_ERROR_FIELD_CHARS: usize = 64;
 
 pub(crate) fn stream_event_choice_index(event: &ChatStreamEvent) -> Option<u32> {
     match event.event.as_ref()? {
@@ -748,6 +811,27 @@ fn tool_call_from_value(value: &Value) -> Result<FunctionToolCall, CodecError> {
         .to_owned(),
     })
 }
+
+/// Returns a frame's OpenAI error object when the frame carries one instead of chunk choices.
+fn stream_error(value: &Value) -> Option<&Map<String, Value>> {
+    let object = value.as_object()?;
+    if object.contains_key("choices") {
+        return None;
+    }
+    object.get("error")?.as_object()
+}
+
+/// The HTTP status a streamed error stands for; an error naming none is a server failure.
+fn stream_error_status(error: &Map<String, Value>) -> u16 {
+    // vLLM and llama.cpp carry the status as the error's numeric code.
+    error
+        .get("code")
+        .and_then(Value::as_u64)
+        .and_then(|code| u16::try_from(code).ok())
+        .filter(|code| (400..=599).contains(code))
+        .unwrap_or(500)
+}
+
 fn stream_events_from_value(value: &Value) -> Result<Vec<ChatStreamEvent>, CodecError> {
     let object = upstream_object(value, "stream event")?;
     let mut events = Vec::new();
@@ -1269,8 +1353,35 @@ mod tests {
     }
 
     #[test]
+    fn an_error_frame_decodes_as_the_engine_error_with_its_status_and_payload() {
+        for (data, status) in [
+            (
+                r#"{"error":{"message":"memory guard aborted this request mid-prefill","type":"invalid_request_error","param":null,"code":"prefill_memory_aborted"},"type":"error"}"#,
+                500,
+            ),
+            (
+                r#"{"error":{"message":"prompt is too long","type":"BadRequestError","param":null,"code":400}}"#,
+                400,
+            ),
+            (
+                r#"{"error":{"message":"engine crashed","type":"server_error","code":200}}"#,
+                500,
+            ),
+        ] {
+            assert_eq!(
+                decode_sse_frame(data).expect("error frame"),
+                SseFrame::Error(StreamErrorFrame {
+                    status,
+                    body: data.as_bytes().to_vec(),
+                }),
+                "{data}"
+            );
+        }
+    }
+
+    #[test]
     fn reasoning_only_stream_chunks_emit_one_reasoning_event() {
-        let events = decode_sse_frame(
+        let SseFrame::Events(events) = decode_sse_frame(
             &json!({
                 "id": "completion",
                 "model": "upstream-model",
@@ -1283,7 +1394,9 @@ mod tests {
             })
             .to_string(),
         )
-        .expect("reasoning stream chunk");
+        .expect("reasoning stream chunk") else {
+            panic!("a chunk decodes as stream events")
+        };
 
         assert_eq!(event_kinds(&events), ["started", "reasoning"]);
         assert!(matches!(
