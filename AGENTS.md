@@ -209,8 +209,9 @@ in the same change that adds, removes or renames a folder it lists.
 - **model-local engine configuration**: one model's launch recipe on one engine (artifact bindings,
   approved engine artifacts, request kinds, sizing, hardware support, the engine parameters that
   apply).
-- **model profile**: a preset of defaults and engine parameter visibility overrides for one engine
-  configuration; never holds a total context or context per request value.
+- **model profile**: a preset of defaults and engine parameter visibility overrides for one or
+  more engine configurations, variants of one launch recipe that resolution picks from per target;
+  never holds a total context or context per request value.
 - **engine release**: one version of an engine (llama.cpp, vLLM) and the parameters it exposes.
   An **engine artifact** is one runnable build of it.
 - **hardware class**: a kind of execution hardware, nothing model-specific. **Hardware support** is

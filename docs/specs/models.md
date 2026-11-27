@@ -54,7 +54,7 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-  REQ["Create request"] --> SEL["Select engine artifact and hardware class: most specific match"]
+  REQ["Create request"] --> SEL["Select profile configuration, engine artifact and hardware class: most specific match"]
   CAT["Catalog"] --> SEL
   FACTS["Target platform, runtime binding, observed facts"] --> SEL
   SEL --> MERGE
@@ -68,10 +68,15 @@ flowchart TB
 The controller resolves a create request against the catalog and the target's observed facts, then
 keeps the result as the deployment's snapshot.
 
+- It picks one of the profile's configurations for the target. The candidates hold the requested
+  binding and have an engine artifact matching the target's platform, of a kind its runtime
+  binding can realize. Among them, the one supporting the most specific matching hardware class
+  wins. With no candidate, the failure says which configurations lack the binding and why the
+  others' artifacts don't match.
 - It selects the engine artifact and the hardware class by matching their selectors against the
   target's concrete platform and observed facts. The most specific match wins.
 - It selects only engine artifacts of a kind the target's runtime binding can realize, and only
-  hardware classes the configuration supports.
+  hardware classes the picked configuration supports.
 - A local request that omits its engine configuration takes the selected profile's default binding.
 - Values merge per engine parameter of the configuration: the supplied value, then the profile
   default, then the engine release default, then the sizing derivation, then, for a secret, a
@@ -170,9 +175,13 @@ flowchart LR
 - The compatibility read covers catalog model profiles and configured model targets. It runs the same
   resolution as admission over the reconciled inventory. A target without fresh observations is
   unknown.
+- It names the profile configuration picked on each target, even when the profile then can't run
+  there, and none when no configuration matches. The console shows that configuration's
+  parameters.
 - It can evaluate a sizing scenario (context per request, parallel requests and an optional total
-  context) and report estimates per hardware class and the capacity component's two fits per
-  target: on free memory and on total memory. Declared memory minimums always compare with the total.
+  context) and report estimates per configuration and hardware class and the capacity component's
+  two fits per target: on free memory and on total memory. Declared memory minimums always compare
+  with the total.
 - For each running target, it reports the capacity component's largest fitting total context, its
   largest fitting context per request for the scenario's parallel requests, and the starting context
   values. Narrowing by scenario uses the fit.
