@@ -9,14 +9,20 @@
   [`start.py`](start.py) (`dotcore-strata-start --help`). The adapter owns which arguments it gets.
 * The wrapper has three engine paths, picked by its arguments, never guessed from the files. On
   the main engine: a single GGUF read in place, and a pack with a separate draft layer. With
-  `--inkling-pack`, the Inkling engine (`strata-inkling`) reads a ready-made Inkling pack in place
-  and drafts with the drafter inside it; the main engine's options are refused there.
+  `--inkling`, the Inkling engine (`strata-inkling`) reads one Inkling model file in place, a
+  ready-made pack or a GGUF, the same way; the main engine's options are refused there.
+* The Inkling engine drafts only with DFlash 2, a separate drafter file the adapter passes while
+  the deployment's switch is on. The server finds it through `STRATA_INK_DFLASH2` in its own
+  environment, so the wrapper sets that before it starts the server; without the file, drafting is
+  off.
 * It packs split GGUF shards with upstream's `terminal/tools/iq_pack.py` without converting
   tensors, so it only takes files that store them as the engine reads them (ISTA-DASLab's GSQ-RCO
   files do, Unsloth's don't). It doesn't use upstream's converting mode, which needs the GGUF
   library both images ship in `terminal/third_party/strata-gguf-py`.
-* The Inkling tokenizer is built from the `tokenizer.json` and `chat_template.jinja` beside the
-  pack: reading it from the pack needs a zstd module the image's Python lacks.
+* The Inkling tokenizer is built from the `tokenizer.json` and `chat_template.jinja` of a separate
+  tokenizer artifact, which every Inkling binding selects; the wrapper never looks beside the model
+  file. Reading it from a pack needs a zstd module the image's Python lacks, and the GGUF
+  repositories ship no tokenizer files.
 * The Inkling engine lowers its context to what fits in free GPU memory without failing, and its
   `/health` may still report the asked value. The wrapper turns its host-RAM KV spill and its
   smaller-chunk start retry off, so an undersized estimate shrinks the context or fails. Check the engine log for an auto-sizing line when a

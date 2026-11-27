@@ -191,10 +191,11 @@ class StartWrapperTest(unittest.TestCase):
         self.assertEqual(stopped.exception.code, f"dotcore-strata-start: --expert-vram-mib 2 holds no expert block of {BLOB} bytes")
 
     def test_inkling_pack_runs_the_inkling_engine_on_the_pack_in_place(self):
-        model = self.files("model", ["SQ-10.strata", "tokenizer.json", "chat_template.jinja"])
+        model = self.files("model", ["SQ-10.strata"])
+        tokenizer_files = self.inkling_tokenizer_files()
 
-        config = self.run_wrapper("--model", model, "--inkling-pack", "SQ-10.strata", "--parallel", "2")
-        self.run_wrapper("--model", model, "--inkling-pack", "SQ-10.strata", "--parallel", "2")
+        config = self.run_wrapper("--model", model, "--inkling", "SQ-10.strata", "--tokenizer", tokenizer_files, "--parallel", "2")
+        self.run_wrapper("--model", model, "--inkling", "SQ-10.strata", "--tokenizer", tokenizer_files, "--parallel", "2")
 
         tokenizer = self.data / "tokenizer" / "tokenizer"
         self.assertEqual(config, {
@@ -206,67 +207,106 @@ class StartWrapperTest(unittest.TestCase):
             "arch": "inkling2_loop",
             "log": str(self.data / "strata-engine.log"),
             "parallel": 2,
-            "drafting": "dspark",
+            "drafting": "off",
             "env": {"STRATA_INK_OOM_RETRY": "0"},
         })
+        self.assertNotIn("STRATA_INK_DFLASH2", self.server_environment)
         self.assertEqual(
             (self.data / "tokenizer-runs").read_text(),
-            f"--hf-json {model / 'tokenizer.json'} --template {model / 'chat_template.jinja'} --out {tokenizer}\n",
+            f"--hf-json {tokenizer_files / 'tokenizer.json'} --template {tokenizer_files / 'chat_template.jinja'} --out {tokenizer}\n",
         )
 
-        (model / "chat_template.jinja").write_text("changed")
-        self.run_wrapper("--model", model, "--inkling-pack", "SQ-10.strata")
+        (tokenizer_files / "chat_template.jinja").write_text("changed")
+        self.run_wrapper("--model", model, "--inkling", "SQ-10.strata", "--tokenizer", tokenizer_files)
         self.assertEqual(len((self.data / "tokenizer-runs").read_text().splitlines()), 2)
 
-    def test_inkling_pack_takes_the_kv_cache_type_and_a_vision_file(self):
-        model = self.files("model", ["SQ-10.strata", "tokenizer.json", "chat_template.jinja"])
+    def test_inkling_gguf_runs_the_inkling_engine_like_a_pack(self):
+        model = self.files("model", ["IQ3_S/Inkling-IQ3_S.gguf"])
+        tokenizer_files = self.inkling_tokenizer_files()
+
+        gguf = self.run_wrapper("--model", model, "--inkling", "IQ3_S/Inkling-IQ3_S.gguf", "--tokenizer", tokenizer_files)
+
+        (model / "SQ-10.strata").write_text("")
+        pack = self.run_wrapper("--model", model, "--inkling", "SQ-10.strata", "--tokenizer", tokenizer_files)
+        self.assertEqual(gguf["args"][:2], ["--native", str(model / "IQ3_S" / "Inkling-IQ3_S.gguf")])
+        self.assertEqual(gguf["args"][2:], pack["args"][2:])
+        self.assertEqual({**gguf, "args": None}, {**pack, "args": None})
+
+    def test_inkling_dflash_names_the_drafter_to_the_server_and_turns_drafting_on(self):
+        model = self.files("model", ["SQ-10.strata"])
+        tokenizer_files = self.inkling_tokenizer_files()
+        dflash = self.files("dflash", ["Inkling-2-Mini-DFlash2-mix.safetensors"]) / "Inkling-2-Mini-DFlash2-mix.safetensors"
+        inkling = ["--model", model, "--inkling", "SQ-10.strata", "--tokenizer", tokenizer_files]
+
+        with mock.patch.dict(self.start.os.environ, {"STRATA_INK_DFLASH2": "/stale"}):
+            on = self.run_wrapper(*inkling, "--dflash", dflash)
+            self.assertEqual(self.server_environment["STRATA_INK_DFLASH2"], str(dflash))
+            off = self.run_wrapper(*inkling)
+            self.assertNotIn("STRATA_INK_DFLASH2", self.server_environment)
+
+        self.assertEqual(on["drafting"], "dflash2")
+        self.assertEqual(off["drafting"], "off")
+        self.assertEqual(on["args"], off["args"])
+
+    def test_inkling_takes_the_kv_cache_type_and_a_vision_file(self):
+        model = self.files("model", ["SQ-10.strata"])
         vision = self.files("vision", ["Vision.strata"]) / "Vision.strata"
 
-        config = self.run_wrapper("--model", model, "--inkling-pack", "SQ-10.strata", "--kv", "fp8", "--vision", vision)
+        config = self.run_wrapper(
+            "--model", model, "--inkling", "SQ-10.strata", "--tokenizer", self.inkling_tokenizer_files(), "--kv", "fp8", "--vision", vision,
+        )
 
         self.assertEqual(config["args"], [
             "--native", str(model / "SQ-10.strata"), "--max-context", "4096", "--kv", "fp8", "--kv-offload", "off",
             "--vision", str(vision),
         ])
 
-    def test_kv_cache_type_and_vision_are_checked(self):
-        model = self.files("model", ["SQ-10.strata", "tokenizer.json", "chat_template.jinja"])
+    def test_inkling_options_are_checked(self):
+        model = self.files("model", ["SQ-10.strata"])
+        inkling = ["--model", model, "--inkling", "SQ-10.strata", "--tokenizer", self.inkling_tokenizer_files()]
 
-        for args in (["--kv", "k8v4"], ["--vision", model / "missing.strata"]):
+        for args in (["--kv", "k8v4"], ["--vision", model / "missing.strata"], ["--dflash", model / "missing.safetensors"]):
             with self.subTest(args=args), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as stopped:
-                self.run_wrapper("--model", model, "--inkling-pack", "SQ-10.strata", *args)
+                self.run_wrapper(*inkling, *args)
             self.assertEqual(stopped.exception.code, 2)
 
         gguf = self.files("gguf", ["m.gguf"]) / "m.gguf"
-        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as stopped:
-            self.run_wrapper("--model", gguf, "--arch", "qwen35moe", "--mtp", "2", "--kv", "fp8")
-        self.assertEqual(stopped.exception.code, 2)
+        for args in (["--kv", "fp8"], ["--dflash", gguf], ["--tokenizer", self.root]):
+            stderr = io.StringIO()
+            with self.subTest(args=args), contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as stopped:
+                self.run_wrapper("--model", gguf, "--arch", "qwen35moe", "--mtp", "2", *args)
+            self.assertEqual(stopped.exception.code, 2)
+            self.assertIn("error: --tokenizer, --kv, --vision and --dflash need --inkling", stderr.getvalue())
 
     def test_the_image_builds_an_inkling_tokenizer_from_its_files(self):
         model = self.files("model", ["SQ-10.strata"])
-        (model / "tokenizer.json").write_text(INKLING_TOKENIZER_JSON)
-        (model / "chat_template.jinja").write_text("{{ messages }}")
+        tokenizer_files = self.root / "tokenizer-files"
+        tokenizer_files.mkdir()
+        (tokenizer_files / "tokenizer.json").write_text(INKLING_TOKENIZER_JSON)
+        (tokenizer_files / "chat_template.jinja").write_text("{{ messages }}")
         self.start.TERMINAL = IMAGE_TERMINAL
 
-        config = self.run_wrapper("--model", model, "--inkling-pack", "SQ-10.strata")
+        config = self.run_wrapper("--model", model, "--inkling", "SQ-10.strata", "--tokenizer", tokenizer_files)
 
         tokenizer = Path(config["tokenizer"])
         self.assertEqual(json.loads((tokenizer / "vocab.json").read_text()), {"a": 0, "<|endoftext|>": 1})
         self.assertEqual((tokenizer / "chat_template.jinja").read_text(), "{{ messages }}")
 
-    def test_an_inkling_pack_without_its_tokenizer_files_is_refused(self):
-        model = self.files("model", ["SQ-10.strata", "tokenizer.json"])
+    def test_the_inkling_tokenizer_comes_only_from_its_folder(self):
+        model = self.files("model", ["SQ-10.strata", "tokenizer.json", "chat_template.jinja"])
+        tokenizer_files = self.files("tokenizer-files", ["tokenizer.json"])
 
         with self.assertRaises(SystemExit) as stopped:
-            self.run_wrapper("--model", model, "--inkling-pack", "SQ-10.strata")
+            self.run_wrapper("--model", model, "--inkling", "SQ-10.strata", "--tokenizer", tokenizer_files)
 
-        self.assertEqual(stopped.exception.code, f"dotcore-strata-start: the Inkling pack has no {model / 'chat_template.jinja'}")
+        self.assertEqual(stopped.exception.code, f"dotcore-strata-start: the Inkling tokenizer has no {tokenizer_files / 'chat_template.jinja'}")
 
     def test_the_engine_path_is_explicit(self):
-        model = self.files("model", ["SQ-10.strata", "tokenizer.json", "chat_template.jinja"])
+        model = self.files("model", ["SQ-10.strata"])
+        tokenizer_files = self.inkling_tokenizer_files()
         gguf = self.files("single", ["model.gguf"]) / "model.gguf"
-        inkling = ["--model", model, "--inkling-pack", "SQ-10.strata"]
-        main_engine_refusal = ("--inkling-pack runs Strata's Inkling engine, which takes no --draft-layer, --pack or its GGUF "
+        inkling = ["--model", model, "--inkling", "SQ-10.strata", "--tokenizer", tokenizer_files]
+        main_engine_refusal = ("--inkling runs Strata's Inkling engine, which takes no --draft-layer, --pack or its GGUF "
                                "options, --arch, --mtp, --unified-memory or expert options")
         cases = [
             (inkling + ["--arch", "qwen35moe"], main_engine_refusal),
@@ -276,10 +316,14 @@ class StartWrapperTest(unittest.TestCase):
             (inkling + ["--expert-host-memory-mib", "0"], main_engine_refusal),
             (inkling + ["--unified-memory"], main_engine_refusal),
             (inkling + ["--pack", "pack"], main_engine_refusal),
-            (["--model", model, "--inkling-pack", "SQ-10.gguf"], "--inkling-pack SQ-10.gguf is not a .strata file within --model"),
-            (["--model", model, "--inkling-pack", "../SQ-10.strata"], "--inkling-pack ../SQ-10.strata is not a .strata file within --model"),
-            (["--model", gguf, "--inkling-pack", "SQ-10.strata"], f"--model {gguf} is not a folder"),
-            (["--model", gguf, "--arch", "qwen35moe"], "--arch and --mtp are needed without --inkling-pack"),
+            (["--model", model, "--inkling", "SQ-10.bin", "--tokenizer", tokenizer_files],
+             "--inkling SQ-10.bin is not a .strata or .gguf file within --model"),
+            (["--model", model, "--inkling", "../SQ-10.strata", "--tokenizer", tokenizer_files],
+             "--inkling ../SQ-10.strata is not a .strata or .gguf file within --model"),
+            (["--model", model, "--inkling", "SQ-10.strata"], "--inkling needs --tokenizer"),
+            (["--model", model, "--inkling", "SQ-10.strata", "--tokenizer", gguf], f"--tokenizer {gguf} is not a folder"),
+            (["--model", gguf, "--inkling", "SQ-10.strata", "--tokenizer", tokenizer_files], f"--model {gguf} is not a folder"),
+            (["--model", gguf, "--arch", "qwen35moe"], "--arch and --mtp are needed without --inkling"),
         ]
         for args, message in cases:
             stderr = io.StringIO()
@@ -287,6 +331,10 @@ class StartWrapperTest(unittest.TestCase):
                 self.run_wrapper(*args)
             self.assertEqual(stopped.exception.code, 2)
             self.assertIn(f"error: {message}", stderr.getvalue())
+
+    def inkling_tokenizer_files(self):
+        """Creates a folder holding the Inkling tokenizer files and returns it."""
+        return self.files("tokenizer-files", ["tokenizer.json", "chat_template.jinja"])
 
     def files(self, name, paths):
         """Creates empty files under a new folder `name` and returns the folder."""
@@ -297,14 +345,21 @@ class StartWrapperTest(unittest.TestCase):
         return folder
 
     def run_wrapper(self, *args):
-        """Runs the wrapper up to where it starts the server and returns the run configuration it wrote."""
+        """Runs the wrapper up to where it starts the server and returns the run configuration it wrote.
+
+        The environment the server would start with is kept in `server_environment`; the test's own
+        environment is left unchanged.
+        """
         defaults = ["--model-name", "m", "--context", "4096"]
-        if not {"--arch", "--mtp", "--inkling-pack"} & set(map(str, args)):
+        if not {"--arch", "--mtp", "--inkling"} & set(map(str, args)):
             defaults += ["--arch", "qwen4exp", "--mtp", "4"]
         argv = ["dotcore-strata-start", *map(str, args), *defaults]
-        with mock.patch.object(sys, "argv", argv), mock.patch.object(self.start.os, "execv") as execv:
+        environment = {}
+        with (mock.patch.object(sys, "argv", argv), mock.patch.dict(self.start.os.environ),
+              mock.patch.object(self.start.os, "execv", side_effect=lambda *_: environment.update(self.start.os.environ)) as execv):
             self.start.main()
         execv.assert_called_once()
+        self.server_environment = environment
         return json.loads((self.data / "strata.json").read_text())
 
 

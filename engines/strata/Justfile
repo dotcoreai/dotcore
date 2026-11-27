@@ -39,9 +39,10 @@ image-test:
     refuses "go together" --model /tmp --draft-layer /tmp --pack pack $ok
     refuses "is not a path within --model" --model /tmp --draft-layer /tmp --pack ../pack \
       --dense-gguf d.gguf --lookup-table-gguf l.gguf --token-embedding-gguf e.gguf $ok
-    refuses "are needed without --inkling-pack" --model /bin/sh --model-name m --context 4096
-    refuses "takes no --draft-layer" --model /tmp --inkling-pack p.strata $ok
-    refuses "is not a .strata file within --model" --model /tmp --inkling-pack p.gguf --model-name m --context 4096
+    refuses "are needed without --inkling" --model /bin/sh --model-name m --context 4096
+    refuses "takes no --draft-layer" --model /tmp --inkling p.strata --tokenizer /tmp $ok
+    refuses "is not a .strata or .gguf file within --model" --model /tmp --inkling p.bin --tokenizer /tmp --model-name m --context 4096
+    refuses "--inkling needs --tokenizer" --model /tmp --inkling p.gguf --model-name m --context 4096
     docker run --rm --network none -v "$PWD/engines/strata/test_start.py:/test_start.py:ro" "$image" \
       /opt/strata/terminal/python/bin/python3 -I /test_start.py
 
