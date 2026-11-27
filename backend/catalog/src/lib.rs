@@ -1097,18 +1097,22 @@ parameterSchema:
       displayName: "Total context"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger: {{ minimum: "512", maximum: "131072", unit: "tokens" }}
+      summary: "Summary."
     - parameterId: "context-per-request"
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger: {{ minimum: "512", maximum: "131072", unit: "tokens", defaultValue: "8192" }}
+      summary: "Summary."
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger: {{ minimum: "1", maximum: "64", unit: "requests", defaultValue: "4" }}
+      summary: "Summary."
     - parameterId: "cache-mib"
       displayName: "Cache"
       visibility: "PARAMETER_VISIBILITY_HIDDEN"
       unsignedInteger: {{ minimum: "0", maximum: "{cache_maximum}", unit: "MiB" }}
+      summary: "Summary."
 artifacts:
   - artifactId: "linux-amd64"
     oci:
@@ -2159,7 +2163,7 @@ artifacts:
                 &engine_path,
                 engine.replace(
                     "  parameterGroups:\n",
-                    "    - parameterId: \"api-key\"\n      displayName: \"API key\"\n      visibility: \"PARAMETER_VISIBILITY_ADVANCED\"\n      secret: { generatedLength: 32, minimumLength: 16 }\n  parameterGroups:\n",
+                    "    - parameterId: \"api-key\"\n      displayName: \"API key\"\n      summary: \"Summary.\"\n      visibility: \"PARAMETER_VISIBILITY_ADVANCED\"\n      secret: { generatedLength: 32, minimumLength: 16 }\n  parameterGroups:\n",
                 ),
             )
             .expect("sizing engine with a secret");
@@ -2346,7 +2350,7 @@ artifacts:
                 .expect("sizing model fixture")
                 .replace(
                     "maximumContextTokens: 262144\n",
-                    "maximumContextTokens: 262144\noptions:\n  - { optionId: \"kv-cache\", displayName: \"KV cache precision\", description: \"Stores the cache at lower precision.\", visibility: PARAMETER_VISIBILITY_ADVANCED, kvCachePrecision: {} }\n",
+                    "maximumContextTokens: 262144\noptions:\n  - { optionId: \"kv-cache\", displayName: \"KV cache precision\", summary: \"Summary.\", description: \"Stores the cache at lower precision.\", visibility: PARAMETER_VISIBILITY_ADVANCED, kvCachePrecision: {} }\n",
                 )
                 .replace(
                     "      supportedModalities: [\"MODEL_INPUT_MODALITY_TEXT\"]\n",
@@ -3448,18 +3452,22 @@ parameterSchema:
       displayName: "Total context"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger: {{ minimum: "512", maximum: "131072", unit: "tokens" }}
+      summary: "Summary."
     - parameterId: "context-per-request"
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger: {{ minimum: "512", maximum: "131072", unit: "tokens", defaultValue: "8192" }}
+      summary: "Summary."
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger: {{ minimum: "1", maximum: "64", unit: "requests", defaultValue: "4" }}
+      summary: "Summary."
     - parameterId: "cache-mib"
       displayName: "Cache"
       visibility: "PARAMETER_VISIBILITY_HIDDEN"
       unsignedInteger: {{ minimum: "0", maximum: "{cache_maximum}", unit: "MiB" }}
+      summary: "Summary."
 artifacts:
   - artifactId: "{id}-artifact"
     oci:
@@ -3493,6 +3501,7 @@ artifacts:
             .expect("cache parameter")
             .group_id = Some("cache".to_owned());
         schema.parameter_groups.push(ParameterGroup {
+            summary: "Summary.".into(),
             group_id: "cache".to_owned(),
             display_name: "Cache".to_owned(),
             description: "Memory the cache uses.".to_owned(),

@@ -464,7 +464,7 @@ fn complete_model_snapshot() -> ModelDeploymentSnapshot {
                 engine_parameter_schema_id: "schema-one".to_owned(),
                 engine_parameter_schema: Some(EngineParameterSchema {
                     schema_id: "schema-one".to_owned(),
-                    parameters: vec![ParameterDefinition {
+                    parameters: vec![ParameterDefinition { summary: "Summary.".into(),
                         parameter_id: "total-context".to_owned(),
                         display_name: "Total context".to_owned(),
                         parameter_type: Some(

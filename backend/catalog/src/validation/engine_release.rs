@@ -462,6 +462,7 @@ mod tests {
     fn parameter_schemas_reject_an_out_of_range_default_and_a_missing_shared_parameter() {
         let unsigned = |parameter_id: &str, display_name: &str, unit: &str, default_value| {
             ParameterDefinition {
+                summary: "Summary.".into(),
                 parameter_id: parameter_id.to_owned(),
                 display_name: display_name.to_owned(),
                 parameter_type: Some(ParameterType::UnsignedInteger(
@@ -508,6 +509,7 @@ mod tests {
     #[test]
     fn engine_parameters_are_booleans_unsigned_integers_with_a_unit_or_secrets() {
         let definition = |parameter_type| ParameterDefinition {
+            summary: "Summary.".into(),
             parameter_id: "feature".to_owned(),
             display_name: "Feature".to_owned(),
             description: String::new(),
@@ -607,6 +609,7 @@ mod tests {
     fn engine_schemas_take_plain_groups_only_and_no_group_for_shared_parameters() {
         let unsigned =
             |parameter_id: &str, unit: &str, default_value: Option<u64>| ParameterDefinition {
+                summary: "Summary.".into(),
                 parameter_id: parameter_id.to_owned(),
                 display_name: parameter_id.to_owned(),
                 description: String::new(),
@@ -669,6 +672,7 @@ mod tests {
                 parameter_groups: vec![group],
             };
         let plain = ParameterGroup {
+            summary: "Summary.".into(),
             group_id: "host-memory".to_owned(),
             display_name: "Host memory".to_owned(),
             description: "Memory the engine takes from the host.".to_owned(),
@@ -705,6 +709,7 @@ mod tests {
             ..unsigned("offload", "MiB", None)
         };
         let switched = ParameterGroup {
+            summary: String::new(),
             display_name: String::new(),
             description: String::new(),
             switch_parameter_id: Some("offload".to_owned()),

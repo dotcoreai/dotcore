@@ -1379,6 +1379,7 @@ mod tests {
 
         let model = Model {
             options: vec![ModelOption {
+                summary: "Summary.".into(),
                 option_id: "kv-cache".to_owned(),
                 display_name: "KV cache precision".to_owned(),
                 description: "Fixture option.".to_owned(),

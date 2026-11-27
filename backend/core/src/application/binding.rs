@@ -102,6 +102,7 @@ mod tests {
 
     fn login_member(id: &str, parameter_type: ParameterType) -> ParameterDefinition {
         ParameterDefinition {
+            summary: "Summary.".into(),
             parameter_id: id.to_owned(),
             display_name: id.to_owned(),
             description: String::new(),

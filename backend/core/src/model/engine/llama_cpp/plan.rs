@@ -955,6 +955,7 @@ mod tests {
             .expect("engine parameter schema")
             .parameters
             .push(ParameterDefinition {
+                summary: "Summary.".into(),
                 parameter_id: PROMPT_CACHE_MEMORY_PARAMETER_ID.to_owned(),
                 display_name: "Prompt cache memory".to_owned(),
                 parameter_type: None,

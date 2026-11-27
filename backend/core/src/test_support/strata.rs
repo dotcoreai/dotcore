@@ -243,6 +243,7 @@ pub(crate) fn release() -> EngineRelease {
             .map(
                 |(parameter_id, display_name, minimum, maximum, unit, default_value)| {
                     ParameterDefinition {
+                        summary: "Summary.".into(),
                         parameter_id: parameter_id.to_owned(),
                         display_name: display_name.to_owned(),
                         parameter_type: Some(parameter_definition::ParameterType::UnsignedInteger(
@@ -300,6 +301,7 @@ pub(crate) fn release_with_api_key() -> EngineRelease {
         .expect("schema")
         .parameters
         .push(ParameterDefinition {
+            summary: "Summary.".into(),
             parameter_id: API_KEY_PARAMETER_ID.to_owned(),
             display_name: "API key".to_owned(),
             parameter_type: Some(parameter_definition::ParameterType::Secret(
@@ -322,7 +324,7 @@ pub(crate) fn release_with_api_key() -> EngineRelease {
 pub(crate) fn catalog_engine_with_api_key() -> String {
     CATALOG_ENGINE.replace(
         "storageBindings:\n",
-        "    - { parameterId: \"api-key\", displayName: \"API key\", visibility: \"PARAMETER_VISIBILITY_ADVANCED\", description: \"api-key\", secret: { generatedLength: 32, minimumLength: 16 } }\nstorageBindings:\n",
+        "    - { parameterId: \"api-key\", displayName: \"API key\", summary: \"Summary.\", visibility: \"PARAMETER_VISIBILITY_ADVANCED\", description: \"api-key\", secret: { generatedLength: 32, minimumLength: 16 } }\nstorageBindings:\n",
     )
 }
 
@@ -565,11 +567,11 @@ version: "1"
 parameterSchema:
   schemaId: "fixture-strata-v1"
   parameters:
-    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", description: "total-context", unsignedInteger: { minimum: "512", unit: "tokens" } }
-    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", description: "context-per-request", unsignedInteger: { minimum: "512", maximum: "2147483639", unit: "tokens", defaultValue: "32768" } }
-    - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_BASIC", description: "parallel-requests", unsignedInteger: { minimum: "1", maximum: "8", unit: "requests", defaultValue: "1" } }
-    - { parameterId: "expert-vram-mib", displayName: "Expert accelerator memory", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "expert-vram-mib", unsignedInteger: { minimum: "1", unit: "MiB" } }
-    - { parameterId: "expert-host-memory-mib", displayName: "Expert host memory", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "expert-host-memory-mib", unsignedInteger: { minimum: "0", unit: "MiB" } }
+    - { parameterId: "total-context", displayName: "Total context", summary: "Summary.", visibility: "PARAMETER_VISIBILITY_BASIC", description: "total-context", unsignedInteger: { minimum: "512", unit: "tokens" } }
+    - { parameterId: "context-per-request", displayName: "Context per request", summary: "Summary.", visibility: "PARAMETER_VISIBILITY_BASIC", description: "context-per-request", unsignedInteger: { minimum: "512", maximum: "2147483639", unit: "tokens", defaultValue: "32768" } }
+    - { parameterId: "parallel-requests", displayName: "Parallel requests", summary: "Summary.", visibility: "PARAMETER_VISIBILITY_BASIC", description: "parallel-requests", unsignedInteger: { minimum: "1", maximum: "8", unit: "requests", defaultValue: "1" } }
+    - { parameterId: "expert-vram-mib", displayName: "Expert accelerator memory", summary: "Summary.", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "expert-vram-mib", unsignedInteger: { minimum: "1", unit: "MiB" } }
+    - { parameterId: "expert-host-memory-mib", displayName: "Expert host memory", summary: "Summary.", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "expert-host-memory-mib", unsignedInteger: { minimum: "0", unit: "MiB" } }
 storageBindings:
   - { bindingName: "data", mountPath: "/data", kind: "STORAGE_KIND_CACHE", placements: ["STORAGE_PLACEMENT_DEPLOYMENT"] }
 artifacts:

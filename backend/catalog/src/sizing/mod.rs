@@ -969,6 +969,7 @@ mod tests {
         EngineParameterSchema {
             schema_id: "test-schema".to_owned(),
             parameters: vec![ParameterDefinition {
+                summary: "Summary.".into(),
                 parameter_id: "total-context".to_owned(),
                 display_name: "Total context".to_owned(),
                 parameter_type: Some(ParameterType::UnsignedInteger(
@@ -1681,6 +1682,7 @@ mod tests {
     fn derived_schema() -> EngineParameterSchema {
         let mut schema = schema();
         schema.parameters.push(ParameterDefinition {
+            summary: "Summary.".into(),
             parameter_id: "cache-bytes".to_owned(),
             display_name: "Cache bytes".to_owned(),
             parameter_type: Some(ParameterType::UnsignedInteger(
@@ -1698,6 +1700,7 @@ mod tests {
             group_id: None,
         });
         schema.parameters.push(ParameterDefinition {
+            summary: "Summary.".into(),
             parameter_id: "feature-enabled".to_owned(),
             display_name: "Feature".to_owned(),
             parameter_type: Some(ParameterType::Boolean(BooleanParameterSchema::default())),

@@ -1507,6 +1507,7 @@ options:
     description: "Fixture option."
     visibility: "PARAMETER_VISIBILITY_ADVANCED"
     vision: {{}}
+    summary: "Summary."
 artifacts:
   - artifactId: "sized-weights"
     weightQuantization: "SIZED"
@@ -1632,7 +1633,7 @@ fn kv_cache_catalog(binding_parameters: &str) -> Catalog {
             .expect("sizing model fixture")
             .replace(
                 "maximumContextTokens: 262144\n",
-                "maximumContextTokens: 262144\noptions:\n  - { optionId: \"kv-cache\", displayName: \"KV cache precision\", description: \"Fixture option.\", visibility: PARAMETER_VISIBILITY_ADVANCED, kvCachePrecision: {} }\n",
+                "maximumContextTokens: 262144\noptions:\n  - { optionId: \"kv-cache\", displayName: \"KV cache precision\", summary: \"Summary.\", description: \"Fixture option.\", visibility: PARAMETER_VISIBILITY_ADVANCED, kvCachePrecision: {} }\n",
             )
             .replace(
                 "          flashAttention: true\n",

@@ -1647,18 +1647,22 @@ parameterSchema:
       displayName: "Total context"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger: { minimum: "512", maximum: "16777216", unit: "tokens" }
+      summary: "Summary."
     - parameterId: "context-per-request"
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger: { minimum: "512", maximum: "16777216", unit: "tokens", defaultValue: "8192" }
+      summary: "Summary."
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger: { minimum: "1", maximum: "64", unit: "requests", defaultValue: "4" }
+      summary: "Summary."
     - parameterId: "prompt-cache-memory-mib"
       displayName: "Prompt cache memory"
       visibility: "PARAMETER_VISIBILITY_HIDDEN"
       unsignedInteger: { minimum: "0", maximum: "65536", unit: "MiB" }
+      summary: "Summary."
 artifacts:
   - artifactId: "fixture-dev-linux"
     oci:

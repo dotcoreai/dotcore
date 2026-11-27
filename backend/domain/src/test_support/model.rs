@@ -259,6 +259,7 @@ fn unsigned_parameter(
     unit: &str,
 ) -> ParameterDefinition {
     ParameterDefinition {
+        summary: "Summary.".into(),
         parameter_id: parameter_id.to_owned(),
         display_name: display_name.to_owned(),
         parameter_type: Some(parameter_definition::ParameterType::UnsignedInteger(

@@ -3016,6 +3016,7 @@ pub(super) fn application_with_parameters() -> Application {
     let graph = application.graph.as_mut().expect("graph");
     graph.parameters = vec![
         ParameterDefinition {
+            summary: "Summary.".into(),
             parameter_id: "mode".to_owned(),
             display_name: "Mode".to_owned(),
             description: String::new(),
@@ -3028,6 +3029,7 @@ pub(super) fn application_with_parameters() -> Application {
             group_id: None,
         },
         ParameterDefinition {
+            summary: "Summary.".into(),
             parameter_id: "workers".to_owned(),
             display_name: "Workers".to_owned(),
             description: String::new(),
@@ -3045,6 +3047,7 @@ pub(super) fn application_with_parameters() -> Application {
             group_id: None,
         },
         ParameterDefinition {
+            summary: "Summary.".into(),
             parameter_id: "contact".to_owned(),
             display_name: "Contact".to_owned(),
             description: String::new(),
@@ -3113,6 +3116,7 @@ pub(super) fn application_with_secret_parameters() -> Application {
     let graph = application.graph.as_mut().expect("graph");
     graph.parameters = vec![
         ParameterDefinition {
+            summary: "Summary.".into(),
             parameter_id: "username".to_owned(),
             display_name: "Username".to_owned(),
             description: String::new(),
@@ -3167,6 +3171,7 @@ pub(super) fn application_with_login_switch() -> Application {
     graph.parameters.insert(
         0,
         ParameterDefinition {
+            summary: "Summary.".into(),
             parameter_id: "login".to_owned(),
             display_name: "Login".to_owned(),
             description: String::new(),
@@ -3182,6 +3187,7 @@ pub(super) fn application_with_login_switch() -> Application {
         parameter.group_id = Some("login".to_owned());
     }
     graph.parameter_groups = vec![ParameterGroup {
+        summary: String::new(),
         group_id: "login".to_owned(),
         display_name: String::new(),
         description: String::new(),
@@ -3210,6 +3216,7 @@ pub(super) fn secret_parameter(
     };
 
     ParameterDefinition {
+        summary: "Summary.".into(),
         parameter_id: id.to_owned(),
         display_name: id.to_owned(),
         description: String::new(),

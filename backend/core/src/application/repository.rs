@@ -1322,6 +1322,7 @@ mod tests {
             let snapshot = deployment.snapshot.as_mut().expect("snapshot");
             let graph = snapshot.graph.as_mut().expect("graph");
             graph.parameters = vec![ParameterDefinition {
+                summary: "Summary.".into(),
                 parameter_id: "mode".to_owned(),
                 display_name: "Mode".to_owned(),
                 description: String::new(),
@@ -1446,6 +1447,7 @@ mod tests {
             let graph = snapshot.graph.as_mut().expect("graph");
             graph.parameters = vec![
                 ParameterDefinition {
+                    summary: "Summary.".into(),
                     parameter_id: "username".to_owned(),
                     display_name: "Username".to_owned(),
                     description: String::new(),
@@ -1460,6 +1462,7 @@ mod tests {
                     group_id: None,
                 },
                 ParameterDefinition {
+                    summary: "Summary.".into(),
                     parameter_id: "password".to_owned(),
                     display_name: "Password".to_owned(),
                     description: String::new(),
@@ -1561,6 +1564,7 @@ mod tests {
             graph.parameters.insert(
                 0,
                 ParameterDefinition {
+                    summary: "Summary.".into(),
                     parameter_id: "login".to_owned(),
                     display_name: "Login".to_owned(),
                     description: String::new(),
@@ -1576,6 +1580,7 @@ mod tests {
                 parameter.group_id = Some("login".to_owned());
             }
             graph.parameter_groups = vec![ParameterGroup {
+                summary: String::new(),
                 group_id: "login".to_owned(),
                 display_name: String::new(),
                 description: String::new(),

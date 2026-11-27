@@ -3307,6 +3307,7 @@ fn synthetic_boolean_engine_release() -> EngineRelease {
         .expect("fixture schema")
         .parameters
         .push(dotcore_proto::dotcore::catalog::v1::ParameterDefinition {
+            summary: "Summary.".into(),
             parameter_id: "feature-enabled".to_owned(),
             display_name: "Feature enabled".to_owned(),
             parameter_type: Some(
@@ -3369,6 +3370,7 @@ parameterSchema:
         minimum: "512"
         maximum: "16777216"
         unit: "tokens"
+      summary: "Summary."
     - parameterId: "context-per-request"
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
@@ -3377,6 +3379,7 @@ parameterSchema:
         maximum: "16777216"
         unit: "tokens"
         defaultValue: "8192"
+      summary: "Summary."
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
       visibility: "PARAMETER_VISIBILITY_BASIC"
@@ -3385,6 +3388,7 @@ parameterSchema:
         maximum: "64"
         unit: "requests"
         defaultValue: "4"
+      summary: "Summary."
     - parameterId: "prompt-cache-memory-mib"
       displayName: "Prompt cache memory"
       visibility: "PARAMETER_VISIBILITY_HIDDEN"
@@ -3392,6 +3396,7 @@ parameterSchema:
         minimum: "0"
         maximum: "65536"
         unit: "MiB"
+      summary: "Summary."
 artifacts:
   - artifactId: "linux-amd64"
     oci:
