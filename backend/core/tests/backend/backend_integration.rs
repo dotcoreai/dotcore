@@ -463,7 +463,7 @@ async fn simulated_model_withdrawal_preserves_unrelated_model_discovery_and_infe
                 "message": {"role": "assistant", "content": "Simulated response."},
                 "finish_reason": "stop"
             }],
-            "usage": {"prompt_tokens": 1, "completion_tokens": 3, "total_tokens": 4}
+            "usage": {"prompt_tokens": 3, "completion_tokens": 3, "total_tokens": 6, "prompt_tokens_details": {"cached_tokens": 0}}
         })
     );
 
@@ -502,7 +502,7 @@ async fn simulated_model_withdrawal_preserves_unrelated_model_discovery_and_infe
                 "message": {"role": "assistant", "content": "Simulated response."},
                 "finish_reason": "stop"
             }],
-            "usage": {"prompt_tokens": 1, "completion_tokens": 3, "total_tokens": 4}
+            "usage": {"prompt_tokens": 3, "completion_tokens": 3, "total_tokens": 6, "prompt_tokens_details": {"cached_tokens": 0}}
         })
     );
 

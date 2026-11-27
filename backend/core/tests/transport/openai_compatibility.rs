@@ -549,9 +549,10 @@ async fn synchronous_chat_has_the_public_openai_shape() {
                 "finish_reason": "stop"
             }],
             "usage": {
-                "prompt_tokens": 1,
+                "prompt_tokens": 3,
                 "completion_tokens": 3,
-                "total_tokens": 4
+                "total_tokens": 6,
+                "prompt_tokens_details": {"cached_tokens": 0}
             }
         })
     );
@@ -600,9 +601,10 @@ async fn streamed_chat_has_terminal_done_and_streamed_tool_arguments() {
     assert_eq!(
         events[4]["usage"],
         serde_json::json!({
-            "prompt_tokens": 1,
+            "prompt_tokens": 4,
             "completion_tokens": 1,
-            "total_tokens": 2
+            "total_tokens": 5,
+            "prompt_tokens_details": {"cached_tokens": 0}
         })
     );
 
@@ -787,13 +789,14 @@ async fn synchronous_responses_support_full_text_and_function_history() {
     assert_eq!(response["model"], "fixture-route");
     assert_eq!(response["store"], false);
     assert_eq!(response["output"][0]["type"], "message");
+    // The simulated answer fills the 64-token output limit.
     assert_eq!(
         response["output"][0]["content"][0]["text"],
-        "Simulated response."
+        format!("Simulated{}.", " response".repeat(62))
     );
     assert_eq!(
         response["usage"],
-        serde_json::json!({"input_tokens":6,"output_tokens":3,"total_tokens":9})
+        serde_json::json!({"input_tokens":33,"output_tokens":64,"total_tokens":97,"input_tokens_details":{"cached_tokens":28}})
     );
 
     router.stop().await;
@@ -815,7 +818,7 @@ async fn responses_accept_opaque_prompt_cache_keys_and_bare_message_items() {
     assert_public_fields_absent(&response.body);
     let response = json_body(&response);
     assert_eq!(response["output"][0]["type"], "message");
-    assert_eq!(response["usage"]["input_tokens"], 4);
+    assert_eq!(response["usage"]["input_tokens"], 16);
 
     router.stop().await;
 }

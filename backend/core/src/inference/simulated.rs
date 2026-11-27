@@ -19,8 +19,8 @@ use dotcore_proto::{
         ChatTextDelta, ChatToolCallDelta, ChatToolChoiceMode, DecisionAnswer, DecisionChoiceAnswer,
         DecisionPredicateAnswer, DecisionRefusal, DecisionRequest, DecisionResult,
         DecisionScoreAnswer, DecisionUsage, FunctionToolCall, FunctionToolDefinition, TokenUsage,
-        chat_message, chat_stream_event::Event, chat_text_delta, chat_tool_choice, decision_answer,
-        decision_content_part, decision_question,
+        chat_content_part, chat_message, chat_stream_event::Event, chat_text_delta,
+        chat_tool_choice, decision_answer, decision_content_part, decision_question,
     },
     google::protobuf::NullValue,
 };
@@ -33,8 +33,21 @@ use super::{
     InferenceResponse, NativeInferenceProvider, decision,
 };
 
-/// Text the simulated model answers with, one token per streamed delta.
-const SIMULATED_TEXT_TOKENS: [&str; 3] = ["Simulated", " response", "."];
+/// Text tokens of the simulated answer: its first word, the word repeated to fill its length,
+/// and its closing token, one token per streamed delta.
+const SIMULATED_FIRST_TOKEN: &str = "Simulated";
+const SIMULATED_FILL_TOKEN: &str = " response";
+const SIMULATED_LAST_TOKEN: &str = ".";
+
+/// Length of the simulated answer when the request sets no completion limit.
+const SIMULATED_DEFAULT_COMPLETION_TOKENS: u32 = 3;
+
+/// Longest simulated answer, whatever the request's limit, so a client's large limit can't make a
+/// paced stream last for minutes.
+const SIMULATED_MAX_COMPLETION_TOKENS: u32 = 256;
+
+/// Prompt bytes per simulated prompt token, a common average for English text.
+const SIMULATED_BYTES_PER_TOKEN: usize = 4;
 
 /// Test-only controls for deterministic native simulated inference.
 #[derive(Clone, Default)]
@@ -415,32 +428,96 @@ fn confidence(probabilities: &[f64]) -> f64 {
     }
 }
 
-/// The answer to a request, as a complete choice and as stream events, with its token usage: one
-/// prompt token per message, and one completion token per text token or one for a tool call.
+/// The answer to a request, as a complete choice and as stream events, with its token usage.
+///
+/// Prompt tokens follow the message text, and every message but the last counts as cached, like
+/// the earlier turns of a conversation an engine keeps in its prompt cache. A text answer fills
+/// the request's completion limit, up to a simulated maximum, and a tool call takes one token.
 fn response(
     model_id: &str,
     request: &ChatRequest,
 ) -> (ChatCompletionChoice, Vec<ChatStreamEvent>, TokenUsage) {
     let tool = simulated_tool(request);
-    let prompt_tokens = request.messages.len() as u64;
-    let completion_tokens = if tool.is_some() {
-        1
-    } else {
-        SIMULATED_TEXT_TOKENS.len() as u64
-    };
+    let message_tokens = request
+        .messages
+        .iter()
+        .map(simulated_prompt_tokens)
+        .collect::<Vec<_>>();
+    let prompt_tokens = message_tokens.iter().sum::<u64>();
+    let cached_prompt_tokens = prompt_tokens - message_tokens.last().copied().unwrap_or(0);
+    let (completion_tokens, finish_reason) = simulated_completion_length(request);
+    let completion_tokens = if tool.is_some() { 1 } else { completion_tokens };
+
     let usage = TokenUsage {
         prompt_tokens,
-        completion_tokens,
-        total_tokens: prompt_tokens + completion_tokens,
-        cached_prompt_tokens: None,
+        completion_tokens: u64::from(completion_tokens),
+        total_tokens: prompt_tokens + u64::from(completion_tokens),
+        cached_prompt_tokens: Some(cached_prompt_tokens),
         reasoning_tokens: None,
     };
     let (choice, events) = tool.map_or_else(
-        || simulated_text_response(model_id, usage),
+        || simulated_text_response(model_id, completion_tokens, finish_reason, usage),
         |tool| simulated_tool_response(model_id, tool, usage),
     );
 
     (choice, events, usage)
+}
+
+/// Prompt tokens of one message: one for its role, plus one per four bytes of its text, tool
+/// calls, tool result and reasoning. Image parts count no tokens.
+fn simulated_prompt_tokens(message: &ChatMessage) -> u64 {
+    let content = match &message.content {
+        Some(chat_message::Content::TextContent(text)) => text.len(),
+        Some(chat_message::Content::ToolResult(result)) => result.content.len(),
+        Some(chat_message::Content::NullContent(_)) | None => 0,
+    };
+    let parts = message
+        .content_parts
+        .iter()
+        .map(|part| match &part.content {
+            Some(chat_content_part::Content::TextContent(text)) => text.len(),
+            Some(chat_content_part::Content::ImageContent(_)) | None => 0,
+        })
+        .sum::<usize>();
+    let tool_calls = message
+        .tool_calls
+        .iter()
+        .map(|call| call.function_name.len() + call.arguments_json.len())
+        .sum::<usize>();
+    let reasoning = message.reasoning.as_ref().map_or(0, String::len);
+
+    let bytes = content + parts + tool_calls + reasoning;
+    1 + bytes.div_ceil(SIMULATED_BYTES_PER_TOKEN) as u64
+}
+
+/// The text answer's length and finish reason: the request's completion limit, which the answer
+/// reaches and so finishes on length, capped at the simulated maximum, or the default length.
+fn simulated_completion_length(request: &ChatRequest) -> (u32, ChatFinishReason) {
+    let limit = request.generation_controls.as_ref().and_then(|controls| {
+        controls
+            .max_completion_tokens
+            .or(controls.max_tokens)
+            .filter(|limit| *limit > 0)
+    });
+    match limit {
+        Some(limit) if limit <= SIMULATED_MAX_COMPLETION_TOKENS => {
+            (limit, ChatFinishReason::Length)
+        }
+        Some(_) => (SIMULATED_MAX_COMPLETION_TOKENS, ChatFinishReason::Stop),
+        None => (SIMULATED_DEFAULT_COMPLETION_TOKENS, ChatFinishReason::Stop),
+    }
+}
+
+/// The answer's text tokens: its first word, then the fill word, closing on the last token once
+/// the answer has room for all three.
+fn simulated_text_tokens(length: u32) -> Vec<&'static str> {
+    (0..length)
+        .map(|index| match index {
+            0 => SIMULATED_FIRST_TOKEN,
+            index if index + 1 == length && length >= 3 => SIMULATED_LAST_TOKEN,
+            _ => SIMULATED_FILL_TOKEN,
+        })
+        .collect()
 }
 
 fn simulated_tool_response(
@@ -485,20 +562,15 @@ fn simulated_tool_response(
 
 fn simulated_text_response(
     model_id: &str,
+    length: u32,
+    finish_reason: ChatFinishReason,
     usage: TokenUsage,
 ) -> (ChatCompletionChoice, Vec<ChatStreamEvent>) {
-    let text = SIMULATED_TEXT_TOKENS.concat();
+    let tokens = simulated_text_tokens(length);
+    let text = tokens.concat();
     let mut events = vec![started(model_id)];
-    events.extend(
-        SIMULATED_TEXT_TOKENS
-            .iter()
-            .map(|token| text_delta((*token).to_owned())),
-    );
-    events.extend([
-        finished(ChatFinishReason::Stop),
-        usage_event(usage),
-        completed(),
-    ]);
+    events.extend(tokens.iter().map(|token| text_delta((*token).to_owned())));
+    events.extend([finished(finish_reason), usage_event(usage), completed()]);
     (
         ChatCompletionChoice {
             index: 0,
@@ -510,7 +582,7 @@ fn simulated_text_response(
                 content_parts: Vec::new(),
                 reasoning: None,
             }),
-            finish_reason: ChatFinishReason::Stop as i32,
+            finish_reason: finish_reason as i32,
         },
         events,
     )
@@ -602,7 +674,8 @@ fn completed() -> ChatStreamEvent {
 #[cfg(test)]
 mod tests {
     use dotcore_proto::dotcore::inference::v1::{
-        ChatMessage, ChatMessageRole, ChatRequest, chat_message, chat_stream_event::Event,
+        ChatGenerationControls, ChatMessage, ChatMessageRole, ChatRequest, FunctionToolResult,
+        chat_message, chat_stream_event::Event,
     };
 
     use dotcore_domain::{clock::SystemClock, timing::Timing};
@@ -650,8 +723,116 @@ mod tests {
 
         assert_eq!(response.completion_id, "chatcmpl_simulated");
         assert_eq!(response.model_id, "public-route");
-        let usage = response.usage.expect("usage");
-        assert_eq!((usage.prompt_tokens, usage.completion_tokens), (1, 3));
+        // "Hello" is one role token plus two text tokens; a lone message has nothing cached.
+        assert_eq!(
+            response.usage,
+            Some(TokenUsage {
+                prompt_tokens: 3,
+                completion_tokens: 3,
+                total_tokens: 6,
+                cached_prompt_tokens: Some(0),
+                reasoning_tokens: None,
+            })
+        );
+        assert_eq!(
+            response.choices[0]
+                .message
+                .as_ref()
+                .and_then(|message| message.content.clone()),
+            Some(chat_message::Content::TextContent(
+                "Simulated response.".to_owned()
+            ))
+        );
+    }
+
+    #[test]
+    fn prompt_usage_follows_message_content_and_caches_earlier_turns() {
+        let request = ChatRequest {
+            messages: vec![
+                text_message(ChatMessageRole::System, &"s".repeat(4096)),
+                ChatMessage {
+                    role: ChatMessageRole::Assistant as i32,
+                    tool_calls: vec![FunctionToolCall {
+                        tool_call_id: "call_1".to_owned(),
+                        function_name: "read".to_owned(),
+                        arguments_json: "{\"path\":\"a\"}".to_owned(),
+                    }],
+                    reasoning: Some("why".to_owned()),
+                    ..Default::default()
+                },
+                ChatMessage {
+                    role: ChatMessageRole::Tool as i32,
+                    content: Some(chat_message::Content::ToolResult(FunctionToolResult {
+                        tool_call_id: "call_1".to_owned(),
+                        content: "x".repeat(9),
+                    })),
+                    ..Default::default()
+                },
+                text_message(ChatMessageRole::User, &"u".repeat(2048)),
+            ],
+            ..Default::default()
+        };
+
+        let (_, _, usage) = response("model", &request);
+
+        // Role token plus bytes over four: 1 + 1024, 1 + ceil(4 + 12 + 3 / 4), 1 + ceil(9 / 4),
+        // and the last message 1 + 512, which alone is not cached.
+        assert_eq!(
+            usage,
+            TokenUsage {
+                prompt_tokens: 1025 + 6 + 4 + 513,
+                completion_tokens: 3,
+                total_tokens: 1548 + 3,
+                cached_prompt_tokens: Some(1035),
+                reasoning_tokens: None,
+            }
+        );
+    }
+
+    #[test]
+    fn text_answer_fills_the_completion_limit_up_to_the_simulated_maximum() {
+        let answer = |max_tokens: Option<u32>, max_completion_tokens: Option<u32>| {
+            let request = ChatRequest {
+                messages: vec![text_message(ChatMessageRole::User, "Hi")],
+                generation_controls: Some(ChatGenerationControls {
+                    max_tokens,
+                    max_completion_tokens,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+            let (choice, events, usage) = response("model", &request);
+            let deltas = events
+                .iter()
+                .filter(|event| matches!(event.event, Some(Event::TextDelta(_))))
+                .count();
+            (
+                usage.completion_tokens,
+                deltas,
+                ChatFinishReason::try_from(choice.finish_reason).expect("finish reason"),
+            )
+        };
+
+        assert_eq!(answer(None, None), (3, 3, ChatFinishReason::Stop));
+        assert_eq!(answer(Some(2), None), (2, 2, ChatFinishReason::Length));
+        assert_eq!(
+            answer(Some(8), Some(48)),
+            (48, 48, ChatFinishReason::Length)
+        );
+        assert_eq!(
+            answer(None, Some(256)),
+            (256, 256, ChatFinishReason::Length)
+        );
+        assert_eq!(
+            answer(None, Some(32_000)),
+            (256, 256, ChatFinishReason::Stop)
+        );
+        assert_eq!(simulated_text_tokens(1), ["Simulated"]);
+        assert_eq!(simulated_text_tokens(2), ["Simulated", " response"]);
+        assert_eq!(
+            simulated_text_tokens(4).concat(),
+            "Simulated response response."
+        );
     }
 
     #[tokio::test]
@@ -917,6 +1098,14 @@ mod tests {
     }
 
     /// A provider on the test timing, whose streamed tokens follow each other without pause.
+    fn text_message(role: ChatMessageRole, text: &str) -> ChatMessage {
+        ChatMessage {
+            role: role as i32,
+            content: Some(chat_message::Content::TextContent(text.to_owned())),
+            ..Default::default()
+        }
+    }
+
     fn test_provider() -> SimulatedNativeProvider {
         SimulatedNativeProvider::new(Timing::test().simulated, Arc::new(SystemClock))
     }

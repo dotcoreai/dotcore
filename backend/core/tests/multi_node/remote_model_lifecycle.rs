@@ -2047,9 +2047,10 @@ fn simulated_completion(route: &str) -> serde_json::Value {
             "finish_reason": "stop"
         }],
         "usage": {
-            "prompt_tokens": 1,
+            "prompt_tokens": 3,
             "completion_tokens": 3,
-            "total_tokens": 4
+            "total_tokens": 6,
+            "prompt_tokens_details": {"cached_tokens": 0}
         }
     })
 }
