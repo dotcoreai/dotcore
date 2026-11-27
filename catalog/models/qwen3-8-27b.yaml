@@ -567,9 +567,9 @@ profiles:
       values:
         - parameterId: "prompt-cache-memory-mib"
           unsignedInteger: "2048"
-  - profileId: "nvfp4-text"
+  - profileId: "nvfp4"
     displayName: "Unsloth NVFP4"
-    description: "Runs Qwen3.8 27B through vLLM for text inference."
+    description: "Runs Qwen3.8 27B through vLLM for Linux NVIDIA inference."
     configurationId: "vllm-nvidia-cuda"
     defaultModelArtifactBindingId: "nvfp4"
     engineParameterDefaults:
@@ -585,24 +585,6 @@ profiles:
         values:
           - parameterId: "enabled"
             boolean: false
-  - profileId: "nvfp4-multimodal"
-    displayName: "Unsloth NVFP4 with vision"
-    description: "Runs Qwen3.8 27B through vLLM for text and image inference."
-    configurationId: "vllm-nvidia-cuda"
-    defaultModelArtifactBindingId: "nvfp4"
-    engineParameterDefaults:
-      values:
-        - parameterId: "maximum-batched-tokens"
-          unsignedInteger: "4096"
-        - parameterId: "maximum-cudagraph-capture-size"
-          unsignedInteger: "32"
-        - parameterId: "kv-offloading-size-gib"
-          unsignedInteger: "0"
-    optionDefaults:
-      - optionId: "vision"
-        values:
-          - parameterId: "enabled"
-            boolean: true
   - profileId: "ninfer-nvfp4"
     displayName: "ninfer"
     description: "Runs Qwen3.8 27B through ninfer on an RTX 5090 or RTX PRO 6000 for text and image inference."

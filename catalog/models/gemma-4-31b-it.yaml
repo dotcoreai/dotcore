@@ -374,6 +374,12 @@ configurations:
             + ${kv-cache-memory-bytes}
           allowance: >-
             ${marginBytes}
+        # vLLM pins the KV offloading size in host memory as whole offload chunks, so the setting
+        # bounds it.
+        hostMemory:
+          unit: bytes
+          equation: >-
+            ${kv-offloading-size-gib} * GiB
     hardwareSupport:
       - hardwareClassId: "nvidia"
         hardwareRequirements:
@@ -510,24 +516,6 @@ profiles:
         values:
           - parameterId: "enabled"
             boolean: false
-  - profileId: "nvfp4-multimodal"
-    displayName: "Unsloth NVFP4 with vision"
-    description: "Runs Gemma 4 31B through vLLM for text and image inference."
-    configurationId: "vllm-nvidia-cuda"
-    defaultModelArtifactBindingId: "nvfp4"
-    engineParameterDefaults:
-      values:
-        - parameterId: "maximum-batched-tokens"
-          unsignedInteger: "4096"
-        - parameterId: "maximum-cudagraph-capture-size"
-          unsignedInteger: "32"
-        - parameterId: "kv-offloading-size-gib"
-          unsignedInteger: "0"
-    optionDefaults:
-      - optionId: "vision"
-        values:
-          - parameterId: "enabled"
-            boolean: true
 intelligence:
   overall: 15
 license:

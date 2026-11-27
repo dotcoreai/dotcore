@@ -368,6 +368,7 @@ pub(super) fn compile(
             })
         })
         .collect::<Result<Vec<_>, SizingError>>()?;
+    validate_memory_parameters(schema, &estimates)?;
 
     Ok(CompiledSizing {
         parameters: source.parameters.clone(),
@@ -763,6 +764,40 @@ fn compile_derived_parameters(
         .collect()
 }
 
+/// Requires every engine parameter that sizes memory to appear in an estimate, in its equation or
+/// its allowance. The engine holds that memory whatever the equations say, so a configuration that
+/// leaves one out under-reports its demand; one that never uses the parameter excludes it instead.
+/// Any estimate counts: on unified memory a host-pool value may be counted in accelerator memory,
+/// since both draw from the same pool.
+fn validate_memory_parameters(
+    schema: &EngineParameterSchema,
+    estimates: &[CompiledEstimate],
+) -> Result<(), SizingError> {
+    for parameter in &schema.parameters {
+        let Some(ParameterType::UnsignedInteger(range)) = &parameter.parameter_type else {
+            continue;
+        };
+        if range.memory_pool.is_none() {
+            continue;
+        }
+        let parameter_id = BTreeSet::from([parameter.parameter_id.clone()]);
+        let counted = estimates.iter().any(|estimate| {
+            estimate.expression.references_any(&parameter_id)
+                || estimate
+                    .allowance
+                    .as_ref()
+                    .is_some_and(|allowance| allowance.references_any(&parameter_id))
+        });
+        if !counted {
+            return Err(SizingError::declaration(format!(
+                "engine parameter {:?} sizes memory, so an estimate must use it or the configuration must exclude it",
+                parameter.parameter_id
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn evaluate_allowance(
     allowance: Option<&expression::CompiledExpression>,
     values: &BTreeMap<String, expression::Value>,
@@ -918,10 +953,11 @@ mod tests {
 
     use dotcore_proto::dotcore::catalog::v1::{
         BooleanModelOptionParameterSchema, BooleanParameterSchema, EngineParameterSchema,
-        ModelConfigurationOption, ModelEngineConfiguration, ModelOptionParameterDefinition,
-        ModelOptionParameterValue, ModelOptionValues, ParameterDefinition, ParameterValue,
-        ParameterValues, ParameterVisibility, StringEnumModelOptionParameterSchema,
-        UnsignedIntegerModelOptionParameterSchema, UnsignedIntegerParameterSchema,
+        MemoryPool, ModelConfigurationOption, ModelEngineConfiguration,
+        ModelOptionParameterDefinition, ModelOptionParameterValue, ModelOptionValues,
+        ParameterDefinition, ParameterValue, ParameterValues, ParameterVisibility,
+        StringEnumModelOptionParameterSchema, UnsignedIntegerModelOptionParameterSchema,
+        UnsignedIntegerParameterSchema,
         model_option_parameter_definition::ParameterType as OptionParameterType,
         model_option_parameter_value::Value as OptionParameterValueKind,
         parameter_definition::ParameterType, parameter_value::Value as ParameterValueKind,
@@ -1241,6 +1277,52 @@ mod tests {
                 .expect_err("missing option value")
                 .to_string(),
             "Catalog sizing evaluation: point has no value for \"options.vision.enabled\""
+        );
+    }
+
+    #[test]
+    fn memory_parameters_count_in_an_estimate() {
+        let schema = offload_schema();
+        let compiles = |estimates: &[(&str, &str, Option<&str>)]| {
+            let mut declaration = source("${baseVramBytes}", None);
+            for (resource, equation, allowance) in estimates {
+                declaration.estimates.insert(
+                    (*resource).to_owned(),
+                    EstimateSource {
+                        unit: "bytes".to_owned(),
+                        equation: (*equation).to_owned(),
+                        allowance: allowance.map(str::to_owned),
+                        available_when: None,
+                    },
+                );
+            }
+            compile(&declaration, &schema, &configuration()).map(|_| ())
+        };
+
+        // Counted in an estimate's equation or its allowance, in either pool.
+        assert_eq!(
+            compiles(&[("hostMemory", "${offload-gib} * 1073741824", None)]),
+            Ok(())
+        );
+        assert_eq!(
+            compiles(&[("hostMemory", "0", Some("${offload-gib} * 1073741824"))]),
+            Ok(())
+        );
+        assert_eq!(
+            compiles(&[(
+                "acceleratorMemory",
+                "${baseVramBytes} + ${offload-gib}",
+                None
+            )]),
+            Ok(())
+        );
+
+        // Counted nowhere.
+        assert_eq!(
+            compiles(&[("hostMemory", "0", None)])
+                .expect_err("uncounted memory parameter")
+                .to_string(),
+            "Catalog sizing declaration: engine parameter \"offload-gib\" sizes memory, so an estimate must use it or the configuration must exclude it"
         );
     }
 
@@ -1572,6 +1654,28 @@ mod tests {
             .expect("estimate")
             .allowance = Some(allowance.to_owned());
         declaration
+    }
+
+    fn offload_schema() -> EngineParameterSchema {
+        let mut schema = schema();
+        schema.parameters.push(ParameterDefinition {
+            parameter_id: "offload-gib".to_owned(),
+            display_name: "Offload".to_owned(),
+            parameter_type: Some(ParameterType::UnsignedInteger(
+                UnsignedIntegerParameterSchema {
+                    minimum: 0,
+                    maximum: None,
+                    unit: "GiB".to_owned(),
+                    default_value: None,
+                    memory_pool: Some(MemoryPool::Host as i32),
+                },
+            )),
+            visibility: ParameterVisibility::Advanced as i32,
+            description: "Host offload size.".to_owned(),
+            enabled_by_parameter_id: None,
+            group_id: None,
+        });
+        schema
     }
 
     fn derived_schema() -> EngineParameterSchema {

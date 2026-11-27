@@ -133,10 +133,16 @@ message VllmMtpDraftSource {
 // Marks an MTP head embedded in the model weights.
 message VllmEmbeddedMtpHead {}
 
-// Realizes one DSpark speculative-decoding option for vLLM from its speculative-token count. vLLM
-// loads the drafter from the model's weights, so every snapshot bound next to this option must
-// hold it; the declaration does not check that it does.
-message VllmDsparkOptionRealization {}
+// Realizes one DSpark speculative-decoding option for vLLM when its switch is on. vLLM loads the
+// drafter from the model's weights, so every snapshot the option supports must list the drafter
+// file.
+message VllmDsparkOptionRealization {
+  // Required speculative tokens per step; the drafter's fixed block length, at least 1.
+  uint32 speculative_token_count = 1;
+
+  // Required path of the drafter weights inside the model snapshot.
+  string drafter_path = 2;
+}
 
 // KV-cache element types accepted by a vLLM configuration.
 enum VllmKvCacheDataType {

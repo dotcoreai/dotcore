@@ -57,8 +57,8 @@ impl EngineDeclarationValidator for AcceptEngineDeclarations {
 /// maximum context. Operators may change the other values, so the defaults are also evaluated with
 /// one value moved at a time: each memory parameter at its minimum and well above it, and the
 /// parallel requests at one and at a larger count. Every combination of declared boolean and
-/// string-enum option values the profile accepts is evaluated too, and each reports its first
-/// bending variant only.
+/// string-enum option values and of speculative-token counts off and at their maximum that the
+/// profile accepts is evaluated too, and each reports its first bending variant only.
 pub fn sizing_not_linear_in_total_context(catalog: &Catalog) -> Vec<String> {
     let mut problems = Vec::new();
     for (key, sizing) in &catalog.sizing {
@@ -707,6 +707,9 @@ fn choice_label(combination: &[(String, ModelOptionParameterValue)]) -> String {
             let shown = match value.value.as_ref() {
                 Some(model_option_parameter_value::Value::Boolean(value)) => value.to_string(),
                 Some(model_option_parameter_value::Value::String(value)) => format!("{value:?}"),
+                Some(model_option_parameter_value::Value::UnsignedInteger(value)) => {
+                    value.to_string()
+                }
                 _ => String::new(),
             };
             format!("{option_id}.{} = {shown}", value.parameter_id)
@@ -715,8 +718,9 @@ fn choice_label(combination: &[(String, ModelOptionParameterValue)]) -> String {
         .join(", ")
 }
 
-/// Every combination of one value for each declared boolean and string-enum option parameter of
-/// the configuration, keyed by option id; unsigned parameters keep their resolved value.
+/// Every combination of one value for each declared boolean and string-enum option parameter and
+/// each speculative-token count, off or at its maximum, of the configuration, keyed by option id;
+/// other unsigned parameters keep their resolved value.
 fn choice_combinations(
     configuration: &ModelEngineConfiguration,
 ) -> Vec<Vec<(String, ModelOptionParameterValue)>> {
@@ -735,6 +739,14 @@ fn choice_combinations(
                         .cloned()
                         .map(model_option_parameter_value::Value::String)
                         .collect()
+                }
+                Some(model_option_parameter_definition::ParameterType::UnsignedInteger(range))
+                    if parameter.parameter_id == options::SPECULATIVE_TOKEN_COUNT_PARAMETER_ID =>
+                {
+                    vec![
+                        model_option_parameter_value::Value::UnsignedInteger(0),
+                        model_option_parameter_value::Value::UnsignedInteger(range.maximum),
+                    ]
                 }
                 _ => continue,
             };

@@ -14,10 +14,13 @@ use dotcore_proto::dotcore::catalog::v1::{
     model_option_parameter_value::Value,
 };
 
-/// Fixed parameter id of the speculative-token count every speculative-decoding option
-/// declares. A count of 0 turns speculative decoding off, even below the declared range, which
-/// bounds the counts that turn it on.
+/// Fixed parameter id of the speculative-token count an MTP speculative-decoding option declares.
+/// A count of 0 turns speculative decoding off, and the declared range starts at 0.
 pub const SPECULATIVE_TOKEN_COUNT_PARAMETER_ID: &str = "token-count";
+
+/// Fixed parameter id of the switch a DSpark speculative-decoding option declares. Its drafter
+/// proposes a fixed-length block, so the option turns on or off and has no count to choose.
+pub const SPECULATIVE_ENABLED_PARAMETER_ID: &str = "enabled";
 
 /// Fixed parameter id of the precision every KV cache precision option declares. Engine adapters
 /// own which precisions they accept.
@@ -25,7 +28,7 @@ pub const KV_CACHE_PRECISION_PARAMETER_ID: &str = "precision";
 
 /// Resolves configuration, profile, and deployment option values in declaration order.
 /// The model-level options identify the speculative-decoding options, at most one of which may
-/// resolve to a nonzero speculative-token count.
+/// resolve to on.
 pub fn resolve_model_option_values(
     model_options: &[ModelOption],
     configuration: &ModelEngineConfiguration,
@@ -120,8 +123,16 @@ pub fn string_value<'a>(values: &'a ModelOptionValues, parameter_id: &str) -> Op
         })
 }
 
-/// Rejects a value set in which more than one speculative-decoding option has a nonzero
-/// speculative-token count, naming every active option.
+/// Reports whether one speculative-decoding option's values turn it on: its switch is on or its
+/// speculative-token count is above 0.
+pub fn speculative_option_active(values: &ModelOptionValues) -> bool {
+    boolean_value(values, SPECULATIVE_ENABLED_PARAMETER_ID) == Some(true)
+        || unsigned_value(values, SPECULATIVE_TOKEN_COUNT_PARAMETER_ID)
+            .is_some_and(|count| count > 0)
+}
+
+/// Rejects a value set in which more than one speculative-decoding option is on, naming every
+/// active option.
 pub(crate) fn reject_multiple_active_speculative_options(
     model_options: &[ModelOption],
     values: &[ModelOptionValues],
@@ -132,14 +143,13 @@ pub(crate) fn reject_multiple_active_speculative_options(
             model_options.iter().any(|option| {
                 option.option_id == values.option_id
                     && matches!(option.kind, Some(ModelOptionKind::SpeculativeDecoding(_)))
-            }) && unsigned_value(values, SPECULATIVE_TOKEN_COUNT_PARAMETER_ID)
-                .is_some_and(|count| count > 0)
+            }) && speculative_option_active(values)
         })
         .map(|values| format!("{:?}", values.option_id))
         .collect::<Vec<_>>();
     if active.len() > 1 {
         anyhow::bail!(
-            "at most one speculative decoding option may have a token count above 0, but {} are active",
+            "at most one speculative decoding option may be on, but {} are active",
             active.join(", ")
         );
     }
@@ -234,8 +244,7 @@ fn value_matches_definition(
     ) || matches!(
         (definition.parameter_type.as_ref(), value.value.as_ref()),
         (Some(ParameterType::UnsignedInteger(range)), Some(Value::UnsignedInteger(value)))
-            if (*value >= range.minimum && *value <= range.maximum)
-                || (*value == 0 && definition.parameter_id == SPECULATIVE_TOKEN_COUNT_PARAMETER_ID)
+            if *value >= range.minimum && *value <= range.maximum
     ) || matches!(
         (definition.parameter_type.as_ref(), value.value.as_ref()),
         (Some(ParameterType::StringEnum(schema)), Some(Value::String(value)))
@@ -253,7 +262,10 @@ mod tests {
         model_option_parameter_definition::ParameterType, model_option_parameter_value::Value,
     };
 
-    use super::{SPECULATIVE_TOKEN_COUNT_PARAMETER_ID, resolve_model_option_values};
+    use super::{
+        SPECULATIVE_ENABLED_PARAMETER_ID, SPECULATIVE_TOKEN_COUNT_PARAMETER_ID,
+        resolve_model_option_values,
+    };
 
     #[test]
     fn resolution_preserves_explicit_false_over_profile_default() {
@@ -339,21 +351,21 @@ mod tests {
 
         assert_eq!(
             error.to_string(),
-            "at most one speculative decoding option may have a token count above 0, but \"mtp\", \"dflash\" are active"
+            "at most one speculative decoding option may be on, but \"mtp\", \"dflash\" are active"
         );
     }
 
     #[test]
-    fn fixed_count_speculative_option_accepts_its_count_or_off() {
+    fn a_switched_on_speculative_option_counts_as_active() {
         let mut configuration = speculative_configuration();
-        configuration.options[0].parameters[0].parameter_type = Some(
-            ParameterType::UnsignedInteger(UnsignedIntegerModelOptionParameterSchema {
-                minimum: 7,
-                maximum: 7,
-                unit: "tokens".to_owned(),
-            }),
-        );
-        configuration.options[0].default_values = Some(token_count("mtp", 7));
+        configuration.options[0].parameters[0] = ModelOptionParameterDefinition {
+            parameter_id: SPECULATIVE_ENABLED_PARAMETER_ID.to_owned(),
+            display_name: "Enabled".to_owned(),
+            parameter_type: Some(ParameterType::Boolean(
+                BooleanModelOptionParameterSchema::default(),
+            )),
+        };
+        configuration.options[0].default_values = Some(switch("mtp", true));
         let resolve = |overrides: &[ModelOptionValues]| {
             resolve_model_option_values(
                 &speculative_model_options(),
@@ -364,14 +376,19 @@ mod tests {
         };
 
         assert_eq!(
-            resolve(&[]).expect("default count"),
-            vec![token_count("mtp", 7), token_count("dflash", 0)]
+            resolve(&[]).expect("default switch"),
+            vec![switch("mtp", true), token_count("dflash", 0)]
         );
         assert_eq!(
-            resolve(&[token_count("mtp", 0)]).expect("off below the declared range"),
-            vec![token_count("mtp", 0), token_count("dflash", 0)]
+            resolve(&[switch("mtp", false), token_count("dflash", 2)]).expect("other option on"),
+            vec![switch("mtp", false), token_count("dflash", 2)]
         );
-        assert!(resolve(&[token_count("mtp", 3)]).is_err());
+        assert_eq!(
+            resolve(&[token_count("dflash", 2)])
+                .expect_err("switch and count both on")
+                .to_string(),
+            "at most one speculative decoding option may be on, but \"mtp\", \"dflash\" are active"
+        );
     }
 
     fn values(enabled: bool) -> ModelOptionValues {
@@ -426,6 +443,16 @@ mod tests {
                 })
                 .collect(),
             ..Default::default()
+        }
+    }
+
+    fn switch(option_id: &str, enabled: bool) -> ModelOptionValues {
+        ModelOptionValues {
+            option_id: option_id.to_owned(),
+            values: vec![ModelOptionParameterValue {
+                parameter_id: SPECULATIVE_ENABLED_PARAMETER_ID.to_owned(),
+                value: Some(Value::Boolean(enabled)),
+            }],
         }
     }
 

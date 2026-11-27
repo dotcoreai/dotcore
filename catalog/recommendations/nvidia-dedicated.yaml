@@ -1,5 +1,5 @@
 # Model recommendations for NVIDIA GPUs with their own memory, best first. Minimums per GPU separate
-# card sizes: 12, 16 and 24 GB, with the last entry for 8 GB cards. Entries a GPU can't run, such as
+# card sizes: 12, 16, 24 and 32 GB, with the last entry for 8 GB cards. Entries a GPU can't run, such as
 # ninfer off an RTX 5090 or RTX PRO 6000, are skipped for it. Coding entries carry the largest
 # context per request that starts on an idle card of their size.
 hardwareClassId: "nvidia-dedicated"
@@ -9,6 +9,13 @@ useCases:
       - modelId: "qwen3-8-27b"
         profileId: "ninfer-nvfp4"
         contextTokensPerRequest: 229376
+      # Needs a 32 GB card; scores just below Qwen3.8 27B and decodes faster with its 3.5B active
+      # parameters. Two requests of this context fit an idle RTX 5090 with DSpark on.
+      - modelId: "inkling-2-mini"
+        profileId: "nvfp4"
+        contextTokensPerRequest: 180224
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "34000000000"
       - modelId: "qwen3-8-27b"
         profileId: "q3-xl-q8-kv"
         contextTokensPerRequest: 155648
@@ -27,6 +34,11 @@ useCases:
       - modelId: "qwen3-8-27b"
         profileId: "ninfer-nvfp4"
         contextTokensPerRequest: 32768
+      - modelId: "inkling-2-mini"
+        profileId: "nvfp4"
+        contextTokensPerRequest: 32768
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "34000000000"
       - modelId: "qwen3-8-27b"
         profileId: "q4-xl"
         contextTokensPerRequest: 32768

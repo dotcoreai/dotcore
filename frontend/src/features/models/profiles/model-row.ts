@@ -123,7 +123,8 @@ export interface ProfileFit {
 
 /**
  * One speculative decoding option as a configuration declares it: the count range in tokens, where
- * 0 is off, and the default count the configuration or profile resolves to.
+ * 0 is off, and the default count the configuration or profile resolves to. A switch, such as
+ * DSpark, has no count to choose: it ranges over 1 token, which stands for on.
  */
 export interface SpeculativeOption {
   defaultCount: number;
@@ -133,6 +134,8 @@ export interface SpeculativeOption {
   maximum?: number;
   minimum: number;
   optionId: string;
+  /** Whether the option only turns on or off, with no count to choose. */
+  switch: boolean;
 }
 
 /** A profile's accelerator memory in bytes, one value or a range, with where it comes from. */
@@ -208,8 +211,11 @@ export interface ProfileSizingView {
   ) => SizingScenarioUnsupportedReason | undefined;
 }
 
-/** The parameter id the catalog fixes for the count of every speculative decoding option. */
+/** The parameter id the catalog fixes for the count of a counted speculative decoding option. */
 export const speculativeTokenCountId = "token-count";
+
+/** The parameter id the catalog fixes for the switch of a speculative option with no count. */
+export const speculativeEnabledId = "enabled";
 
 export function projectModelRows(input: ModelRowInput): ModelRow[] {
   return input.models.map((model) => projectModelRow(model, input));
@@ -237,25 +243,44 @@ export function modelSpeculativeOptions(model: Model): ModelOption[] {
 
 /**
  * The speculative options a configuration declares, in model declaration order, with the count
- * range and the configuration's default. A profile's option defaults replace the default.
+ * range or switch and the configuration's default. A profile's option defaults replace the default.
  */
 export function configurationSpeculativeOptions(
   model: Model,
   configuration: ModelEngineConfiguration | undefined,
   profile?: ModelProfile,
 ): SpeculativeOption[] {
-  return modelSpeculativeOptions(model).flatMap((option) => {
+  return modelSpeculativeOptions(model).flatMap((option): SpeculativeOption[] => {
     const declared = configuration?.options.find(
       (candidate) => candidate.optionId === option.optionId,
     );
-    const range = declared?.parameters.find(
-      (parameter) => parameter.parameterId === speculativeTokenCountId,
-    )?.parameterType;
-    if (!declared || range?.case !== "unsignedInteger") return [];
+    if (!declared) return [];
 
     const profileDefaults = profile?.optionDefaults.find(
       (candidate) => candidate.optionId === option.optionId,
     );
+    const switched = declared.parameters.find(
+      (parameter) => parameter.parameterId === speculativeEnabledId,
+    )?.parameterType;
+    if (switched?.case === "boolean") {
+      const on = enabled(profileDefaults) ?? enabled(declared.defaultValues) ?? false;
+      return [
+        {
+          defaultCount: on ? 1 : 0,
+          displayName: option.displayName,
+          maximum: 1,
+          minimum: 1,
+          optionId: option.optionId,
+          switch: true,
+        },
+      ];
+    }
+
+    const range = declared.parameters.find(
+      (parameter) => parameter.parameterId === speculativeTokenCountId,
+    )?.parameterType;
+    if (range?.case !== "unsignedInteger") return [];
+
     return [
       {
         defaultCount: Number(
@@ -265,6 +290,7 @@ export function configurationSpeculativeOptions(
         maximum: range.value.maximum === undefined ? undefined : Number(range.value.maximum),
         minimum: Number(range.value.minimum),
         optionId: option.optionId,
+        switch: false,
       },
     ];
   });
@@ -272,7 +298,8 @@ export function configurationSpeculativeOptions(
 
 /**
  * The default speculative state of a profile: the first option defaulting on as "MTP, 3 tokens",
- * "Off" when every option defaults to 0, and undefined without a speculative option.
+ * or as its name alone for a switch, "Off" when every option defaults off, and undefined without
+ * a speculative option.
  */
 export function formatSpeculativeDefault(
   options: readonly SpeculativeOption[],
@@ -280,7 +307,10 @@ export function formatSpeculativeDefault(
   if (!options.length) return undefined;
 
   const active = options.find((option) => option.defaultCount > 0);
-  return active ? `${active.displayName}, ${formatTokens(active.defaultCount)}` : "Off";
+  if (!active) return "Off";
+  return active.switch
+    ? active.displayName
+    : `${active.displayName}, ${formatTokens(active.defaultCount)}`;
 }
 
 /** The method a profile defaults to, such as `["MTP"]` or `["Off"]`; empty without a speculative option. */
@@ -290,8 +320,12 @@ export function speculativeDefaultMethod(options: readonly SpeculativeOption[]):
   return [options.find((option) => option.defaultCount > 0)?.displayName ?? "Off"];
 }
 
-/** The count range of a speculative option, such as "0–8 tokens" or "0 or more tokens". */
+/**
+ * The count range of a speculative option, such as "0–8 tokens" or "0 or more tokens", or "on or
+ * off" for a switch.
+ */
 export function formatSpeculativeRange(option: SpeculativeOption): string {
+  if (option.switch) return "on or off";
   return option.maximum === undefined
     ? `${option.minimum} or more tokens`
     : `${option.minimum}–${formatTokens(option.maximum)}`;
@@ -463,6 +497,13 @@ function projectProfileRow(
 
 function formatTokens(count: number): string {
   return `${count} ${count === 1 ? "token" : "tokens"}`;
+}
+
+function enabled(values: ModelOptionValues | undefined): boolean | undefined {
+  const value = values?.values.find(
+    (candidate) => candidate.parameterId === speculativeEnabledId,
+  )?.value;
+  return value?.case === "boolean" ? value.value : undefined;
 }
 
 function tokenCount(values: ModelOptionValues | undefined): bigint | undefined {

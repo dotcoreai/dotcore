@@ -134,7 +134,7 @@ async fn hw_nvidia5090_vllm_loads_at_the_largest_fit() -> anyhow::Result<()> {
         &nvidia_qualification::LargestFitCase {
             suite: "largest-fit-vllm",
             model_id: "qwen3-8-27b",
-            profile_id: "nvfp4-text",
+            profile_id: "nvfp4",
             node_id: "development-node",
             target_id: "nvidia-target",
         },
@@ -157,7 +157,7 @@ async fn hw_gb10_vllm_loads_at_the_largest_fit() -> anyhow::Result<()> {
         &nvidia_qualification::LargestFitCase {
             suite: "gb10-largest-fit-vllm",
             model_id: "qwen3-8-27b",
-            profile_id: "nvfp4-text",
+            profile_id: "nvfp4",
             node_id: "development-node",
             target_id: "nvidia-target",
         },

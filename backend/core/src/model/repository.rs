@@ -3016,7 +3016,7 @@ mod tests {
         hostMemory:
           unit: "bytes"
           availableWhen: "${cacheOnAccelerator} == 0"
-          equation: "${host}"
+          equation: "${host} + ${prompt-cache-memory-mib} * MiB"
     hardwareSupport:
       - hardwareClassId: "fixture-unified"
         parameters:
@@ -3192,11 +3192,12 @@ mod tests {
             prompt_cache(5120)
         );
 
-        // No fit when sizing ignores the value or when custom arguments replace the launch.
+        // No fit when the value never changes the estimate or when custom arguments replace the
+        // launch.
         let ignored = r#"      parameters: { base: 100, rate: 3, host: 50 }
       estimates:
         acceleratorMemory: { unit: "bytes", equation: "${base} + ${rate} * ${total-context}" }
-        hostMemory: { unit: "bytes", equation: "${host}" }
+        hostMemory: { unit: "bytes", equation: "${host} + 0 * ${prompt-cache-memory-mib}" }
 "#;
         assert_eq!(
             memory_parameter_fits(Dedicated, ignored, &configuration),
@@ -3745,7 +3746,7 @@ mod tests {
           equation: "${base} + ${rate} * ${total-context}"
         hostMemory:
           unit: "bytes"
-          equation: "${host}"
+          equation: "${host} + ${prompt-cache-memory-mib} * MiB"
     hardwareSupport:
       - hardwareClassId: "fixture-nvidia"
         hardwareRequirements:

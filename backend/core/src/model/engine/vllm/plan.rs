@@ -8,7 +8,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use dotcore_catalog::{
-    options::{SPECULATIVE_TOKEN_COUNT_PARAMETER_ID, boolean_value, unsigned_value},
+    options::{
+        SPECULATIVE_ENABLED_PARAMETER_ID, SPECULATIVE_TOKEN_COUNT_PARAMETER_ID, boolean_value,
+        unsigned_value,
+    },
     shared_parameters::{CONTEXT_PER_REQUEST_PARAMETER_ID, PARALLEL_REQUESTS_PARAMETER_ID},
 };
 use dotcore_proto::dotcore::{
@@ -30,12 +33,17 @@ use dotcore_proto::dotcore::{
 
 use crate::model::engine::speculative_draft::{self, SpeculativeDraft};
 
-pub(super) const PLAN_FORMAT_VERSION: u32 = 2;
+/// Version of the symbolic plan; plans retained in an older format must be recreated.
+pub(super) const PLAN_FORMAT_VERSION: u32 = 3;
 pub(super) const MODEL_BINDING_ID: &str = "model-snapshot";
 pub(super) const TEMPLATE_BINDING_ID: &str = "chat-template";
 pub(super) const SPECULATIVE_DRAFT_BINDING_ID: &str = "speculative-draft";
 /// Memory utilization is rendered in ten-thousandths, the precision vLLM's startup check needs.
 const UTILIZATION_SCALE: u128 = 10_000;
+/// Memory vLLM already holds when its startup check reads free memory, mainly its own CUDA
+/// context. Model estimates count it, so the share leaves it out; it stays at or below what vLLM
+/// holds so the check still refuses a crowded device.
+const STARTUP_HELD_BYTES: u64 = 512 * 1024 * 1024;
 /// Tokens per KV cache block. Model sizing counts the blocks each request holds in this unit, so it
 /// is fixed rather than left to the engine default.
 const KV_BLOCK_SIZE_TOKENS: &str = "64";
@@ -156,10 +164,12 @@ pub(crate) fn translate(
                     .ok_or(VllmPlanError::InvalidResolvedState)?;
                 speculative = (count > 0).then_some(Speculative::Mtp(count, draft));
             }
-            Some(Realization::Dspark(_)) => {
-                let count = unsigned_value(values, SPECULATIVE_TOKEN_COUNT_PARAMETER_ID)
+            Some(Realization::Dspark(dspark)) => {
+                let enabled = boolean_value(values, SPECULATIVE_ENABLED_PARAMETER_ID)
                     .ok_or(VllmPlanError::InvalidResolvedState)?;
-                speculative = (count > 0).then_some(Speculative::Dspark(count));
+                speculative = enabled.then_some(Speculative::Dspark(u64::from(
+                    dspark.speculative_token_count,
+                )));
             }
             None => return Err(VllmPlanError::InvalidResolvedState),
         }
@@ -300,6 +310,15 @@ pub(crate) fn enables_host_kv_offload(
 pub(crate) fn validate_snapshot(
     snapshot: &ResolvedLocalModelDeploymentSnapshot,
 ) -> Result<(), VllmPlanError> {
+    if let Some(plan) = snapshot.desired_launch_plan.as_ref() {
+        let found = plan.format_version;
+        if found < PLAN_FORMAT_VERSION {
+            return Err(VllmPlanError::RetainedPlanFormat { found });
+        }
+        if found > PLAN_FORMAT_VERSION {
+            return Err(VllmPlanError::NewerRetainedPlanFormat { found });
+        }
+    }
     validate_resolved_consistency(snapshot)?;
     let expected = translate(snapshot)?;
     if snapshot.desired_launch_plan.as_ref() != Some(&expected) {
@@ -309,15 +328,18 @@ pub(crate) fn validate_snapshot(
 }
 
 /// The speculative decoding a launch turns on, each with its speculative-token count: an MTP head
-/// with its draft source, or the DSpark drafter, which vLLM loads from the model's weights.
+/// with its draft source, or the DSpark drafter with its fixed block length, which vLLM loads
+/// from the model's weights.
 enum Speculative<'a> {
     Mtp(u64, SpeculativeDraft<'a>),
     Dspark(u64),
 }
 
-/// Renders the retained footprint over the retained memory-pool total, rounded up to four
-/// decimals and capped at 1. vLLM's startup check then asks for room for this footprint on both
-/// dedicated and unified memory, where free memory never approaches the default fraction.
+/// Renders the retained footprint, less the memory vLLM holds before its startup check, over the
+/// retained memory-pool total, rounded up to four decimals and kept between 0.0001 and 1. The
+/// explicit KV size governs the KV pool, so this share only gates that check: it asks for the
+/// room the footprint still needs once vLLM has started, on dedicated and unified memory alike.
+/// vLLM scales the share by its own device total, which is at most the retained one.
 fn memory_utilization(
     snapshot: &ResolvedLocalModelDeploymentSnapshot,
 ) -> Result<String, VllmPlanError> {
@@ -332,7 +354,8 @@ fn memory_utilization(
         .and_then(|target| target.accelerator_memory_pool_total_bytes)
         .filter(|total| *total > 0)
         .ok_or(VllmPlanError::MemoryPoolTotalUnavailable)?;
-    let scaled = (u128::from(footprint) * UTILIZATION_SCALE)
+    let needed = footprint.saturating_sub(STARTUP_HELD_BYTES);
+    let scaled = (u128::from(needed) * UTILIZATION_SCALE)
         .div_ceil(u128::from(total))
         .clamp(1, UTILIZATION_SCALE);
     Ok(format!(
@@ -397,7 +420,7 @@ fn validate_resolved_consistency(
                 }
             }
             Some(Realization::Dspark(_)) => {
-                unsigned_value(values, SPECULATIVE_TOKEN_COUNT_PARAMETER_ID)
+                boolean_value(values, SPECULATIVE_ENABLED_PARAMETER_ID)
                     .ok_or(VllmPlanError::InvalidResolvedState)?;
             }
             None => return Err(VllmPlanError::InvalidResolvedState),
@@ -593,6 +616,18 @@ pub(crate) enum VllmPlanError {
 
     #[error("vLLM launch plan is not canonical for its resolved state")]
     NonCanonicalPlan,
+
+    #[error(
+        "vLLM deployment was created with launch plan format {found}, which this Dotcore \
+         version no longer supports; delete and recreate the deployment"
+    )]
+    RetainedPlanFormat { found: u32 },
+
+    #[error(
+        "vLLM deployment was created with launch plan format {found} by a newer Dotcore \
+         version; upgrade Dotcore, or delete and recreate the deployment with this version"
+    )]
+    NewerRetainedPlanFormat { found: u32 },
 
     #[error("vLLM launch plan has no fixed settings")]
     NoFixedSettings,
@@ -805,7 +840,7 @@ mod tests {
                 "--kv-cache-memory-bytes",
                 "7000",
                 "--gpu-memory-utilization",
-                "0.9361",
+                "0.9204",
                 "--kv-offloading-size",
                 "16",
                 "--kv-offloading-backend",
@@ -816,11 +851,16 @@ mod tests {
     }
 
     #[test]
-    fn memory_utilization_divides_the_footprint_by_the_retained_pool_total() {
+    fn memory_utilization_divides_the_footprint_after_startup_by_the_retained_pool_total() {
         for (total, footprint, expected) in [
-            (DEDICATED_TOTAL_BYTES, FOOTPRINT_BYTES, "0.9361"),
-            (UNIFIED_TOTAL_BYTES, FOOTPRINT_BYTES, "0.2451"),
-            (DEDICATED_TOTAL_BYTES, DEDICATED_TOTAL_BYTES + 1, "1.0000"),
+            (DEDICATED_TOTAL_BYTES, FOOTPRINT_BYTES, "0.9204"),
+            (UNIFIED_TOTAL_BYTES, FOOTPRINT_BYTES, "0.2410"),
+            (
+                DEDICATED_TOTAL_BYTES,
+                DEDICATED_TOTAL_BYTES + STARTUP_HELD_BYTES,
+                "1.0000",
+            ),
+            (DEDICATED_TOTAL_BYTES, STARTUP_HELD_BYTES, "0.0001"),
         ] {
             let mut fixture = snapshot();
             fixture
@@ -848,6 +888,39 @@ mod tests {
                     .windows(2)
                     .any(|pair| pair == ["--gpu-memory-utilization", expected]),
                 "{total} {footprint}: {literals:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn retained_plans_of_another_format_must_be_recreated() {
+        let mut fixture = snapshot();
+        let plan = translate(&fixture).expect("plan");
+        fixture.desired_launch_plan = Some(plan);
+        validate_snapshot(&fixture).expect("current retained plan");
+
+        for (found, expected) in [
+            (
+                PLAN_FORMAT_VERSION - 1,
+                "vLLM deployment was created with launch plan format 2, which this Dotcore \
+                 version no longer supports; delete and recreate the deployment",
+            ),
+            (
+                PLAN_FORMAT_VERSION + 1,
+                "vLLM deployment was created with launch plan format 4 by a newer Dotcore \
+                 version; upgrade Dotcore, or delete and recreate the deployment with this version",
+            ),
+        ] {
+            fixture
+                .desired_launch_plan
+                .as_mut()
+                .expect("retained plan")
+                .format_version = found;
+            assert_eq!(
+                validate_snapshot(&fixture)
+                    .expect_err("retained plan of another format")
+                    .to_string(),
+                expected
             );
         }
     }
@@ -1103,7 +1176,7 @@ mod tests {
             ArgumentValue::Literal("--kv-cache-memory-bytes".to_owned()),
             ArgumentValue::Literal("7000".to_owned()),
             ArgumentValue::Literal("--gpu-memory-utilization".to_owned()),
-            ArgumentValue::Literal("0.9361".to_owned()),
+            ArgumentValue::Literal("0.9204".to_owned()),
             ArgumentValue::Literal("--kv-offloading-size".to_owned()),
             ArgumentValue::Literal("16".to_owned()),
             ArgumentValue::Literal("--kv-offloading-backend".to_owned()),
@@ -1127,10 +1200,10 @@ mod tests {
     }
 
     #[test]
-    fn dspark_token_count_controls_the_speculative_config_argument() {
-        let dspark = |count: u64| {
+    fn dspark_switch_controls_the_speculative_config_argument() {
+        let dspark = |enabled: bool| {
             let mut snapshot = snapshot();
-            configure_mtp(&mut snapshot, count, None);
+            configure_mtp(&mut snapshot, 0, None);
             let Some(State::Vllm(state)) = snapshot
                 .resolved_engine_state
                 .as_mut()
@@ -1139,7 +1212,22 @@ mod tests {
                 panic!("vLLM state");
             };
             state.option_realizations[0].realization =
-                Some(Realization::Dspark(VllmDsparkOptionRealization {}));
+                Some(Realization::Dspark(VllmDsparkOptionRealization {
+                    speculative_token_count: 7,
+                    drafter_path: "mtp.safetensors".to_owned(),
+                }));
+            snapshot.resolved_options[0]
+                .values
+                .as_mut()
+                .expect("option values")
+                .values = vec![ModelOptionParameterValue {
+                parameter_id: SPECULATIVE_ENABLED_PARAMETER_ID.to_owned(),
+                value: Some(
+                    dotcore_proto::dotcore::catalog::v1::model_option_parameter_value::Value::Boolean(
+                        enabled,
+                    ),
+                ),
+            }];
             let plan = translate(&snapshot).expect("DSpark plan");
             let arguments = argument_values(&plan);
             snapshot.desired_launch_plan = Some(plan);
@@ -1155,9 +1243,9 @@ mod tests {
                 .map(|index| arguments[index + 1].clone())
         };
 
-        assert_eq!(speculative(&dspark(0)), None);
+        assert_eq!(speculative(&dspark(false)), None);
         assert_eq!(
-            speculative(&dspark(7)),
+            speculative(&dspark(true)),
             Some(ArgumentValue::Literal(
                 r#"{"method":"dspark","num_speculative_tokens":7,"draft_sample_method":"probabilistic"}"#
                     .to_owned()

@@ -10,7 +10,7 @@
 use std::collections::BTreeSet;
 
 use dotcore_catalog::{
-    options::SPECULATIVE_TOKEN_COUNT_PARAMETER_ID, shared_parameters::is_shared_parameter,
+    options::SPECULATIVE_ENABLED_PARAMETER_ID, shared_parameters::is_shared_parameter,
 };
 use dotcore_domain::Accelerator;
 use dotcore_proto::dotcore::{
@@ -343,9 +343,19 @@ fn valid_realization(
                 matches!(kind, ModelOptionParameterType::Boolean(_))
             })
         }
-        (Some(ModelOptionKind::SpeculativeDecoding(kind)), Some(Realization::Dspark(_))) => {
+        (Some(ModelOptionKind::SpeculativeDecoding(kind)), Some(Realization::Dspark(dspark))) => {
             *speculative_count += 1;
-            kind.method == SpeculativeDecodingMethod::Dspark as i32 && fixed_token_count(option)
+            kind.method == SpeculativeDecodingMethod::Dspark as i32
+                && dspark.speculative_token_count >= 1
+                && parameter_has_type(option, SPECULATIVE_ENABLED_PARAMETER_ID, |kind| {
+                    matches!(kind, ModelOptionParameterType::Boolean(_))
+                })
+                && drafter_in_supported_snapshots(
+                    model,
+                    configuration,
+                    option,
+                    &dspark.drafter_path,
+                )
         }
         (Some(ModelOptionKind::SpeculativeDecoding(kind)), Some(Realization::Mtp(mtp))) => {
             *speculative_count += 1;
@@ -390,13 +400,34 @@ fn valid_mtp_draft(
     }
 }
 
-/// Accepts a speculative-token count whose range holds one count: the DSpark drafter proposes a
-/// block of fixed length, and the engine refuses any other count.
-fn fixed_token_count(option: &ModelConfigurationOption) -> bool {
-    parameter_has_type(option, SPECULATIVE_TOKEN_COUNT_PARAMETER_ID, |kind| {
-        matches!(kind, ModelOptionParameterType::UnsignedInteger(range)
-            if range.minimum == range.maximum)
-    })
+/// Accepts a drafter path that every snapshot the option supports lists: vLLM loads the DSpark
+/// drafter from the model's weights, so a snapshot without it fails only when the engine starts.
+fn drafter_in_supported_snapshots(
+    model: &Model,
+    configuration: &ModelEngineConfiguration,
+    option: &ModelConfigurationOption,
+    drafter_path: &str,
+) -> bool {
+    !drafter_path.is_empty()
+        && configuration
+            .artifact_bindings
+            .iter()
+            .filter(|binding| {
+                option.supported_binding_ids.is_empty()
+                    || option.supported_binding_ids.contains(&binding.binding_id)
+            })
+            .all(|binding| {
+                model
+                    .artifacts
+                    .iter()
+                    .find(|artifact| artifact.artifact_id == binding.model_artifact_id)
+                    .and_then(|artifact| artifact.source.as_ref())
+                    .and_then(|source| source.content.as_ref())
+                    .is_some_and(|content| {
+                        matches!(content, HuggingFaceContent::Snapshot(snapshot)
+                            if snapshot.files.iter().any(|file| file.path == drafter_path))
+                    })
+            })
 }
 
 fn parameter_has_type(
@@ -427,7 +458,8 @@ mod tests {
     use dotcore_proto::dotcore::{
         catalog::v1::{
             BooleanParameterSchema, EngineParameterSchema, EngineRelease,
-            HuggingFaceArtifactSource, Model, ModelArtifactBinding, ModelAuxiliaryArtifact,
+            HuggingFaceArtifactSource, HuggingFaceSnapshotArtifact, HuggingFaceSnapshotFile, Model,
+            ModelArtifact, ModelArtifactBinding, ModelAuxiliaryArtifact,
             ModelExecutionCapabilities, ModelOptionParameterDefinition, ParameterDefinition,
             SpeculativeDecodingModelOption, UnsignedIntegerModelOptionParameterSchema,
             UnsignedIntegerParameterSchema,
@@ -599,26 +631,73 @@ mod tests {
     }
 
     #[test]
-    fn dspark_realization_requires_a_dspark_option_with_one_token_count() {
-        let valid = |method: SpeculativeDecodingMethod, minimum: u64, maximum: u64| {
+    fn dspark_realization_requires_a_dspark_switch_and_the_drafter_in_every_supported_snapshot() {
+        let snapshot = |artifact_id: &str, paths: &[&str]| ModelArtifact {
+            artifact_id: artifact_id.to_owned(),
+            source: Some(HuggingFaceArtifactSource {
+                content: Some(HuggingFaceContent::Snapshot(HuggingFaceSnapshotArtifact {
+                    files: paths
+                        .iter()
+                        .map(|path| HuggingFaceSnapshotFile {
+                            path: (*path).to_owned(),
+                            ..Default::default()
+                        })
+                        .collect(),
+                })),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let model = Model {
+            artifacts: vec![
+                snapshot("with-drafter", &["model.safetensors", "mtp.safetensors"]),
+                snapshot("without-drafter", &["model.safetensors"]),
+            ],
+            ..Default::default()
+        };
+        let configuration = ModelEngineConfiguration {
+            artifact_bindings: ["with-drafter", "without-drafter"]
+                .into_iter()
+                .map(|id| ModelArtifactBinding {
+                    binding_id: id.to_owned(),
+                    model_artifact_id: id.to_owned(),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let switch = ModelOptionParameterDefinition {
+            parameter_id: "enabled".to_owned(),
+            display_name: "Enabled".to_owned(),
+            parameter_type: Some(ModelOptionParameterType::Boolean(Default::default())),
+        };
+        let count = ModelOptionParameterDefinition {
+            parameter_id: "token-count".to_owned(),
+            display_name: "Token count".to_owned(),
+            parameter_type: Some(ModelOptionParameterType::UnsignedInteger(
+                UnsignedIntegerModelOptionParameterSchema {
+                    minimum: 0,
+                    maximum: 7,
+                    unit: "tokens".to_owned(),
+                },
+            )),
+        };
+        let valid = |method: SpeculativeDecodingMethod,
+                     parameter: &ModelOptionParameterDefinition,
+                     supported: &[&str],
+                     tokens: u32| {
             let option = ModelConfigurationOption {
-                parameters: vec![ModelOptionParameterDefinition {
-                    parameter_id: "token-count".to_owned(),
-                    display_name: "Token count".to_owned(),
-                    parameter_type: Some(ModelOptionParameterType::UnsignedInteger(
-                        UnsignedIntegerModelOptionParameterSchema {
-                            minimum,
-                            maximum,
-                            unit: "tokens".to_owned(),
-                        },
-                    )),
-                }],
+                parameters: vec![parameter.clone()],
+                supported_binding_ids: supported.iter().map(|id| (*id).to_owned()).collect(),
                 ..Default::default()
             };
             valid_realization(
-                &Model::default(),
-                &ModelEngineConfiguration::default(),
-                Some(&Realization::Dspark(VllmDsparkOptionRealization {})),
+                &model,
+                &configuration,
+                Some(&Realization::Dspark(VllmDsparkOptionRealization {
+                    speculative_token_count: tokens,
+                    drafter_path: "mtp.safetensors".to_owned(),
+                })),
                 &option,
                 Some(&ModelOptionKind::SpeculativeDecoding(
                     SpeculativeDecodingModelOption {
@@ -629,10 +708,21 @@ mod tests {
                 &mut 0,
             )
         };
+        let dspark = SpeculativeDecodingMethod::Dspark;
 
-        assert!(valid(SpeculativeDecodingMethod::Dspark, 7, 7));
-        assert!(!valid(SpeculativeDecodingMethod::Dspark, 0, 7));
-        assert!(!valid(SpeculativeDecodingMethod::Mtp, 7, 7));
+        assert!(valid(dspark, &switch, &["with-drafter"], 7));
+        assert!(
+            !valid(dspark, &switch, &[], 7),
+            "a supported snapshot lacks the drafter"
+        );
+        assert!(!valid(dspark, &switch, &["with-drafter"], 0));
+        assert!(!valid(dspark, &count, &["with-drafter"], 7));
+        assert!(!valid(
+            SpeculativeDecodingMethod::Mtp,
+            &switch,
+            &["with-drafter"],
+            7
+        ));
     }
 
     #[test]
@@ -802,7 +892,7 @@ mod tests {
                 "--kv-cache-memory-bytes",
                 "2563768320",
                 "--gpu-memory-utilization",
-                "0.6600",
+                "0.6443",
             ]
         );
         // 51380224 × (1 + 4 × 7) + 32768 × 32768 bytes of KV cache: the 32768-token total context
@@ -888,11 +978,11 @@ mod tests {
             (total, utilization)
         };
 
-        // 22563768320 bytes over the 24 GiB GPU; over the 16 GiB one, it is capped at the whole
+        // 22563768320 bytes less the memory held at startup over the 24 GiB GPU; over the 16 GiB one, it is capped at the whole
         // GPU.
         assert_eq!(
             launch_on(&["nvidia.com/gpu=0"]),
-            (Some(RTX_4090_TOTAL), Some("0.8756".to_owned()))
+            (Some(RTX_4090_TOTAL), Some("0.8548".to_owned()))
         );
         assert_eq!(
             launch_on(&["nvidia.com/gpu=1"]),
@@ -946,7 +1036,7 @@ mod tests {
                 "--kv-cache-memory-bytes",
                 "4870340608",
                 "--gpu-memory-utilization",
-                "0.7450",
+                "0.7293",
             ]
         );
         assert_eq!(
@@ -1007,7 +1097,7 @@ mod tests {
             [
                 ("--max-num-seqs", "4", "8"),
                 ("--kv-cache-memory-bytes", "2563768320", "5076156416"),
-                ("--gpu-memory-utilization", "0.6600", "0.7335"),
+                ("--gpu-memory-utilization", "0.6443", "0.7178"),
             ]
         );
         let footprint = |launch: &ResolvedLocalModelDeploymentSnapshot| {

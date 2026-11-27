@@ -64,9 +64,12 @@ configurations:
             ${baseAccelBytes}
             + ${baseOffsetBytes}
             + ${accelBytesPerContextToken} * ${total-context}
+          # The prompt cache counts here where the host memory estimate is unavailable.
           allowance: >-
             ${marginBytes}
+            + if(${hostOutsideAccelerator} == 0, 1, 0) * ${prompt-cache-memory-mib} * MiB
         # Unavailable where the accelerator measurement already counts the process's host memory.
+        # The prompt cache is a budget the engine fills later, so it sits in the allowance.
         hostMemory:
           unit: bytes
           availableWhen: "${hostOutsideAccelerator} == 1"
@@ -74,6 +77,8 @@ configurations:
             ${baseHostBytes}
             + ${hostBytesPerContextToken} * ${total-context}
             + ${marginBytes}
+          allowance: >-
+            ${prompt-cache-memory-mib} * MiB
     hardwareSupport:
       - hardwareClassId: "nvidia-unified"
         # Accelerator memory is the NVML allocation inside the shared pool; the process's resident

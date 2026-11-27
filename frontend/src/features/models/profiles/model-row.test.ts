@@ -16,6 +16,7 @@ import { ModelConfigurationOptionSchema, ModelSchema } from "@/gen/dotcore/catal
 import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
 
 import {
+  configurationSpeculativeOptions,
   formatSpeculativeDefault,
   formatSpeculativeRange,
   profileEstimateKey,
@@ -83,7 +84,14 @@ describe("projectModelRows", () => {
       quantization: "Q4_K_M",
       referenceScore: 41.5,
       speculativeOptions: [
-        { defaultCount: 3, displayName: "MTP", maximum: 8, minimum: 0, optionId: "mtp" },
+        {
+          defaultCount: 3,
+          displayName: "MTP",
+          maximum: 8,
+          minimum: 0,
+          optionId: "mtp",
+          switch: false,
+        },
       ],
       totalContext: undefined,
     });
@@ -262,11 +270,25 @@ describe("projectModelRows", () => {
     expect(bare.speculativeMethods).toEqual([]);
     // Configuration default 3 on cuda-llama.
     expect(alphaProfile("fast").speculativeOptions).toEqual([
-      { defaultCount: 3, displayName: "MTP", maximum: 8, minimum: 0, optionId: "mtp" },
+      {
+        defaultCount: 3,
+        displayName: "MTP",
+        maximum: 8,
+        minimum: 0,
+        optionId: "mtp",
+        switch: false,
+      },
     ]);
     // The profile overrides the default to 0 and keeps the range.
     expect(alphaProfile("quality").speculativeOptions).toEqual([
-      { defaultCount: 0, displayName: "MTP", maximum: 8, minimum: 0, optionId: "mtp" },
+      {
+        defaultCount: 0,
+        displayName: "MTP",
+        maximum: 8,
+        minimum: 0,
+        optionId: "mtp",
+        switch: false,
+      },
     ]);
     // Configurations without the option, on a model that offers it.
     expect(alphaProfile("sized").speculativeOptions).toEqual([]);
@@ -285,6 +307,53 @@ describe("projectModelRows", () => {
     expect(speculativeDefaultMethod(fast)).toEqual(["MTP"]);
     expect(speculativeDefaultMethod(quality)).toEqual(["Off"]);
     expect(speculativeDefaultMethod([])).toEqual([]);
+  });
+
+  it("reads a speculative switch as on or off with no count to choose", () => {
+    const model = create(ModelSchema, {
+      options: [
+        {
+          displayName: "DSpark",
+          kind: { case: "speculativeDecoding", value: {} },
+          optionId: "dspark",
+        },
+      ],
+    });
+    const configuration = {
+      options: [
+        create(ModelConfigurationOptionSchema, {
+          defaultValues: {
+            optionId: "dspark",
+            values: [{ parameterId: "enabled", value: { case: "boolean", value: true } }],
+          },
+          optionId: "dspark",
+          parameters: [{ parameterId: "enabled", parameterType: { case: "boolean", value: {} } }],
+        }),
+      ],
+    };
+    const off = {
+      optionDefaults: [
+        {
+          optionId: "dspark",
+          values: [{ parameterId: "enabled", value: { case: "boolean" as const, value: false } }],
+        },
+      ],
+    };
+
+    const [on] = configurationSpeculativeOptions(model, configuration as never);
+    expect(on).toEqual({
+      defaultCount: 1,
+      displayName: "DSpark",
+      maximum: 1,
+      minimum: 1,
+      optionId: "dspark",
+      switch: true,
+    });
+    expect(
+      configurationSpeculativeOptions(model, configuration as never, off as never)[0].defaultCount,
+    ).toBe(0);
+    expect(formatSpeculativeDefault([on])).toBe("DSpark");
+    expect(formatSpeculativeRange(on)).toBe("on or off");
   });
 
   it("carries the model's score on the model row and every profile, and leaves it absent without one", () => {
