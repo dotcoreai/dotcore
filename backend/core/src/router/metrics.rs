@@ -60,9 +60,17 @@ pub(crate) const ATTEMPT_TTFT: &str = "router.attempt.ttft";
 /// Time from an attempt's dispatch until it answers, or until its stream ends.
 pub(crate) const ATTEMPT_DURATION: &str = "router.attempt.duration";
 
-/// Generation speed of a streamed attempt: completion tokens after the first, divided by the time
-/// between its first and last content deltas.
+/// Generation speed of a streamed attempt: its decode tokens divided by its decode time.
 pub(crate) const ATTEMPT_DECODE_RATE: &str = "router.attempt.decode_rate";
+
+/// Tokens a streamed attempt generated during its decode time: its completion tokens after the
+/// first. Recorded with the decode rate only.
+pub(crate) const ATTEMPT_DECODE_TOKENS: &str = "router.attempt.decode_tokens";
+
+/// Seconds a streamed attempt spent generating: from the first event of its stream, which arrives
+/// with the first token, until the stream reports the response finished. It covers generated
+/// tokens the stream never shows as content. Recorded with the decode rate only.
+pub(crate) const ATTEMPT_DECODE_TIME: &str = "router.attempt.decode_time";
 
 /// Effective prompt processing speed of a streamed attempt: prompt tokens not served from the
 /// prompt cache, divided by the attempt's time to first token, engine queueing included.
@@ -206,13 +214,14 @@ impl RequestMeter {
                 .with(REQUEST_KIND, kind_label(self.kind))
                 .with(labels::DEPLOYMENT, target.deployment_id()),
             started: shared.clock.now(),
+            first_event: None,
             first_content: None,
-            last_content: None,
+            finished: None,
             usage: None,
         });
     }
 
-    /// Notes content delta times and token usage among the stream events handed to the client
+    /// Notes the generation times and token usage among the stream events handed to the client
     /// writer, before any filtering.
     pub(crate) fn observe(&mut self, event: &ChatStreamEvent) {
         let Some(shared) = &self.shared else {
@@ -220,12 +229,20 @@ impl RequestMeter {
         };
         if let Some(Event::Usage(usage)) = &event.event {
             self.observe_usage(usage);
-        } else if is_content(event) {
-            let now = shared.clock.now();
+            return;
+        }
+        let now = shared.clock.now();
+        let content = is_content(event);
+        if content {
             self.first_content.get_or_insert(now);
-            if let Some(attempt) = &mut self.attempt {
+        }
+        if let Some(attempt) = &mut self.attempt {
+            attempt.first_event.get_or_insert(now);
+            if content {
                 attempt.first_content.get_or_insert(now);
-                attempt.last_content = Some(now);
+            }
+            if matches!(event.event, Some(Event::Finished(_))) {
+                attempt.finished = Some(now);
             }
         }
     }
@@ -367,8 +384,13 @@ struct AttemptMeter {
     /// Route and deployment labels of a missing-usage count.
     usage_labels: LabelSet,
     started: Instant,
+
+    /// When the first event of the attempt's stream arrived, of any kind.
+    first_event: Option<Instant>,
     first_content: Option<Instant>,
-    last_content: Option<Instant>,
+
+    /// When the stream last reported a choice finished.
+    finished: Option<Instant>,
     usage: Option<TokenUsage>,
 }
 
@@ -444,12 +466,21 @@ impl AttemptMeter {
             })
         };
         // The first token arrives at the end of prefill, so decoding covers the tokens after it.
-        if let (Some(first), Some(last)) = (self.first_content, self.last_content) {
-            records.extend(speed(
-                ATTEMPT_DECODE_RATE,
-                usage.completion_tokens.saturating_sub(1),
-                last.saturating_duration_since(first),
-            ));
+        // It is timed over the whole stream rather than between content deltas: an engine also
+        // generates tokens it never streams as content, such as a tool call's framing.
+        if let (Some(first), Some(finished)) = (self.first_event, self.finished) {
+            let decode_tokens = usage.completion_tokens.saturating_sub(1);
+            let decode_time = finished.saturating_duration_since(first);
+            if let Some(rate) = speed(ATTEMPT_DECODE_RATE, decode_tokens, decode_time) {
+                records.push(rate);
+                records.push(tokens(ATTEMPT_DECODE_TOKENS, decode_tokens));
+                records.push(MetricRecord::counter(
+                    ATTEMPT_DECODE_TIME,
+                    self.labels.clone(),
+                    observed_at,
+                    decode_time.as_secs_f64(),
+                ));
+            }
         }
         if let Some(ttft) = ttft {
             records.extend(speed(
@@ -556,6 +587,18 @@ pub(crate) fn router_metric_descriptors() -> Vec<MetricDescriptor> {
             ATTEMPT_DECODE_RATE,
             speed,
             MetricUnit::TokensPerSecond,
+            attempt(&[]),
+        ),
+        descriptor(
+            ATTEMPT_DECODE_TOKENS,
+            MetricKind::Counter,
+            MetricUnit::Tokens,
+            attempt(&[]),
+        ),
+        descriptor(
+            ATTEMPT_DECODE_TIME,
+            MetricKind::Counter,
+            MetricUnit::Seconds,
             attempt(&[]),
         ),
         descriptor(

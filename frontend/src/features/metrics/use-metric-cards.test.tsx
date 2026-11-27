@@ -38,6 +38,8 @@ describe("useMetricCards", () => {
         "router.attempts",
         "router.attempt.prefill_rate",
         "router.attempt.ttft",
+        "router.attempt.decode_tokens",
+        "router.attempt.decode_time",
         "router.attempt.decode_rate",
       ],
     ]);
@@ -104,10 +106,14 @@ describe("useMetricCards", () => {
 
     await waitFor(() => expect(cards.current.cards[0].reading).toBeDefined());
     expect(cards.current.chart).toBeUndefined();
-    // Each card's first query is also read grouped by model.
+    // Each card's first query is also read grouped by model, and so is token generation's divisor.
     const queries = watchMetrics.mock.calls[0][0].queries ?? [];
-    expect(queries).toHaveLength(14);
-    expect(queries[8].query).toMatchObject({ groupBy: ["model"], metric: "router.attempts" });
+    expect(queries).toHaveLength(17);
+    expect(queries[10].query).toMatchObject({ groupBy: ["model"], metric: "router.attempts" });
+    expect(queries.slice(15).map(({ query }) => [query?.metric, query?.groupBy])).toEqual([
+      ["router.attempt.decode_tokens", ["model"]],
+      ["router.attempt.decode_time", ["model"]],
+    ]);
 
     act(() => cards.current.setSelected("requests"));
     expect(cards.current.chart).toMatchObject({
@@ -253,6 +259,10 @@ function busyAnswer(
             distributionPoint(lastStep, { 0.95: 400 }, true, { count: 1, sum: 400 }),
           ]),
         ];
+      case "router.attempt.decode_tokens":
+        return [counter(200)];
+      case "router.attempt.decode_time":
+        return [counter(4)];
       case "router.attempt.decode_rate":
         return [
           metricSeries({}, [distributionPoint(0, { 0.95: 90 }, false, { count: 4, sum: 200 })]),

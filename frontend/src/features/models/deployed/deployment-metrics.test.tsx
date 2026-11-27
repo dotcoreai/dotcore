@@ -422,6 +422,8 @@ function requestAnswer({ active }: { active: boolean }) {
     active ? [metricSeries({}, [distributionPoint(0, { 0.95: 1.5 }, false, { count, sum })])] : [];
   const answers: Record<string, ReturnType<typeof metricSeries>[]> = {
     "router.attempt.decode_rate": distribution(2, 84),
+    "router.attempt.decode_time": counter(2),
+    "router.attempt.decode_tokens": counter(84),
     "router.attempt.prefill_rate": distribution(2, 1800),
     "router.attempt.ttft": distribution(2, 0.5),
     "router.attempts": counter(3),

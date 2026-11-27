@@ -121,6 +121,8 @@ describe("RouteDetails requests", () => {
       ["router.requests", { outcome: "success", route: "route-7" }],
       ["router.attempt.prefill_rate", { route: "route-7" }],
       ["router.request.ttft", { route: "route-7" }],
+      ["router.attempt.decode_tokens", { route: "route-7" }],
+      ["router.attempt.decode_time", { route: "route-7" }],
       ["router.attempt.decode_rate", { route: "route-7" }],
     ]);
 

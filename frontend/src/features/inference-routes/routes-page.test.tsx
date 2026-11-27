@@ -639,6 +639,16 @@ describe("RoutesPage", () => {
             series: [metricSeries(labels, [counterPoint(0, 0, false, 4000)])],
             stepCount: 1,
           });
+        case "router.attempt.decode_tokens":
+          return queryResult({
+            series: [metricSeries(labels, [counterPoint(0, 0, false, 200)])],
+            stepCount: 1,
+          });
+        case "router.attempt.decode_time":
+          return queryResult({
+            series: [metricSeries(labels, [counterPoint(0, 0, false, 4)])],
+            stepCount: 1,
+          });
         case "router.attempt.decode_rate":
           return queryResult({
             series: [

@@ -34,7 +34,11 @@ describe("request card specs", () => {
         "router.tokens.cached_prompt deployment=deployment-a sum",
       ],
       requests: ["router.attempts deployment=deployment-a sum"],
-      "token-generation": ["router.attempt.decode_rate deployment=deployment-a p95"],
+      "token-generation": [
+        "router.attempt.decode_tokens deployment=deployment-a sum",
+        "router.attempt.decode_time deployment=deployment-a sum",
+        "router.attempt.decode_rate deployment=deployment-a p95",
+      ],
       ttft: ["router.attempt.ttft deployment=deployment-a p95"],
     });
   });
@@ -51,7 +55,11 @@ describe("request card specs", () => {
         "router.tokens.cached_prompt route=route-a sum",
       ],
       requests: ["router.requests route=route-a sum"],
-      "token-generation": ["router.attempt.decode_rate route=route-a p95"],
+      "token-generation": [
+        "router.attempt.decode_tokens route=route-a sum",
+        "router.attempt.decode_time route=route-a sum",
+        "router.attempt.decode_rate route=route-a p95",
+      ],
       ttft: ["router.request.ttft route=route-a p95"],
     });
   });
@@ -99,6 +107,41 @@ describe("request card specs", () => {
 
     expect(card(requestCardIds.requests)?.groupValue?.(counter.series[0], counter)).toBe(36);
     expect(card(requestCardIds.ttft)?.groupValue?.(latency.series[0], latency)).toBe(0.25);
+  });
+
+  it("weighs token generation by generated tokens, not by request", () => {
+    const card = deploymentRequestCards("a").find(
+      (spec) => spec.id === requestCardIds.tokenGeneration,
+    );
+    // A 10-token response generated in 0.01s, then a 1,000-token one in 4s.
+    const tokens = answer(10, 1000);
+    const seconds = answer(0.01, 4);
+    const figures = card?.read([tokens, seconds]);
+
+    // Not the 625 mean of the two per-request speeds.
+    expect(figures?.value).toBeCloseTo(1010 / 4.01, 10);
+    expect(figures?.sparkline).toEqual([1000, 250]);
+    expect(card?.chart([tokens, seconds]).map(({ label, values }) => ({ label, values }))).toEqual([
+      { label: "Mean", values: [1000, 250] },
+      { label: "p95", values: [null, null] },
+    ]);
+    expect(
+      card?.groupValue?.(tokens.stats!.series[0], tokens.stats!, seconds.stats!.series[0]),
+    ).toBeCloseTo(1010 / 4.01, 10);
+    expect(card?.splitValues?.(tokens.stats!.series[0], 1000, seconds.stats!.series[0])).toEqual([
+      1000, 250,
+    ]);
+  });
+
+  it("reads no token generation speed when no generation time was recorded", () => {
+    const card = deploymentRequestCards("a").find(
+      (spec) => spec.id === requestCardIds.tokenGeneration,
+    );
+    const tokens = answer(10);
+
+    expect(card?.read([tokens, answer(0)]).value).toBeNull();
+    expect(card?.read([]).value).toBeNull();
+    expect(card?.groupValue?.(tokens.stats!.series[0], tokens.stats!)).toBeNull();
   });
 
   it("never names prefill or decode in card or chart copy", () => {

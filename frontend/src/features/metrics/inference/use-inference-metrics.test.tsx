@@ -123,9 +123,12 @@ function trafficAnswer(query: MessageInitShape<typeof MetricQuerySchema> | undef
           return [counter(30, { deployment: "dep-a" }), counter(10, { deployment: "dep-b" })];
         }
         return [counter(40, groupBy.includes("route") ? { route: "route-a" } : {})];
-      case "router.attempt.decode_rate":
-        if (groupBy.includes("deployment")) return [mean(200, 4, { deployment: "dep-a" })];
-        return [mean(200, 4, groupBy.includes("route") ? { route: "route-a" } : {})];
+      case "router.attempt.decode_tokens":
+        if (groupBy.includes("deployment")) return [counter(200, { deployment: "dep-a" })];
+        return [counter(200, groupBy.includes("route") ? { route: "route-a" } : {})];
+      case "router.attempt.decode_time":
+        if (groupBy.includes("deployment")) return [counter(4, { deployment: "dep-a" })];
+        return [counter(4, groupBy.includes("route") ? { route: "route-a" } : {})];
       case "router.attempt.ttft":
         if (groupBy.includes("deployment")) return [mean(0.5, 2, { deployment: "dep-a" })];
         return [mean(0.5, 2)];

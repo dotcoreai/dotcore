@@ -742,8 +742,10 @@ function trafficWatch() {
               : [counter(4)];
           case "router.tokens.completion":
             return byDeployment ? [counter(30, { deployment: "deployment-a" })] : [counter(30)];
-          case "router.attempt.decode_rate":
-            return byDeployment ? [mean(200, 4, { deployment: "deployment-a" })] : [mean(200, 4)];
+          case "router.attempt.decode_tokens":
+            return byDeployment ? [counter(200, { deployment: "deployment-a" })] : [counter(200)];
+          case "router.attempt.decode_time":
+            return byDeployment ? [counter(4, { deployment: "deployment-a" })] : [counter(4)];
           case "router.attempt.ttft":
             return byDeployment ? [mean(0.5, 2, { deployment: "deployment-a" })] : [mean(0.5, 2)];
           default:

@@ -27,9 +27,14 @@ export interface MetricCardSpec {
   mark: "bars" | "line";
   /**
    * A split group's value over the range, such as its total or its mean, from the group's series
-   * of the regrouped query. A card without one lists no group values.
+   * of the regrouped query, and of the regrouped `splitDivisor` when the card has one. A card
+   * without one lists no group values.
    */
-  groupValue?: (series: MetricStatsSeries, grid: MetricStatsGrid) => number | null;
+  groupValue?: (
+    series: MetricStatsSeries,
+    grid: MetricStatsGrid,
+    divisor?: MetricStatsSeries,
+  ) => number | null;
   /** The queries it reads; a split regroups the first one unless `splitQueries` names another. */
   queries: readonly MetricHistoryQuery[];
   /** Its figures over the range, from its answers in query order. */
@@ -50,10 +55,20 @@ export interface MetricCardSpec {
    */
   splitChart?: (own: readonly MetricAnswer[], split: MetricCardSplit) => ChartSeries[];
   /**
+   * A second query a split regroups along with the first, for a card whose value divides one
+   * counter by another. Each group's series of it reaches `groupValue` and `splitValues` as the
+   * group's divisor; a group it holds no series for gets none.
+   */
+  splitDivisor?: MetricHistoryQuery;
+  /**
    * A split group's per-step chart values, for a card whose chart does not plot the raw per-step
    * values of its query, such as a counter charted as a rate. Defaults to the raw values.
    */
-  splitValues?: (series: MetricStatsSeries, stepMs: number) => (number | null)[];
+  splitValues?: (
+    series: MetricStatsSeries,
+    stepMs: number,
+    divisor?: MetricStatsSeries,
+  ) => (number | null)[];
   unit: MetricCardUnit;
 }
 
@@ -154,8 +169,8 @@ export interface MetricCardsOptions {
 
 /**
  * The metric state of a card panel. One stream at the selected range carries every card's
- * queries and, for each split, every card's first query regrouped (unless the card charts the
- * split from its own answers), so selecting a card or a split reads the same answers and only a
+ * queries and, for each split, every card's first query and split divisor regrouped (unless the
+ * card charts the split from its own answers), so selecting a card or a split reads the same answers and only a
  * range change reopens it. Cards start at the given range, or the finest one the store serves,
  * with no card selected. A card's reading is recomputed only when its answers change. A paused
  * panel holds no stream and keeps showing what it last read: while a log viewer is open anywhere
@@ -218,16 +233,21 @@ const noSplits: readonly MetricCardSplit[] = [];
 
 /**
  * Where each card's answers sit in the stream: its own queries as a slice, then its regrouped
- * query by split id. Every reader of the answers goes through it.
+ * query and regrouped split divisor by split id. Every reader of the answers goes through it.
  */
 interface CardQueryPlan {
-  cards: { grouped: ReadonlyMap<string, number>; own: { end: number; start: number } }[];
+  cards: {
+    divisors: ReadonlyMap<string, number>;
+    grouped: ReadonlyMap<string, number>;
+    own: { end: number; start: number };
+  }[];
   queries: MetricHistoryQuery[];
 }
 
 /**
  * The stream's queries: every card's own queries in card order, then, split by split, the
- * regrouped query of each card the split applies to and does not chart from its own answers.
+ * regrouped query of each card the split applies to and does not chart from its own answers,
+ * followed by its regrouped split divisor when it has one.
  */
 function planCardQueries(
   specs: readonly MetricCardSpec[],
@@ -237,7 +257,11 @@ function planCardQueries(
   const cards = specs.map((spec) => {
     const start = queries.length;
     queries.push(...spec.queries);
-    return { grouped: new Map<string, number>(), own: { end: queries.length, start } };
+    return {
+      divisors: new Map<string, number>(),
+      grouped: new Map<string, number>(),
+      own: { end: queries.length, start },
+    };
   });
 
   for (const split of splits) {
@@ -246,6 +270,10 @@ function planCardQueries(
 
       cards[index].grouped.set(split.id, queries.length);
       queries.push(regroup(spec.splitQueries?.[split.id] ?? spec.queries[0], split.groupBy));
+      if (!spec.splitDivisor) return;
+
+      cards[index].divisors.set(split.id, queries.length);
+      queries.push(regroup(spec.splitDivisor, split.groupBy));
     });
   }
 
@@ -292,6 +320,7 @@ function selectedChart(
   const split = splits.find((entry) => entry.id === splitId);
   const applies = split !== undefined && appliesTo(spec, split.id);
   const grouped = applies ? groupedAnswer(plan, answers, specIndex, split.id)?.stats : undefined;
+  const divisors = applies ? divisorAnswer(plan, answers, specIndex, split.id)?.stats : undefined;
   const layout = grouped ?? own[0]?.stats;
   if (!layout) return undefined;
 
@@ -299,7 +328,7 @@ function selectedChart(
     applies && spec.splitChart
       ? spec.splitChart(own, split)
       : applies && grouped
-        ? splitSeries(spec, split, grouped)
+        ? splitSeries(spec, split, grouped, divisors)
         : spec.chart(own);
 
   return {
@@ -327,7 +356,12 @@ function splitGroupValues(
   const grid = groupedAnswer(plan, answers, specIndex, splitId)?.stats;
   if (!groupValue || !grid) return [];
 
-  return grid.series.map((series) => ({ labels: series.labels, value: groupValue(series, grid) }));
+  const divisors = divisorAnswer(plan, answers, specIndex, splitId)?.stats;
+
+  return grid.series.map((series) => ({
+    labels: series.labels,
+    value: groupValue(series, grid, sameGroup(divisors, series)),
+  }));
 }
 
 /** One series per group of a split answer, each drawn the way the card draws its values. */
@@ -335,6 +369,7 @@ function splitSeries(
   spec: MetricCardSpec,
   split: MetricCardSplit,
   grid: MetricStatsGrid,
+  divisors: MetricStatsGrid | undefined,
 ): ChartSeries[] {
   return grid.series.map((series: MetricStatsSeries) => {
     // The raw label values name the group, so its color follows the group whatever its label.
@@ -345,7 +380,9 @@ function splitSeries(
       label: split.seriesLabel?.(series.labels) ?? key,
       mark: spec.mark === "bars" ? "stackedBars" : "line",
       provisional: series.provisional,
-      values: spec.splitValues?.(series, grid.stepMs) ?? perStepValues(series.steps),
+      values:
+        spec.splitValues?.(series, grid.stepMs, sameGroup(divisors, series)) ??
+        perStepValues(series.steps),
     };
   });
 }
@@ -378,6 +415,30 @@ function groupedAnswer(
 ): MetricAnswer | undefined {
   const index = plan.cards[specIndex]?.grouped.get(splitId);
   return index === undefined ? undefined : answers[index];
+}
+
+function divisorAnswer(
+  plan: CardQueryPlan,
+  answers: readonly MetricAnswer[],
+  specIndex: number,
+  splitId: string,
+): MetricAnswer | undefined {
+  const index = plan.cards[specIndex]?.divisors.get(splitId);
+  return index === undefined ? undefined : answers[index];
+}
+
+/** The series of the divisor grid carrying the same labels as a group's series. */
+function sameGroup(
+  divisors: MetricStatsGrid | undefined,
+  series: MetricStatsSeries,
+): MetricStatsSeries | undefined {
+  const names = Object.keys(series.labels);
+
+  return divisors?.series.find(
+    (divisor) =>
+      Object.keys(divisor.labels).length === names.length &&
+      names.every((name) => divisor.labels[name] === series.labels[name]),
+  );
 }
 
 function regroup(query: MetricHistoryQuery, groupBy: readonly string[]): MetricHistoryQuery {

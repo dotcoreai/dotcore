@@ -192,6 +192,10 @@ function busyAnswer(
         return counter(30);
       case "router.attempt.prefill_rate":
         return distribution(2, 1000);
+      case "router.attempt.decode_tokens":
+        return counter(200);
+      case "router.attempt.decode_time":
+        return counter(4);
       case "router.attempt.decode_rate":
         return distribution(4, 200);
       case "router.attempt.ttft":

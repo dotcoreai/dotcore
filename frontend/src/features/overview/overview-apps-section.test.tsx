@@ -80,8 +80,8 @@ describe("OverviewAppsSection", () => {
     // One query per card: the split charts from the cards' own answers.
     expect(streams.watch).toHaveBeenCalledTimes(1);
     const section = screen.getByRole("region", { name: "Apps" });
-    // After the 8 inference queries.
-    expect(streams.queries(0).slice(8, 11)).toEqual([
+    // After the 10 inference queries.
+    expect(streams.queries(0).slice(10, 13)).toEqual([
       ["application.host.cpu.utilization", ["deployment", "node"]],
       ["application.host.memory.used", ["deployment"]],
       ["application.accelerator.memory.used", ["deployment"]],

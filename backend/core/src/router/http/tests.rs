@@ -34,9 +34,10 @@ use crate::{
         cancellation::{RequestCancellation, RequestCancellationReason},
         metrics::RequestOutcome,
         metrics::{
-            ATTEMPT_DECODE_RATE, ATTEMPT_DURATION, ATTEMPT_PREFILL_RATE, ATTEMPT_TTFT, ATTEMPTS,
-            REQUEST_DURATION, REQUEST_FALLBACKS, REQUEST_IN_FLIGHT, REQUEST_TTFT, REQUESTS,
-            TOKENS_CACHED_PROMPT, TOKENS_COMPLETION, TOKENS_PROMPT, USAGE_MISSING,
+            ATTEMPT_DECODE_RATE, ATTEMPT_DECODE_TIME, ATTEMPT_DECODE_TOKENS, ATTEMPT_DURATION,
+            ATTEMPT_PREFILL_RATE, ATTEMPT_TTFT, ATTEMPTS, REQUEST_DURATION, REQUEST_FALLBACKS,
+            REQUEST_IN_FLIGHT, REQUEST_TTFT, REQUESTS, TOKENS_CACHED_PROMPT, TOKENS_COMPLETION,
+            TOKENS_PROMPT, USAGE_MISSING,
         },
         peer_service::test_support::{DEPLOYMENT, Script, WORKER_NODE_ID},
         selection::TargetSelectionError,
@@ -1112,15 +1113,21 @@ async fn a_streamed_attempt_records_its_tokens_and_decode_and_prefill_speeds() {
     let mut client = router.send("chat", true).await;
     let mut upstream = router.next_upstream_call().await;
 
+    // The engine generates tokens the stream never shows as content, before the first content
+    // delta and after the last one.
     router.clock.advance(Duration::from_secs(2));
-    upstream.start_stream("Hi").await;
+    upstream.open_stream().await;
+    client.read_until("assistant").await;
+    router.clock.advance(Duration::from_secs(2));
+    upstream.delta("Hi").await;
     client.read_until("Hi").await;
     router.clock.advance(Duration::from_secs(3));
     upstream.delta(" there").await;
     client.read_until(" there").await;
+    router.clock.advance(Duration::from_secs(1));
     upstream
         .finish_stream_with_usage(Some(serde_json::json!({
-            "prompt_tokens": 12, "completion_tokens": 7, "total_tokens": 19,
+            "prompt_tokens": 12, "completion_tokens": 13, "total_tokens": 25,
             "prompt_tokens_details": {"cached_tokens": 4},
         })))
         .await;
@@ -1131,21 +1138,23 @@ async fn a_streamed_attempt_records_its_tokens_and_decode_and_prefill_speeds() {
     assert_eq!(
         router.attempt_records(),
         vec![
-            counter(ATTEMPTS, &with(&attempt, "outcome", "success"), 5, 1.0),
+            counter(ATTEMPTS, &with(&attempt, "outcome", "success"), 8, 1.0),
             distribution(
                 ATTEMPT_DURATION,
                 &with(&attempt, "outcome", "success"),
-                5,
-                5.0
+                8,
+                8.0
             ),
-            distribution(ATTEMPT_TTFT, &attempt, 5, 2.0),
-            counter(TOKENS_PROMPT, &attempt, 5, 12.0),
-            counter(TOKENS_COMPLETION, &attempt, 5, 7.0),
-            counter(TOKENS_CACHED_PROMPT, &attempt, 5, 4.0),
-            // Six tokens after the first over the 3s between the first and last deltas.
-            distribution(ATTEMPT_DECODE_RATE, &attempt, 5, 2.0),
-            // Eight uncached prompt tokens over the 2s to the first token.
-            distribution(ATTEMPT_PREFILL_RATE, &attempt, 5, 4.0),
+            distribution(ATTEMPT_TTFT, &attempt, 8, 4.0),
+            counter(TOKENS_PROMPT, &attempt, 8, 12.0),
+            counter(TOKENS_COMPLETION, &attempt, 8, 13.0),
+            counter(TOKENS_CACHED_PROMPT, &attempt, 8, 4.0),
+            // Twelve tokens after the first over the 6s from the stream's opening to its finish.
+            distribution(ATTEMPT_DECODE_RATE, &attempt, 8, 2.0),
+            counter(ATTEMPT_DECODE_TOKENS, &attempt, 8, 12.0),
+            counter(ATTEMPT_DECODE_TIME, &attempt, 8, 6.0),
+            // Eight uncached prompt tokens over the 4s to the first content delta.
+            distribution(ATTEMPT_PREFILL_RATE, &attempt, 8, 2.0),
         ]
     );
 }
@@ -1954,6 +1963,19 @@ impl RouterClient {
 struct UpstreamCall(tokio::net::TcpStream);
 
 impl UpstreamCall {
+    /// Starts the stream with a chunk that carries no content.
+    async fn open_stream(&mut self) {
+        let chunk = serde_json::json!({
+            "id": "chatcmpl_metered", "object": "chat.completion.chunk", "created": 1,
+            "model": "private-model",
+            "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": null}],
+        });
+        self.write(&format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: {chunk}\n\n"
+        ))
+        .await;
+    }
+
     async fn start_stream(&mut self, text: &str) {
         let chunk = serde_json::json!({
             "id": "chatcmpl_metered", "object": "chat.completion.chunk", "created": 1,
