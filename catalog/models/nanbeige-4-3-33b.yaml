@@ -15,6 +15,7 @@ options:
     kvCachePrecision: {}
     visibility: "PARAMETER_VISIBILITY_ADVANCED"
     description: "Precision of the stored request tokens. A lower precision shrinks the memory each token takes, so more context fits, at a small cost in answer quality."
+    summary: "Lower precision fits more context, at a small quality cost."
 artifacts:
   - artifactId: "q3-iq3-s"
     weightQuantization: "IQ3_S"
