@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package dotcore.engine.omlx.v1;
+
+// Engine-owned oMLX configuration embedded in one catalog model
+// configuration. Generic catalog code treats this payload as opaque typed data.
+message OmlxModelConfiguration {
+  // Fixed oMLX settings shared by every selection of this configuration.
+  OmlxFixedModelSettings fixed_settings = 1;
+}
+
+// Concrete oMLX state retained in a resolved deployment snapshot.
+message OmlxResolvedModelState {
+  // Fixed settings copied from the selected configuration.
+  OmlxFixedModelSettings fixed_settings = 1;
+}
+
+// Fixed oMLX launch inputs. Editable values use generic engine parameter
+// schema and value contracts.
+message OmlxFixedModelSettings {
+  // Generic engine parameter containing the in-memory prompt cache size in MiB; 0 disables the cache.
+  string prompt_cache_mib_parameter_id = 1;
+}

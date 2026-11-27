@@ -86,6 +86,13 @@ pub mod dotcore {
             }
         }
 
+        pub mod omlx {
+            pub mod v1 {
+                tonic::include_proto!("dotcore.engine.omlx.v1");
+                include!(concat!(env!("OUT_DIR"), "/dotcore.engine.omlx.v1.serde.rs"));
+            }
+        }
+
         pub mod strata {
             pub mod v1 {
                 tonic::include_proto!("dotcore.engine.strata.v1");

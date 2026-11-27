@@ -15,6 +15,7 @@ fn descriptors_keep_engine_payloads_out_of_catalog_and_deployment_contracts() {
     let llama_cpp = descriptor_file(&descriptor, "dotcore/engine/llama_cpp/v1/model.proto");
     let vllm = descriptor_file(&descriptor, "dotcore/engine/vllm/v1/model.proto");
     let ninfer = descriptor_file(&descriptor, "dotcore/engine/ninfer/v1/model.proto");
+    let omlx = descriptor_file(&descriptor, "dotcore/engine/omlx/v1/model.proto");
     let strata = descriptor_file(&descriptor, "dotcore/engine/strata/v1/model.proto");
     let catalog = descriptor_file(&descriptor, "dotcore/catalog/v1/model.proto");
     let deployment = descriptor_file(&descriptor, "dotcore/model/v1/deployment.proto");
@@ -40,6 +41,7 @@ fn descriptors_keep_engine_payloads_out_of_catalog_and_deployment_contracts() {
                 5,
                 ".dotcore.engine.strata.v1.StrataModelConfiguration",
             ),
+            ("omlx", 6, ".dotcore.engine.omlx.v1.OmlxModelConfiguration"),
         ]
     );
     assert_eq!(
@@ -63,6 +65,7 @@ fn descriptors_keep_engine_payloads_out_of_catalog_and_deployment_contracts() {
                 6,
                 ".dotcore.engine.strata.v1.StrataResolvedModelState",
             ),
+            ("omlx", 7, ".dotcore.engine.omlx.v1.OmlxResolvedModelState"),
         ]
     );
     assert_eq!(
@@ -152,6 +155,18 @@ fn descriptors_keep_engine_payloads_out_of_catalog_and_deployment_contracts() {
     assert_eq!(
         field_numbers(ninfer, "NinferMtpOptionRealization"),
         [("optimized_proposal_head", 3)]
+    );
+    assert_eq!(
+        field_numbers(omlx, "OmlxModelConfiguration"),
+        [("fixed_settings", 1)]
+    );
+    assert_eq!(
+        field_numbers(omlx, "OmlxResolvedModelState"),
+        [("fixed_settings", 1)]
+    );
+    assert_eq!(
+        field_layout(omlx, "OmlxFixedModelSettings"),
+        [("prompt_cache_mib_parameter_id", 1, "TYPE_STRING")]
     );
     assert_eq!(
         field_numbers(strata, "StrataModelConfiguration"),
@@ -277,6 +292,7 @@ fn descriptors_keep_engine_payloads_out_of_catalog_and_deployment_contracts() {
                 && !name.contains("Vllm")
                 && !name.contains("Ninfer")
                 && !name.contains("Strata")
+                && !name.contains("Omlx")
         }),
         "Catalog messages must not define engine-owned payloads"
     );
