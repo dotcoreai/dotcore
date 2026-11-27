@@ -427,7 +427,7 @@ fn step_owner(step: &PreparationStep) -> PreparationOwner {
 
 fn step_label(step: &PreparationStep) -> String {
     match step {
-        PreparationStep::ModelDownload => "Model download".to_owned(),
+        PreparationStep::ModelDownload => "Model artifacts".to_owned(),
         PreparationStep::EngineBuild => "Engine build".to_owned(),
         PreparationStep::EngineImage => "Engine image".to_owned(),
         PreparationStep::ServiceBuild { service } => format!("{service} build"),
@@ -1088,7 +1088,7 @@ impl Follow {
 /// Returns the line a step writes when it finds `artifact` already prepared.
 fn already_prepared_line(step: &PreparationStep, artifact: &str) -> String {
     let decision = match step {
-        PreparationStep::ModelDownload => "Already downloaded",
+        PreparationStep::ModelDownload => "Already downloaded and verified",
         PreparationStep::EngineBuild | PreparationStep::ServiceBuild { .. } => "Already built",
         PreparationStep::EngineImage | PreparationStep::ServiceImage { .. } => "Already present",
     };
@@ -1379,7 +1379,7 @@ mod tests {
 
         assert_eq!(
             contents(&read(&logs, PreparationStep::ModelDownload, 10, None).await),
-            ["Already downloaded: owner/model/weights.gguf@0123"]
+            ["Already downloaded and verified: owner/model/weights.gguf@0123"]
         );
         assert_eq!(
             contents(&read(&logs, PreparationStep::EngineImage, 10, None).await),
@@ -2092,7 +2092,7 @@ mod tests {
                 .map(|source| (source.name.as_str(), source.label.as_str()))
                 .collect::<Vec<_>>(),
             [
-                ("prepare:download", "Model download"),
+                ("prepare:download", "Model artifacts"),
                 ("prepare:engine-build", "Engine build"),
                 ("prepare:engine-image", "Engine image"),
                 ("prepare:open-webui:build", "open-webui build"),
