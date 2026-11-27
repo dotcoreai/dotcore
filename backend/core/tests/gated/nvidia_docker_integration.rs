@@ -118,7 +118,7 @@ const STRATA_RTX_5090_QWEN3_6: StrataCase = StrataCase {
 };
 const STRATA_GB10_QWEN3_6: StrataCase = StrataCase {
     model_id: "qwen3-6-35b-a3b",
-    profile_id: "strata-gb10-q4-xl",
+    profile_id: "strata-q4-xl",
     minimum_free_bytes: STRATA_GB10_MINIMUM_FREE_BYTES,
     ready_timeout: DEPLOYMENT_TIMEOUT,
     built_pack_path: None,
@@ -140,7 +140,7 @@ const STRATA_RTX_5090_INKLING_SQ_20: StrataCase = StrataCase {
 };
 const STRATA_GB10_INKLING_SQ_10: StrataCase = StrataCase {
     model_id: "inkling-2-mini",
-    profile_id: "strata-gb10-sq-10",
+    profile_id: "strata-sq-10",
     minimum_free_bytes: STRATA_GB10_INKLING_MINIMUM_FREE_BYTES,
     ready_timeout: DEPLOYMENT_TIMEOUT,
     built_pack_path: None,
