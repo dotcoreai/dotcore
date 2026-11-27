@@ -441,9 +441,9 @@ configurations:
   # targets and the Metal binary on macOS native targets; both releases share a parameter schema.
   - configurationId: "llama-cpp"
     engineArtifacts:
-      - engineReleaseId: "llama-cpp-linux-2026-11-13"
+      - engineReleaseId: "llama-cpp-linux-2026-11-26"
         engineArtifactId: "cuda13"
-      - engineReleaseId: "llama-cpp-2026-11-13"
+      - engineReleaseId: "llama-cpp-2026-11-26"
         engineArtifactId: "metal"
     artifactBindings:
       - bindingId: "q4-k-m"
@@ -467,9 +467,11 @@ configurations:
         mtpBytesPerContextToken: 2048
         # Per-slot llama.cpp state: Gated DeltaNet recurrent state, the same architecture as
         # qwen3-6-35b-a3b (30 linear-attention layers x (conv 3 x 8192 + state 32 heads x 128 x 128) f32
-        # values). Each MTP draft token keeps one more copy per slot. baseAccelBytes values exclude it:
-        # each is the 4-slot derived value minus 4 x slotStateBytes.
+        # values). baseAccelBytes values exclude it: each is the 4-slot derived value minus
+        # 4 x slotStateBytes.
         slotStateBytes: 65863680
+        # MTP replay inputs per slot and pending token (the draft tokens plus one), as qwen3-6-35b-a3b.
+        replayBytesPerPendingToken: 1728000
         visionBytes: 934346368
       estimates:
         # The prompt cache lives in host memory. Where the accelerator allocates from the host pool
@@ -484,7 +486,8 @@ configurations:
             + ${parallel-requests} * ${slotStateBytes}
             + if(${options.mtp.token-count} > 0, 1, 0)
             * (${mtpBaseBytes} + ${mtpBytesPerContextToken} * ${total-context})
-            + ${options.mtp.token-count} * ${parallel-requests} * ${slotStateBytes}
+            + if(${options.mtp.token-count} > 0, 1, 0) * ${parallel-requests} * ${replayBytesPerPendingToken}
+            + ${options.mtp.token-count} * ${parallel-requests} * ${replayBytesPerPendingToken}
             + if(${options.vision.enabled}, 1, 0) * ${visionBytes}
           allowance: >-
             ${promptCacheOnAccelerator} * ${prompt-cache-memory-mib} * MiB

@@ -20,7 +20,8 @@
 * The macOS package `version` must equal its release's `version`; the catalog check fails
   otherwise.
 * Releases are immutable: declare new ones with the date convention of `llama-cpp.yaml` and
-  `llama-cpp-macos.yaml`, and move every model approving the old ones.
+  `llama-cpp-macos.yaml`, and move every model approving the old ones. Models on the pinned
+  [`v1-0/`](v1-0/AGENTS.md) releases move only once its `CHECK` condition holds.
 
 ## Validate
 
