@@ -33,6 +33,9 @@ message StrataOptionRealization {
 
     // Strata realization of a KV cache precision option.
     StrataKvCachePrecisionOptionRealization kv_cache_precision = 3;
+
+    // Strata realization of a DFlash speculative-decoding option.
+    StrataDflashOptionRealization dflash = 4;
   }
 }
 
@@ -49,6 +52,13 @@ message StrataVisionOptionRealization {
 // the engine's KV cache type.
 message StrataKvCachePrecisionOptionRealization {}
 
+// Realizes one DFlash speculative-decoding option for Strata's Inkling engine by loading a
+// separate drafter file while the option's switch is on.
+message StrataDflashOptionRealization {
+  // Model-local auxiliary artifact holding the drafter file.
+  string auxiliary_artifact_id = 1;
+}
+
 // Fixed Strata launch inputs. Editable values use generic engine parameter
 // schema and value contracts.
 message StrataFixedModelSettings {
@@ -57,8 +67,8 @@ message StrataFixedModelSettings {
     // Strata's main engine, for GGUF models and the packs built from them.
     StrataMainEngine main_engine = 1;
 
-    // Strata's Inkling engine, for a ready-made Inkling pack file.
-    StrataInklingPack inkling_pack = 2;
+    // Strata's Inkling engine, for one native Inkling model file: a ready-made pack or a GGUF.
+    StrataInklingEngine inkling_engine = 2;
   }
 }
 
@@ -89,8 +99,12 @@ message StrataMainEngine {
   }
 }
 
-// A model artifact snapshot holding exactly one Inkling pack file with the tokenizer files beside it; the pack carries its own drafter.
-message StrataInklingPack {}
+// Settings of a model Strata's Inkling engine runs from one native model file, a ready-made pack
+// or a GGUF, which each bound model artifact holds.
+message StrataInklingEngine {
+  // Model-local auxiliary artifact holding the tokenizer and chat template every binding uses.
+  string tokenizer_auxiliary_artifact_id = 1;
+}
 
 // A model artifact that is one GGUF file holding the whole model and its MTP head.
 message StrataSingleGguf {}
