@@ -210,7 +210,10 @@ where
                     Some(DeploymentStatusEvidence::AcknowledgementPending) => {
                         record.reconciled_lifecycle_generation.is_some()
                     }
-                    Some(DeploymentStatusEvidence::Unavailable) => true,
+                    Some(
+                        DeploymentStatusEvidence::Unavailable
+                        | DeploymentStatusEvidence::ViewRejected(_),
+                    ) => true,
                 };
                 let mut projected = project(
                     deployment,

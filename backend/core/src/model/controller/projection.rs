@@ -20,6 +20,7 @@ use dotcore_site::{
         NodeDeploymentReference,
     },
     repository::ModelSiteSnapshot,
+    view::desired::view_rejection_message,
 };
 
 use super::{
@@ -153,11 +154,18 @@ fn project_snapshot(
                         // acknowledgement; a record from an earlier report is not evidence.
                         DeploymentStatusEvidence::AcknowledgementPending => record
                             .is_some_and(|record| record.reconciled_lifecycle_generation.is_none()),
-                        DeploymentStatusEvidence::Unavailable => false,
+                        DeploymentStatusEvidence::Unavailable
+                        | DeploymentStatusEvidence::ViewRejected(_) => false,
                     };
                     match recorded {
                         Some(state) if trusted => state,
-                        recorded => super::state::unavailable_state(recorded.as_ref()),
+                        recorded => {
+                            let mut state = super::state::unavailable_state(recorded.as_ref());
+                            if let DeploymentStatusEvidence::ViewRejected(code) = node.evidence {
+                                state.status_message = view_rejection_message(code).to_owned();
+                            }
+                            state
+                        }
                     }
                 }
             };
@@ -312,8 +320,8 @@ mod tests {
         },
         site::{
             private::v1::{
-                ControllerStatusSection, NodeControllerStatus, NodeControllerStatusAcceptance,
-                NodeObservation, controller_status_section,
+                ControllerStatusSection, DesiredViewRejectionCode, NodeControllerStatus,
+                NodeControllerStatusAcceptance, NodeObservation, controller_status_section,
             },
             v1::ExecutionTarget,
         },
@@ -326,7 +334,10 @@ mod tests {
             observation_configuration::NodeObservationConfigurationDigest,
         },
         repository::ModelSiteSnapshot,
-        view::fencing::{ManagerSession, NodeIncarnation, NodeViewProjection},
+        view::{
+            desired::view_rejection_message,
+            fencing::{ManagerSession, NodeIncarnation, NodeViewProjection},
+        },
     };
 
     use super::desired_deployment;
@@ -489,6 +500,34 @@ mod tests {
             [
                 (ModelDeploymentStatus::Pausing, "Pausing"),
                 (ModelDeploymentStatus::Unavailable, "Unavailable"),
+            ]
+        );
+    }
+
+    #[test]
+    fn deployments_on_a_node_that_rejected_its_view_explain_the_rejection() {
+        let snapshot = node_snapshot(vec![
+            node_deployment("steady", 1, ModelDeploymentDesiredState::Present),
+            node_deployment("added", 1, ModelDeploymentDesiredState::Present),
+        ]);
+        let coordinator = node_coordinator(Some(&[("steady", 1)]));
+        reject_published_view(&coordinator, DesiredViewRejectionCode::ContentConflict);
+        let records = vec![
+            node_record("steady", ModelDeploymentStatus::Ready, Some(1)),
+            node_record("added", ModelDeploymentStatus::Ready, Some(1)),
+        ];
+
+        let listed = super::project_snapshot(&snapshot, records, Some(&coordinator))
+            .expect("list projection");
+
+        assert_eq!(
+            listed_statuses(&listed),
+            [
+                (ModelDeploymentStatus::Ready, "Ready"),
+                (
+                    ModelDeploymentStatus::Unavailable,
+                    view_rejection_message(DesiredViewRejectionCode::ContentConflict)
+                ),
             ]
         );
     }
@@ -777,6 +816,32 @@ mod tests {
         }
         publish("worker-target-added");
         coordinator
+    }
+
+    /// Makes `node_coordinator`'s node reject the view last published to it with `code`.
+    fn reject_published_view(
+        coordinator: &ManagerNodeControlCoordinator,
+        code: DesiredViewRejectionCode,
+    ) {
+        let incarnation = NodeIncarnation::parse("1".repeat(32)).expect("incarnation");
+        // Publishing the same projection again keeps its revision and returns its reference.
+        let view = coordinator
+            .publish_view_for_test(
+                "worker-node",
+                &incarnation,
+                PublishedViewInput {
+                    site_id: "site-one".to_owned(),
+                    projection: NodeViewProjection::new(
+                        vec![node_target("worker-target-added")],
+                        Vec::new(),
+                    )
+                    .expect("node view"),
+                },
+            )
+            .expect("published view");
+        coordinator
+            .reject_view_for_test("worker-node", &incarnation, view, code)
+            .expect("rejection acknowledgement");
     }
 
     /// Memory every status of `node_coordinator` reports: usage on the node's device.

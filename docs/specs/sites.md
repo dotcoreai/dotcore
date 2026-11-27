@@ -83,6 +83,9 @@ Each node installs its view and reconciles toward it.
   status.
 - An invalid owner assignment fails only that deployment. It doesn't reject the node view or freeze
   other owners.
+- A node that rejects a whole view leaves its deployments unconfirmed once its last status no
+  longer covers them. The site manager shows the rejection on them until the node accepts the
+  current view, goes silent or is replaced.
 - Owners never resolve development artifacts or probe app data. The hosting node does both.
 - The node view is disposable and read-only. Every node, the site manager node included, realizes
   workloads only from it.

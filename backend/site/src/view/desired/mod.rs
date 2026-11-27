@@ -540,6 +540,28 @@ pub(crate) fn rejection_code(error: &DesiredViewDistributionError) -> DesiredVie
     }
 }
 
+/// Explains to an operator why the deployments of a node that rejected its view can't be
+/// confirmed, from the rejection code alone. Codes a different build on either side causes name
+/// that cause and its fix; the others point at the node's own logs.
+pub fn view_rejection_message(code: DesiredViewRejectionCode) -> &'static str {
+    match code {
+        DesiredViewRejectionCode::ContentConflict
+        | DesiredViewRejectionCode::RequiredSectionUnsupported => {
+            "This machine can't apply the site's configuration, so its deployments can't be \
+             confirmed. The site manager and this machine likely run different Dotcore builds; \
+             run the same build on both."
+        }
+        DesiredViewRejectionCode::Unspecified
+        | DesiredViewRejectionCode::IdentityMismatch
+        | DesiredViewRejectionCode::RequiredSectionInvalid
+        | DesiredViewRejectionCode::SectionPayloadInvalid
+        | DesiredViewRejectionCode::LimitExceeded => {
+            "This machine can't apply the site's configuration, so its deployments can't be \
+             confirmed. Its logs give the reason."
+        }
+    }
+}
+
 /// Logs why the manager rejected one node control `exchange` and projects it to the node's status.
 /// A fenced node retries on its backoff, so the reason is logged at debug level; the node logs the
 /// returned message itself.
