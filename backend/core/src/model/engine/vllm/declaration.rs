@@ -3,8 +3,9 @@
 //! Each check returns the declarations that fail, covering the release engine kind and its parameter
 //! schema, and for configurations the wrapper and release kinds, the fixed settings, the engine parameter
 //! references, the snapshot artifact bindings, the one-target execution shape, and one unambiguous
-//! realization per model option, including where an MTP head comes from and that a DSpark drafter
-//! drafts a fixed token count. The shared context
+//! realization per model option, including where an MTP head comes from, that a DSpark drafter
+//! drafts a fixed token count, and that a KV cache precision option offers only precisions vLLM
+//! takes and owns the KV-cache element type. The shared context
 //! parameters need no reference: the plan reads them directly, and the catalog checks their shape.
 
 use std::collections::BTreeSet;
@@ -32,9 +33,11 @@ use dotcore_proto::dotcore::{
 };
 
 use crate::model::engine::{
-    declaration::{classes_outside_vendors, kv_cache_precision_option_ids},
+    declaration::{classes_outside_vendors, offered_kv_cache_precisions},
     speculative_draft::{self, SpeculativeDraft},
 };
+
+use super::plan::KV_CACHE_PRECISIONS;
 
 /// Accepts a release of non-empty unsigned-integer or boolean parameters. The catalog checks the
 /// shared parameters' fixed shape, and each release declares vLLM's own bounds.
@@ -137,10 +140,6 @@ fn validate_payload(
     if fixed.container_port == 0
         || fixed.container_port > u16::MAX as u32
         || !matches!(
-            VllmKvCacheDataType::try_from(fixed.kv_cache_data_type),
-            Ok(VllmKvCacheDataType::Fp8)
-        )
-        || !matches!(
             VllmKvOffloadingBackend::try_from(fixed.kv_offloading_backend),
             Ok(VllmKvOffloadingBackend::Native)
         )
@@ -154,6 +153,27 @@ fn validate_payload(
     {
         errors.push(anyhow::anyhow!(
             "configuration {:?} has invalid fixed vLLM settings",
+            configuration.configuration_id
+        ));
+    }
+
+    // A KV cache precision option owns the KV-cache element type; without one it stays FP8.
+    let option_sets_kv_type = payload.option_realizations.iter().any(|realization| {
+        matches!(
+            realization.realization,
+            Some(Realization::KvCachePrecision(_))
+        )
+    });
+    let fixed_kv_type = VllmKvCacheDataType::try_from(fixed.kv_cache_data_type);
+    let valid_kv_type = if option_sets_kv_type {
+        matches!(fixed_kv_type, Ok(VllmKvCacheDataType::Unspecified))
+    } else {
+        matches!(fixed_kv_type, Ok(VllmKvCacheDataType::Fp8))
+    };
+    if !valid_kv_type {
+        errors.push(anyhow::anyhow!(
+            "configuration {:?} must leave the fixed vLLM KV-cache data type unset when a KV cache \
+             precision option sets it, and set it to FP8 otherwise",
             configuration.configuration_id
         ));
     }
@@ -255,17 +275,8 @@ fn validate_realizations(
     payload: &VllmModelConfiguration,
     errors: &mut Vec<anyhow::Error>,
 ) {
-    for option_id in kv_cache_precision_option_ids(model, configuration) {
-        errors.push(anyhow::anyhow!(
-            "configuration {:?} option {option_id:?} is a KV cache precision option, which vLLM \
-             does not support",
-            configuration.configuration_id
-        ));
-    }
-
     let mut option_ids = BTreeSet::new();
-    let mut vision_count = 0;
-    let mut speculative_count = 0;
+    let mut counts = RealizationCounts::default();
     for realization in &payload.option_realizations {
         let option = configuration
             .options
@@ -284,8 +295,7 @@ fn validate_realizations(
                     realization.realization.as_ref(),
                     option,
                     model_kind,
-                    &mut vision_count,
-                    &mut speculative_count,
+                    &mut counts,
                 )
             });
         if !valid {
@@ -301,8 +311,9 @@ fn validate_realizations(
             .options
             .iter()
             .any(|option| !option_ids.contains(&option.option_id))
-        || vision_count > 1
-        || speculative_count > 1
+        || counts.vision > 1
+        || counts.speculative > 1
+        || counts.kv_cache_precision > 1
     {
         errors.push(anyhow::anyhow!(
             "configuration {:?} requires one unambiguous vLLM realization per model option",
@@ -319,12 +330,20 @@ fn validate_realizations(
                 .contains(&(ModelInputModality::Image as i32))
                 && capabilities.image_input_capacity.is_some()
         });
-    if (vision_count == 1) != image_capable {
+    if (counts.vision == 1) != image_capable {
         errors.push(anyhow::anyhow!(
             "configuration {:?} has a vLLM vision capability mismatch",
             configuration.configuration_id
         ));
     }
+}
+
+/// Realizations of each kind seen in one configuration; each kind allows at most one.
+#[derive(Default)]
+struct RealizationCounts {
+    vision: usize,
+    speculative: usize,
+    kv_cache_precision: usize,
 }
 
 fn valid_realization(
@@ -333,18 +352,27 @@ fn valid_realization(
     realization: Option<&Realization>,
     option: &ModelConfigurationOption,
     model_kind: Option<&ModelOptionKind>,
-    vision_count: &mut usize,
-    speculative_count: &mut usize,
+    counts: &mut RealizationCounts,
 ) -> bool {
     match (model_kind, realization) {
         (Some(ModelOptionKind::Vision(_)), Some(Realization::Vision(vision))) => {
-            *vision_count += 1;
+            counts.vision += 1;
             parameter_has_type(option, &vision.enabled_parameter_id, |kind| {
                 matches!(kind, ModelOptionParameterType::Boolean(_))
             })
         }
+        (Some(ModelOptionKind::KvCachePrecision(_)), Some(Realization::KvCachePrecision(_))) => {
+            counts.kv_cache_precision += 1;
+            offered_kv_cache_precisions(configuration, &option.option_id).is_some_and(
+                |precisions| {
+                    precisions
+                        .iter()
+                        .all(|precision| KV_CACHE_PRECISIONS.contains(&precision.as_str()))
+                },
+            )
+        }
         (Some(ModelOptionKind::SpeculativeDecoding(kind)), Some(Realization::Dspark(dspark))) => {
-            *speculative_count += 1;
+            counts.speculative += 1;
             kind.method == SpeculativeDecodingMethod::Dspark as i32
                 && dspark.speculative_token_count >= 1
                 && parameter_has_type(option, SPECULATIVE_ENABLED_PARAMETER_ID, |kind| {
@@ -358,7 +386,7 @@ fn valid_realization(
                 )
         }
         (Some(ModelOptionKind::SpeculativeDecoding(kind)), Some(Realization::Mtp(mtp))) => {
-            *speculative_count += 1;
+            counts.speculative += 1;
             kind.method == SpeculativeDecodingMethod::Mtp as i32
                 && valid_mtp_draft(
                     model,
@@ -461,16 +489,16 @@ mod tests {
             HuggingFaceArtifactSource, HuggingFaceSnapshotArtifact, HuggingFaceSnapshotFile, Model,
             ModelArtifact, ModelArtifactBinding, ModelAuxiliaryArtifact,
             ModelExecutionCapabilities, ModelOptionParameterDefinition, ParameterDefinition,
-            SpeculativeDecodingModelOption, UnsignedIntegerModelOptionParameterSchema,
-            UnsignedIntegerParameterSchema,
+            SpeculativeDecodingModelOption, StringEnumModelOptionParameterSchema,
+            UnsignedIntegerModelOptionParameterSchema, UnsignedIntegerParameterSchema,
         },
         engine::v1::{
             EngineKind, EngineModelConfiguration, engine_model_configuration::Configuration,
         },
         engine::vllm::v1::{
             VllmDsparkOptionRealization, VllmEmbeddedMtpHead, VllmFixedModelSettings,
-            VllmModelConfiguration, VllmMtpDraftSource, VllmMtpOptionRealization,
-            vllm_mtp_draft_source::Source,
+            VllmKvCachePrecisionOptionRealization, VllmModelConfiguration, VllmMtpDraftSource,
+            VllmMtpOptionRealization, VllmOptionRealization, vllm_mtp_draft_source::Source,
         },
         model::v1::{
             LocalModelDeploymentConfiguration, ResolvedLocalModelDeploymentSnapshot,
@@ -704,8 +732,7 @@ mod tests {
                         method: method as i32,
                     },
                 )),
-                &mut 0,
-                &mut 0,
+                &mut RealizationCounts::default(),
             )
         };
         let dspark = SpeculativeDecodingMethod::Dspark;
@@ -726,8 +753,33 @@ mod tests {
     }
 
     #[test]
-    fn rejects_a_kv_cache_precision_option() {
-        let (model, configuration) = kv_cache_precision_declaration();
+    fn kv_cache_precision_option_offers_only_precisions_vllm_takes() {
+        let realize = |precisions: &[&str]| {
+            let (model, configuration) = kv_cache_precision_declaration(precisions);
+            let payload = VllmModelConfiguration {
+                option_realizations: vec![VllmOptionRealization {
+                    option_id: "kv-cache".to_owned(),
+                    realization: Some(Realization::KvCachePrecision(
+                        VllmKvCachePrecisionOptionRealization {},
+                    )),
+                }],
+                ..Default::default()
+            };
+            let mut errors = Vec::new();
+            validate_realizations(&model, &configuration, &payload, &mut errors);
+            errors.iter().map(ToString::to_string).collect::<Vec<_>>()
+        };
+
+        assert!(realize(&["bfloat16", "fp8"]).is_empty());
+        assert_eq!(
+            realize(&["fp8", "float16"]),
+            ["configuration \"local\" has invalid vLLM realization for option \"kv-cache\""]
+        );
+    }
+
+    #[test]
+    fn kv_cache_precision_option_needs_a_realization() {
+        let (model, configuration) = kv_cache_precision_declaration(&["fp8"]);
         let mut errors = Vec::new();
 
         validate_realizations(
@@ -739,10 +791,7 @@ mod tests {
 
         assert_eq!(
             errors.iter().map(ToString::to_string).collect::<Vec<_>>(),
-            [
-                "configuration \"local\" option \"kv-cache\" is a KV cache precision option, which vLLM does not support",
-                "configuration \"local\" requires one unambiguous vLLM realization per model option",
-            ]
+            ["configuration \"local\" requires one unambiguous vLLM realization per model option"]
         );
     }
 
@@ -1339,13 +1388,13 @@ profiles:
                     method: method as i32,
                 },
             )),
-            &mut 0,
-            &mut 0,
+            &mut RealizationCounts::default(),
         )
     }
 
-    /// Model and configuration declaring one KV cache precision option and no realization.
-    fn kv_cache_precision_declaration() -> (Model, ModelEngineConfiguration) {
+    /// Model and configuration declaring one KV cache precision option offering `precisions`, and no
+    /// realization.
+    fn kv_cache_precision_declaration(precisions: &[&str]) -> (Model, ModelEngineConfiguration) {
         let model = Model {
             options: vec![dotcore_proto::dotcore::catalog::v1::ModelOption {
                 option_id: "kv-cache".to_owned(),
@@ -1363,6 +1412,15 @@ profiles:
             configuration_id: "local".to_owned(),
             options: vec![ModelConfigurationOption {
                 option_id: "kv-cache".to_owned(),
+                parameters: vec![ModelOptionParameterDefinition {
+                    parameter_id: "precision".to_owned(),
+                    display_name: "Precision".to_owned(),
+                    parameter_type: Some(ModelOptionParameterType::StringEnum(
+                        StringEnumModelOptionParameterSchema {
+                            values: precisions.iter().map(|&value| value.to_owned()).collect(),
+                        },
+                    )),
+                }],
                 ..Default::default()
             }],
             ..Default::default()

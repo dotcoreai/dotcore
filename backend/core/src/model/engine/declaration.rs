@@ -1,12 +1,13 @@
 //! Engine declaration validation dispatch.
 
 use dotcore_catalog::{
-    EngineDeclarationValidator, shared_parameters::CONTEXT_PER_REQUEST_PARAMETER_ID,
+    EngineDeclarationValidator, options::KV_CACHE_PRECISION_PARAMETER_ID,
+    shared_parameters::CONTEXT_PER_REQUEST_PARAMETER_ID,
 };
 use dotcore_domain::Accelerator;
 use dotcore_proto::dotcore::catalog::v1::{
     EngineRelease, HardwareClass, InferenceRequestKind, Model, ModelEngineConfiguration,
-    model_option,
+    model_option, model_option_parameter_definition::ParameterType,
 };
 
 use super::definition::{definition, unsigned_parameter_range};
@@ -127,6 +128,28 @@ pub(crate) fn kv_cache_precision_option_ids<'a>(
         })
         .map(|option| option.option_id.as_str())
         .collect()
+}
+
+/// Returns the precisions a configuration's KV cache precision option offers, or `None` when the
+/// option or its string-enum precision parameter is missing, which the catalog reports on its own.
+pub(crate) fn offered_kv_cache_precisions<'a>(
+    configuration: &'a ModelEngineConfiguration,
+    option_id: &str,
+) -> Option<&'a [String]> {
+    configuration
+        .options
+        .iter()
+        .find(|option| option.option_id == option_id)
+        .and_then(|option| {
+            option
+                .parameters
+                .iter()
+                .find(|parameter| parameter.parameter_id == KV_CACHE_PRECISION_PARAMETER_ID)
+        })
+        .and_then(|parameter| match parameter.parameter_type.as_ref() {
+            Some(ParameterType::StringEnum(schema)) => Some(schema.values.as_slice()),
+            _ => None,
+        })
 }
 
 /// Rejects a configuration maximum context outside the context per request its engine release

@@ -23,7 +23,7 @@ use dotcore_runtime::{
 
 use super::{
     SERVICE_PORT,
-    plan::{DRAFT_LAYER_BINDING_ID, MODEL_BINDING_ID, PLAN_FORMAT_VERSION},
+    plan::{DRAFT_LAYER_BINDING_ID, MODEL_BINDING_ID, PLAN_FORMAT_VERSION, VISION_BINDING_ID},
 };
 use crate::model::resolved::ResolvedModelLaunch;
 
@@ -36,6 +36,8 @@ pub(super) const CONTAINER_MODEL_PATH: &str = "/opt/dotcore/models/model.gguf";
 pub(super) const CONTAINER_MODEL_FOLDER: &str = "/opt/dotcore/models/model";
 /// Container path at which the Strata start wrapper reads the draft layer binding.
 pub(super) const CONTAINER_DRAFT_LAYER_FOLDER: &str = "/opt/dotcore/models/draft-layer";
+/// Container path at which the Strata start wrapper reads the vision file binding.
+pub(super) const CONTAINER_VISION_PATH: &str = "/opt/dotcore/models/vision.strata";
 const SERVICE_PORT_NAME: &str = "http";
 
 /// Builds the literal container workload spec by materializing the stored portable plan.
@@ -136,6 +138,7 @@ fn materialize_plan(
             MODEL_BINDING_ID if model_folder => CONTAINER_MODEL_FOLDER,
             MODEL_BINDING_ID => CONTAINER_MODEL_PATH,
             DRAFT_LAYER_BINDING_ID => CONTAINER_DRAFT_LAYER_FOLDER,
+            VISION_BINDING_ID => CONTAINER_VISION_PATH,
             _ => return Err(StrataWorkloadError::InvalidPlan),
         };
         if !binding.read_only || binding.artifact.is_none() {
@@ -337,6 +340,51 @@ mod tests {
             workload(&model, &target(&["GPU-0"]), &prepared_model_only()).expect_err("no draft"),
             StrataWorkloadError::MissingPreparedArtifact
         );
+    }
+
+    #[test]
+    fn vision_file_mounts_as_a_single_file_the_wrapper_receives() {
+        let (model, configuration) = crate::test_support::strata::inkling_options_declaration();
+        let values = configuration
+            .options
+            .iter()
+            .map(|option| {
+                let mut values = option.default_values.clone().expect("defaults");
+                if option.option_id == "vision" {
+                    values.values[0].value = Some(dotcore_proto::dotcore::catalog::v1::model_option_parameter_value::Value::Boolean(true));
+                }
+                values
+            })
+            .collect::<Vec<_>>();
+        let launch = ResolvedModelLaunch::from_snapshot(
+            &crate::test_support::strata::local_model_snapshot_with_options(
+                "inkling-2-mini",
+                &model,
+                &configuration,
+                &values,
+            ),
+        )
+        .expect("resolved Strata launch");
+        let prepared = PreparedModelArtifacts {
+            artifacts: BTreeMap::from([
+                ("model".to_owned(), PathBuf::from("/cache/pack.strata")),
+                ("vision".to_owned(), PathBuf::from("/cache/vision.strata")),
+            ]),
+        };
+
+        let spec = workload(&launch, &target(&["GPU-0"]), &prepared).expect("workload");
+
+        assert!(spec.arguments.windows(2).any(|pair| pair
+            == [
+                WorkloadValue::literal("--vision"),
+                WorkloadValue::literal("/opt/dotcore/models/vision.strata"),
+            ]));
+        assert!(spec.artifacts.contains(&WorkloadArtifactBinding {
+            name: "vision".to_owned(),
+            source: PathBuf::from("/cache/vision.strata"),
+            destination: "/opt/dotcore/models/vision.strata".to_owned(),
+            read_only: true,
+        }));
     }
 
     #[test]

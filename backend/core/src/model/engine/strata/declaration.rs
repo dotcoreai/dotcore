@@ -2,9 +2,10 @@
 //!
 //! A release must declare well-formed unsigned-integer or secret parameters, Linux artifacts only,
 //! and the deployment's data folder Strata's start wrapper writes to. A configuration must bind
-//! model artifacts shaped as its engine path says, with the draft layer it names, run text-only on
-//! exactly one NVIDIA accelerator, declare no options, and keep exactly the release parameters its
-//! engine path launches with. Launch values must give Strata a total context that is exactly what
+//! model artifacts shaped as its engine path says, with the draft layer it names, run on exactly
+//! one NVIDIA accelerator, and keep exactly the release parameters its engine path launches with.
+//! Only the Inkling engine realizes options: a vision option with its vision file, which alone
+//! makes image input available, and a KV cache precision option. Launch values must give Strata a total context that is exactly what
 //! its parallel requests hold.
 
 use std::collections::BTreeSet;
@@ -20,14 +21,18 @@ use dotcore_domain::Accelerator;
 use dotcore_proto::dotcore::{
     catalog::v1::{
         EngineRelease, HardwareClass, HuggingFaceArtifactSource, HuggingFaceSnapshotArtifact,
-        Model, ModelEngineConfiguration, ModelInputModality, ModelParallelShape, ParameterValues,
-        StoragePlacement, hugging_face_artifact_source::Content as HuggingFaceContent,
+        Model, ModelConfigurationOption, ModelEngineConfiguration, ModelInputModality,
+        ModelParallelShape, ParameterValues, StoragePlacement,
+        hugging_face_artifact_source::Content as HuggingFaceContent,
+        model_option::Kind as ModelOptionKind,
+        model_option_parameter_definition::ParameterType as ModelOptionParameterType,
         parameter_definition::ParameterType,
     },
     engine::{
         strata::v1::{
             StrataFixedModelSettings, StrataMainEngine, StrataModelConfiguration, StrataReadyPack,
             strata_fixed_model_settings::EnginePath, strata_main_engine::ModelFiles,
+            strata_option_realization::Realization,
         },
         v1::{EngineKind, engine_model_configuration::Configuration},
     },
@@ -35,8 +40,10 @@ use dotcore_proto::dotcore::{
 
 use dotcore_proto::dotcore::observation::v1::AcceleratorMemoryArchitecture;
 
+use super::plan::KV_CACHE_PRECISIONS;
 use crate::model::engine::{
-    declaration::classes_outside_vendors, definition::unsigned_parameter_value,
+    declaration::{classes_outside_vendors, offered_kv_cache_precisions},
+    definition::unsigned_parameter_value,
     split_gguf::split_gguf_entry,
 };
 
@@ -255,7 +262,7 @@ fn validate_payload(
     validate_parameters(configuration, engine, fixed, errors);
     validate_artifacts(model, configuration, fixed, errors);
     validate_execution_shape(configuration, errors);
-    validate_inputs_and_options(configuration, errors);
+    validate_inputs_and_options(model, configuration, payload, fixed, errors);
 }
 
 fn validate_parameters(
@@ -474,33 +481,143 @@ fn validate_execution_shape(
     }
 }
 
-/// Strata's start wrapper fixes speculative decoding and serves text only, so a configuration
-/// has no options to realize and no image input.
+/// Strata's main engine fixes speculative decoding and serves text only, so its configurations
+/// declare no options and no image input. The Inkling engine realizes each declared option once:
+/// at most one vision option, which loads a separate vision file and makes image input available,
+/// and at most one KV cache precision option offering precisions the engine takes.
 fn validate_inputs_and_options(
+    model: &Model,
     configuration: &ModelEngineConfiguration,
+    payload: &StrataModelConfiguration,
+    fixed: &StrataFixedModelSettings,
     errors: &mut Vec<anyhow::Error>,
 ) {
-    if !configuration.options.is_empty() {
+    let inkling = matches!(fixed.engine_path, Some(EnginePath::InklingPack(_)));
+    if !inkling && (!configuration.options.is_empty() || !payload.option_realizations.is_empty()) {
         errors.push(anyhow::anyhow!(
-            "configuration {:?} declares options, which Strata does not realize",
+            "configuration {:?} declares options, which Strata realizes only on its Inkling engine",
             configuration.configuration_id
         ));
     }
-    let image_input = configuration
+
+    let mut option_ids = BTreeSet::new();
+    let mut vision_count = 0;
+    let mut kv_cache_precision_count = 0;
+    for realization in payload.option_realizations.iter().filter(|_| inkling) {
+        let option = configuration
+            .options
+            .iter()
+            .find(|option| option.option_id == realization.option_id);
+        let model_kind = model
+            .options
+            .iter()
+            .find(|option| option.option_id == realization.option_id)
+            .and_then(|option| option.kind.as_ref());
+        let valid = option_ids.insert(realization.option_id.as_str())
+            && option.is_some_and(
+                |option| match (model_kind, realization.realization.as_ref()) {
+                    (Some(ModelOptionKind::Vision(_)), Some(Realization::Vision(vision))) => {
+                        vision_count += 1;
+                        boolean_parameter(option, &vision.enabled_parameter_id)
+                            && valid_vision_file(
+                                model,
+                                configuration,
+                                &vision.auxiliary_artifact_id,
+                            )
+                    }
+                    (
+                        Some(ModelOptionKind::KvCachePrecision(_)),
+                        Some(Realization::KvCachePrecision(_)),
+                    ) => {
+                        kv_cache_precision_count += 1;
+                        offered_kv_cache_precisions(configuration, &option.option_id).is_some_and(
+                            |precisions| {
+                                precisions.iter().all(|precision| {
+                                    KV_CACHE_PRECISIONS.contains(&precision.as_str())
+                                })
+                            },
+                        )
+                    }
+                    _ => false,
+                },
+            );
+        if !valid {
+            errors.push(anyhow::anyhow!(
+                "configuration {:?} has invalid Strata realization for option {:?}",
+                configuration.configuration_id,
+                realization.option_id
+            ));
+        }
+    }
+    if inkling
+        && (configuration
+            .options
+            .iter()
+            .any(|option| !option_ids.contains(option.option_id.as_str()))
+            || vision_count > 1
+            || kv_cache_precision_count > 1)
+    {
+        errors.push(anyhow::anyhow!(
+            "configuration {:?} requires one unambiguous Strata realization per model option",
+            configuration.configuration_id
+        ));
+    }
+
+    let (image_modality, image_capacity) = configuration
         .input_capabilities
         .as_ref()
-        .is_some_and(|capabilities| {
-            capabilities
-                .supported_modalities
-                .contains(&(ModelInputModality::Image as i32))
-                || capabilities.image_input_capacity.is_some()
-        });
-    if image_input {
+        .map(|capabilities| {
+            (
+                capabilities
+                    .supported_modalities
+                    .contains(&(ModelInputModality::Image as i32)),
+                capabilities.image_input_capacity.is_some(),
+            )
+        })
+        .unwrap_or_default();
+    let vision = vision_count == 1;
+    if image_modality != vision || image_capacity != vision {
         errors.push(anyhow::anyhow!(
-            "configuration {:?} declares image input, which Strata does not serve",
+            "configuration {:?} must declare image input with its limits exactly when a Strata \
+             vision option serves it",
             configuration.configuration_id
         ));
     }
+}
+
+/// Whether a vision file is a single-file model auxiliary artifact that no binding selects: the
+/// vision option selects it only while vision is on.
+fn valid_vision_file(
+    model: &Model,
+    configuration: &ModelEngineConfiguration,
+    artifact_id: &str,
+) -> bool {
+    let single_file = model
+        .auxiliary_artifacts
+        .iter()
+        .find(|artifact| artifact.auxiliary_artifact_id == artifact_id)
+        .and_then(|artifact| artifact.source.as_ref())
+        .is_some_and(|source| matches!(source.content, Some(HuggingFaceContent::File(_))));
+    let unbound = configuration.artifact_bindings.iter().all(|binding| {
+        !binding
+            .auxiliary_artifact_ids
+            .iter()
+            .any(|id| id == artifact_id)
+    });
+    single_file && unbound
+}
+
+fn boolean_parameter(option: &ModelConfigurationOption, parameter_id: &str) -> bool {
+    option
+        .parameters
+        .iter()
+        .find(|parameter| parameter.parameter_id == parameter_id)
+        .is_some_and(|parameter| {
+            matches!(
+                parameter.parameter_type,
+                Some(ModelOptionParameterType::Boolean(_))
+            )
+        })
 }
 
 /// The files a ready-made pack's snapshot must hold: its GGUF files and its pack's own files.
@@ -573,7 +690,8 @@ mod tests {
     use dotcore_proto::dotcore::{
         catalog::v1::{
             BooleanParameterSchema, HuggingFaceArtifactSource, HuggingFaceFileArtifact,
-            ModelConfigurationOption, ModelImageInputCapacity, ParameterDefinition,
+            ModelConfigurationOption, ModelImageInputCapacity, ModelInputCapabilities,
+            ParameterDefinition, StringEnumModelOptionParameterSchema,
             UnsignedIntegerParameterSchema,
         },
         model::v1::{
@@ -591,9 +709,9 @@ mod tests {
             strata::{
                 API_KEY_PARAMETER_ID, CATALOG_ENGINE, CATALOG_MODEL, DRAFT_LAYER_ARTIFACT_ID,
                 EXPERT_HOST_MEMORY_MIB_PARAMETER_ID, EXPERT_VRAM_MIB_PARAMETER_ID,
-                catalog_engine_with_api_key, configuration, inkling_pack_configuration,
-                load_catalog, model, ready_pack_configuration, release, release_with_api_key,
-                split_gguf_configuration,
+                VISION_ARTIFACT_ID, catalog_engine_with_api_key, configuration,
+                inkling_options_declaration, inkling_pack_configuration, load_catalog, model,
+                ready_pack_configuration, release, release_with_api_key, split_gguf_configuration,
             },
             unsigned_parameter_values,
         },
@@ -1018,7 +1136,9 @@ mod tests {
         });
         assert_eq!(
             messages(validate_model_configuration(&model(), &options, &release())),
-            ["configuration \"strata-nvidia\" declares options, which Strata does not realize"]
+            [
+                "configuration \"strata-nvidia\" declares options, which Strata realizes only on its Inkling engine"
+            ]
         );
 
         let mut image = configuration();
@@ -1029,8 +1149,62 @@ mod tests {
         inputs.image_input_capacity = Some(ModelImageInputCapacity::default());
         assert_eq!(
             messages(validate_model_configuration(&model(), &image, &release())),
-            ["configuration \"strata-nvidia\" declares image input, which Strata does not serve"]
+            [
+                "configuration \"strata-nvidia\" must declare image input with its limits exactly when a Strata vision option serves it"
+            ]
         );
+    }
+
+    #[test]
+    fn inkling_engine_realizes_vision_and_kv_cache_precision() {
+        let (model, configuration) = inkling_options_declaration();
+        assert!(
+            messages(validate_model_configuration(
+                &model,
+                &configuration,
+                &release()
+            ))
+            .is_empty()
+        );
+
+        let mut unsupported = configuration.clone();
+        unsupported.options[1].parameters[0].parameter_type = Some(
+            ModelOptionParameterType::StringEnum(StringEnumModelOptionParameterSchema {
+                values: vec!["fp16".to_owned(), "k8v4".to_owned()],
+            }),
+        );
+        assert_eq!(
+            messages(validate_model_configuration(
+                &model,
+                &unsupported,
+                &release()
+            )),
+            [
+                "configuration \"strata-fixture-inkling-pack\" has invalid Strata realization for option \"kv-cache\""
+            ]
+        );
+
+        let mut bound_vision = configuration.clone();
+        bound_vision.artifact_bindings[0]
+            .auxiliary_artifact_ids
+            .push(VISION_ARTIFACT_ID.to_owned());
+        assert!(
+            messages(validate_model_configuration(&model, &bound_vision, &release()))
+                .contains(&"configuration \"strata-fixture-inkling-pack\" has invalid Strata realization for option \"vision\"".to_owned())
+        );
+
+        let mut text_only = configuration;
+        text_only.input_capabilities = configuration_text_inputs();
+        assert_eq!(
+            messages(validate_model_configuration(&model, &text_only, &release())),
+            [
+                "configuration \"strata-fixture-inkling-pack\" must declare image input with its limits exactly when a Strata vision option serves it"
+            ]
+        );
+    }
+
+    fn configuration_text_inputs() -> Option<ModelInputCapabilities> {
+        configuration().input_capabilities
     }
 
     #[test]

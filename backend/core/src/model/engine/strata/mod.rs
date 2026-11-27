@@ -128,6 +128,13 @@ impl EngineDefinition for Strata {
         realization::realize_model(model, configuration, binding, option_values)
     }
 
+    fn selectable_auxiliary_artifact_sets(
+        &self,
+        configuration: &ModelEngineConfiguration,
+    ) -> Vec<std::collections::BTreeSet<String>> {
+        realization::selectable_auxiliary_artifact_sets(configuration)
+    }
+
     fn validate_snapshot(
         &self,
         snapshot: &ResolvedLocalModelDeploymentSnapshot,

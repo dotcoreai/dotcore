@@ -1,7 +1,8 @@
 //! Translation and validation of the portable vLLM launch plan for a resolved deployment.
 //!
 //! From a resolved deployment snapshot it builds the canonical `vllm serve` command line from the fixed
-//! settings and option realizations, resolves each engine parameter value, binds the model, chat-template
+//! settings and option realizations (a KV cache precision option sets the KV-cache element type),
+//! resolves each engine parameter value, binds the model, chat-template
 //! and MTP draft artifacts, and rejects custom arguments that overlap the flags the adapter owns. It also checks that a
 //! retained plan exactly matches the plan its resolved state would produce.
 
@@ -9,8 +10,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use dotcore_catalog::{
     options::{
-        SPECULATIVE_ENABLED_PARAMETER_ID, SPECULATIVE_TOKEN_COUNT_PARAMETER_ID, boolean_value,
-        unsigned_value,
+        KV_CACHE_PRECISION_PARAMETER_ID, SPECULATIVE_ENABLED_PARAMETER_ID,
+        SPECULATIVE_TOKEN_COUNT_PARAMETER_ID, boolean_value, string_value, unsigned_value,
     },
     shared_parameters::{CONTEXT_PER_REQUEST_PARAMETER_ID, PARALLEL_REQUESTS_PARAMETER_ID},
 };
@@ -44,6 +45,9 @@ const UTILIZATION_SCALE: u128 = 10_000;
 /// context. Model estimates count it, so the share leaves it out; it stays at or below what vLLM
 /// holds so the check still refuses a crowded device.
 const STARTUP_HELD_BYTES: u64 = 512 * 1024 * 1024;
+/// KV cache precisions a KV cache precision option may offer, as vLLM names its KV-cache element
+/// types. FP16 is left out: vLLM refuses it for Inkling while speculative decoding is on.
+pub(super) const KV_CACHE_PRECISIONS: [&str; 2] = ["bfloat16", "fp8"];
 /// Tokens per KV cache block. Model sizing counts the blocks each request holds in this unit, so it
 /// is fixed rather than left to the engine default.
 const KV_BLOCK_SIZE_TOKENS: &str = "64";
@@ -148,6 +152,7 @@ pub(crate) fn translate(
     let options = resolved_options(snapshot)?;
     let mut vision_enabled = false;
     let mut speculative = None;
+    let mut kv_cache_precision = None;
     for realization in &state.option_realizations {
         let values = options
             .get(realization.option_id.as_str())
@@ -170,6 +175,9 @@ pub(crate) fn translate(
                 speculative = enabled.then_some(Speculative::Dspark(u64::from(
                     dspark.speculative_token_count,
                 )));
+            }
+            Some(Realization::KvCachePrecision(_)) => {
+                kv_cache_precision = Some(supported_kv_cache_precision(values)?);
             }
             None => return Err(VllmPlanError::InvalidResolvedState),
         }
@@ -249,14 +257,16 @@ pub(crate) fn translate(
     if fixed.enable_log_requests {
         arguments.push(literal("--enable-log-requests"));
     }
-    match VllmKvCacheDataType::try_from(fixed.kv_cache_data_type) {
-        Ok(VllmKvCacheDataType::Fp8) => {
-            arguments.extend(literals(["--kv-cache-dtype", "fp8"]));
-        }
-        Ok(VllmKvCacheDataType::Unspecified) | Err(_) => {
-            return Err(VllmPlanError::InvalidResolvedState);
-        }
-    }
+    // A KV cache precision option owns the element type; otherwise the fixed setting does.
+    let kv_cache_dtype = match (
+        kv_cache_precision,
+        VllmKvCacheDataType::try_from(fixed.kv_cache_data_type),
+    ) {
+        (Some(precision), Ok(VllmKvCacheDataType::Unspecified)) => precision,
+        (None, Ok(VllmKvCacheDataType::Fp8)) => "fp8",
+        _ => return Err(VllmPlanError::InvalidResolvedState),
+    };
+    arguments.extend(literals(["--kv-cache-dtype", kv_cache_dtype]));
     arguments.extend(literals(["--block-size", KV_BLOCK_SIZE_TOKENS]));
     arguments.extend(parameter_arguments(
         snapshot,
@@ -423,6 +433,9 @@ fn validate_resolved_consistency(
                 boolean_value(values, SPECULATIVE_ENABLED_PARAMETER_ID)
                     .ok_or(VllmPlanError::InvalidResolvedState)?;
             }
+            Some(Realization::KvCachePrecision(_)) => {
+                supported_kv_cache_precision(values)?;
+            }
             None => return Err(VllmPlanError::InvalidResolvedState),
         }
     }
@@ -460,6 +473,15 @@ fn resolved_options(
         return Err(VllmPlanError::InvalidResolvedState);
     }
     Ok(values)
+}
+
+/// Reads a resolved KV cache precision vLLM launches with.
+fn supported_kv_cache_precision(
+    values: &dotcore_proto::dotcore::catalog::v1::ModelOptionValues,
+) -> Result<&str, VllmPlanError> {
+    string_value(values, KV_CACHE_PRECISION_PARAMETER_ID)
+        .filter(|precision| KV_CACHE_PRECISIONS.contains(precision))
+        .ok_or(VllmPlanError::InvalidResolvedState)
 }
 
 fn parameter_arguments(
@@ -665,8 +687,8 @@ mod tests {
         engine::v1::{ResolvedEngineModelState, resolved_engine_model_state::State},
         engine::vllm::v1::{
             VllmDsparkOptionRealization, VllmEmbeddedMtpHead, VllmFixedModelSettings,
-            VllmKvCacheDataType, VllmKvOffloadingBackend, VllmMtpDraftSource,
-            VllmMtpOptionRealization, VllmOptionRealization, VllmReadinessMode,
+            VllmKvCacheDataType, VllmKvCachePrecisionOptionRealization, VllmKvOffloadingBackend,
+            VllmMtpDraftSource, VllmMtpOptionRealization, VllmOptionRealization, VllmReadinessMode,
             VllmReadinessPolicy, VllmResolvedModelState,
             vllm_mtp_draft_source::Source as DraftSource,
         },
@@ -1251,6 +1273,71 @@ mod tests {
                     .to_owned()
             ))
         );
+    }
+
+    #[test]
+    fn kv_cache_precision_option_sets_the_kv_cache_dtype() {
+        let precision = |value: &str, fixed: VllmKvCacheDataType| {
+            let mut snapshot = snapshot();
+            configure_mtp(&mut snapshot, 0, None);
+            let Some(State::Vllm(state)) = snapshot
+                .resolved_engine_state
+                .as_mut()
+                .and_then(|state| state.state.as_mut())
+            else {
+                panic!("vLLM state");
+            };
+            state
+                .fixed_settings
+                .as_mut()
+                .expect("fixed settings")
+                .kv_cache_data_type = fixed as i32;
+            state.option_realizations[0] = VllmOptionRealization {
+                option_id: "kv-cache".to_owned(),
+                realization: Some(Realization::KvCachePrecision(
+                    VllmKvCachePrecisionOptionRealization {},
+                )),
+            };
+            snapshot.resolved_options[0] = ResolvedModelOption {
+                values: Some(ModelOptionValues {
+                    option_id: "kv-cache".to_owned(),
+                    values: vec![ModelOptionParameterValue {
+                        parameter_id: KV_CACHE_PRECISION_PARAMETER_ID.to_owned(),
+                        value: Some(
+                            dotcore_proto::dotcore::catalog::v1::model_option_parameter_value::Value::String(
+                                value.to_owned(),
+                            ),
+                        ),
+                    }],
+                }),
+            };
+            let plan = translate(&snapshot)?;
+            let arguments = argument_values(&plan);
+            snapshot.desired_launch_plan = Some(plan);
+            validate_snapshot(&snapshot)?;
+            let index = arguments
+                .iter()
+                .position(|argument| {
+                    *argument == ArgumentValue::Literal("--kv-cache-dtype".to_owned())
+                })
+                .expect("KV cache dtype flag");
+            Ok::<_, VllmPlanError>(arguments[index + 1].clone())
+        };
+
+        for value in ["bfloat16", "fp8"] {
+            assert_eq!(
+                precision(value, VllmKvCacheDataType::Unspecified).expect("KV precision plan"),
+                ArgumentValue::Literal(value.to_owned())
+            );
+        }
+        assert!(matches!(
+            precision("float16", VllmKvCacheDataType::Unspecified),
+            Err(VllmPlanError::InvalidResolvedState)
+        ));
+        assert!(matches!(
+            precision("fp8", VllmKvCacheDataType::Fp8),
+            Err(VllmPlanError::InvalidResolvedState)
+        ));
     }
 
     #[test]

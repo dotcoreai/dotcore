@@ -2,35 +2,48 @@
 //! Flash-Next Strata profiles.
 //!
 //! They provide a text-only model with a single GGUF, a split GGUF set, a ready-made pack and an
-//! Inkling pack, plus a draft layer; a valid Strata configuration for each; and accepted deployment
+//! Inkling pack, plus a draft layer; a valid Strata configuration for each, and an Inkling one with
+//! vision and KV cache precision options; and accepted deployment
 //! snapshots whose
 //! launch plan is the canonical plan for the profile: a 32,768-token total context and context per
 //! request for one parallel request, and an 8 GiB expert accelerator memory cap.
 
-use dotcore_catalog::shared_parameters::{
-    CONTEXT_PER_REQUEST_PARAMETER_ID, PARALLEL_REQUESTS_PARAMETER_ID, TOTAL_CONTEXT_PARAMETER_ID,
+use dotcore_catalog::{
+    options::KV_CACHE_PRECISION_PARAMETER_ID,
+    shared_parameters::{
+        CONTEXT_PER_REQUEST_PARAMETER_ID, PARALLEL_REQUESTS_PARAMETER_ID,
+        TOTAL_CONTEXT_PARAMETER_ID,
+    },
 };
 use dotcore_proto::dotcore::{
     catalog::v1::{
-        EngineParameterSchema, EngineRelease, HardwareRequirements, HardwareSupport,
-        HuggingFaceArtifactSource, HuggingFaceFileArtifact, HuggingFaceSnapshotArtifact,
-        HuggingFaceSnapshotFile, InferenceRequestKind, Model, ModelArtifact, ModelArtifactBinding,
-        ModelAuxiliaryArtifact, ModelEngineConfiguration, ModelExecutionCapabilities,
-        ModelInputCapabilities, ModelInputModality, ModelParallelShape, ParameterDefinition,
-        ParameterValue, ParameterValues, ParameterVisibility, SecretParameterSchema,
-        StorageBinding, StorageKind, StoragePlacement, UnsignedIntegerParameterSchema,
-        hugging_face_artifact_source, parameter_definition, parameter_value,
+        BooleanModelOptionParameterSchema, EngineParameterSchema, EngineRelease,
+        HardwareRequirements, HardwareSupport, HuggingFaceArtifactSource, HuggingFaceFileArtifact,
+        HuggingFaceSnapshotArtifact, HuggingFaceSnapshotFile, InferenceRequestKind,
+        KvCachePrecisionModelOption, Model, ModelArtifact, ModelArtifactBinding,
+        ModelAuxiliaryArtifact, ModelConfigurationOption, ModelEngineConfiguration,
+        ModelExecutionCapabilities, ModelImageInputCapacity, ModelInputCapabilities,
+        ModelInputModality, ModelOption, ModelOptionParameterDefinition, ModelOptionParameterValue,
+        ModelOptionValues, ModelParallelShape, ParameterDefinition, ParameterValue,
+        ParameterValues, ParameterVisibility, SecretParameterSchema, StorageBinding, StorageKind,
+        StoragePlacement, StringEnumModelOptionParameterSchema, UnsignedIntegerParameterSchema,
+        VisionModelOption, hugging_face_artifact_source, model_option,
+        model_option_parameter_definition, model_option_parameter_value, parameter_definition,
+        parameter_value,
     },
     engine::{
         strata::v1::{
-            StrataFixedModelSettings, StrataInklingPack, StrataMainEngine,
-            StrataModelConfiguration, StrataReadyPack, StrataSingleGguf, StrataSplitGguf,
+            StrataFixedModelSettings, StrataInklingPack, StrataKvCachePrecisionOptionRealization,
+            StrataMainEngine, StrataModelConfiguration, StrataOptionRealization, StrataReadyPack,
+            StrataSingleGguf, StrataSplitGguf, StrataVisionOptionRealization,
             strata_fixed_model_settings::EnginePath, strata_main_engine::ModelFiles,
+            strata_option_realization::Realization,
         },
         v1::{EngineKind, EngineModelConfiguration, engine_model_configuration::Configuration},
     },
     model::v1::{
-        ModelDeploymentSnapshot, ResolvedLocalModelDeploymentSnapshot, model_deployment_snapshot,
+        ModelDeploymentSnapshot, ResolvedLocalModelDeploymentSnapshot, ResolvedModelOption,
+        model_deployment_snapshot,
     },
 };
 
@@ -74,10 +87,19 @@ pub(crate) fn local_model_snapshot_with(
     model_id: &str,
     configuration: &ModelEngineConfiguration,
 ) -> ModelDeploymentSnapshot {
-    let model = model();
+    local_model_snapshot_with_options(model_id, &model(), configuration, &[])
+}
+
+/// Returns [`local_model_snapshot_with`] for `model`, with `option_values` resolved.
+pub(crate) fn local_model_snapshot_with_options(
+    model_id: &str,
+    model: &Model,
+    configuration: &ModelEngineConfiguration,
+    option_values: &[ModelOptionValues],
+) -> ModelDeploymentSnapshot {
     let binding = &configuration.artifact_bindings[0];
     let selection =
-        crate::model::engine::strata::realize_model(&model, configuration, binding, &[])
+        crate::model::engine::strata::realize_model(model, configuration, binding, option_values)
             .expect("Strata fixture realization");
 
     let mut snapshot = super::local_model_snapshot(model_id);
@@ -132,7 +154,12 @@ pub(crate) fn local_model_snapshot_with(
     local.engine_parameter_schema = Some(schema);
     local.engine_parameter_schema_id = "fixture-strata-v1".to_owned();
     local.engine_parameter_values = Some(values);
-    local.resolved_options = Vec::new();
+    local.resolved_options = option_values
+        .iter()
+        .map(|values| ResolvedModelOption {
+            values: Some(values.clone()),
+        })
+        .collect();
     local.desired_launch_plan = None;
     refresh_launch_plan(local);
     snapshot
@@ -442,6 +469,7 @@ pub(crate) fn configuration() -> ModelEngineConfiguration {
                         model_files: Some(ModelFiles::SingleGguf(StrataSingleGguf {})),
                     })),
                 }),
+                option_realizations: Vec::new(),
             })),
         }),
         execution_capabilities: Some(ModelExecutionCapabilities {
@@ -503,9 +531,103 @@ pub(crate) fn inkling_pack_configuration() -> ModelEngineConfiguration {
             fixed_settings: Some(StrataFixedModelSettings {
                 engine_path: Some(EnginePath::InklingPack(StrataInklingPack {})),
             }),
+            option_realizations: Vec::new(),
         })),
     });
     configuration
+}
+
+/// Vision file of the fixture's Inkling pack, a single-file auxiliary artifact.
+pub(crate) const VISION_ARTIFACT_ID: &str = "fixture-vision";
+
+/// Returns [`model`] and [`inkling_pack_configuration`] with a vision option, off by default, that
+/// loads [`VISION_ARTIFACT_ID`], and a KV cache precision option offering `fp16` and `fp8`, `fp16`
+/// by default.
+pub(crate) fn inkling_options_declaration() -> (Model, ModelEngineConfiguration) {
+    let mut model = model();
+    model.options = vec![
+        ModelOption {
+            option_id: "vision".to_owned(),
+            display_name: "Vision".to_owned(),
+            description: "Fixture option.".to_owned(),
+            visibility: ParameterVisibility::Basic as i32,
+            kind: Some(model_option::Kind::Vision(VisionModelOption {})),
+        },
+        ModelOption {
+            option_id: "kv-cache".to_owned(),
+            display_name: "KV cache precision".to_owned(),
+            description: "Fixture option.".to_owned(),
+            visibility: ParameterVisibility::Advanced as i32,
+            kind: Some(model_option::Kind::KvCachePrecision(
+                KvCachePrecisionModelOption {},
+            )),
+        },
+    ];
+    model.auxiliary_artifacts.push(ModelAuxiliaryArtifact {
+        auxiliary_artifact_id: VISION_ARTIFACT_ID.to_owned(),
+        source: Some(HuggingFaceArtifactSource {
+            repository: "dotcore/fixture-strata".to_owned(),
+            revision: "0123456789abcdef0123456789abcdef01234567".to_owned(),
+            content: Some(hugging_face_artifact_source::Content::File(
+                HuggingFaceFileArtifact {
+                    path: "Vision.strata".to_owned(),
+                    provenance_digest:
+                        "74d2c57145e6ff11d1d2faa79594477f9bc903a611af1fb20218189fbbb77d82"
+                            .to_owned(),
+                },
+            )),
+        }),
+    });
+
+    let mut configuration = inkling_pack_configuration();
+    configuration.options = vec![
+        configuration_option("vision", "enabled", boolean_type(), boolean(false)),
+        configuration_option(
+            "kv-cache",
+            KV_CACHE_PRECISION_PARAMETER_ID,
+            model_option_parameter_definition::ParameterType::StringEnum(
+                StringEnumModelOptionParameterSchema {
+                    values: vec!["fp16".to_owned(), "fp8".to_owned()],
+                },
+            ),
+            model_option_parameter_value::Value::String("fp16".to_owned()),
+        ),
+    ];
+    let Some(Configuration::Strata(payload)) = configuration
+        .engine_configuration
+        .as_mut()
+        .and_then(|wrapper| wrapper.configuration.as_mut())
+    else {
+        unreachable!("the Inkling pack configuration has a Strata payload");
+    };
+    payload.option_realizations = vec![
+        StrataOptionRealization {
+            option_id: "vision".to_owned(),
+            realization: Some(Realization::Vision(StrataVisionOptionRealization {
+                enabled_parameter_id: "enabled".to_owned(),
+                auxiliary_artifact_id: VISION_ARTIFACT_ID.to_owned(),
+            })),
+        },
+        StrataOptionRealization {
+            option_id: "kv-cache".to_owned(),
+            realization: Some(Realization::KvCachePrecision(
+                StrataKvCachePrecisionOptionRealization {},
+            )),
+        },
+    ];
+    configuration.input_capabilities = Some(ModelInputCapabilities {
+        supported_modalities: vec![
+            ModelInputModality::Text as i32,
+            ModelInputModality::Image as i32,
+        ],
+        image_input_capacity: Some(ModelImageInputCapacity {
+            maximum_image_count: 2,
+            maximum_width: 1024,
+            maximum_height: 1024,
+            ..Default::default()
+        }),
+    });
+    (model, configuration)
 }
 
 /// Returns [`configuration`] binding `artifact_id` with the draft layer, for the pack path.
@@ -531,9 +653,43 @@ fn pack_configuration(artifact_id: &str, model_files: ModelFiles) -> ModelEngine
                     model_files: Some(model_files),
                 })),
             }),
+            option_realizations: Vec::new(),
         })),
     });
     configuration
+}
+
+/// Returns a configuration option with one parameter and its default value.
+fn configuration_option(
+    option_id: &str,
+    parameter_id: &str,
+    parameter_type: model_option_parameter_definition::ParameterType,
+    default: model_option_parameter_value::Value,
+) -> ModelConfigurationOption {
+    ModelConfigurationOption {
+        option_id: option_id.to_owned(),
+        parameters: vec![ModelOptionParameterDefinition {
+            parameter_id: parameter_id.to_owned(),
+            display_name: parameter_id.to_owned(),
+            parameter_type: Some(parameter_type),
+        }],
+        default_values: Some(ModelOptionValues {
+            option_id: option_id.to_owned(),
+            values: vec![ModelOptionParameterValue {
+                parameter_id: parameter_id.to_owned(),
+                value: Some(default),
+            }],
+        }),
+        ..Default::default()
+    }
+}
+
+fn boolean_type() -> model_option_parameter_definition::ParameterType {
+    model_option_parameter_definition::ParameterType::Boolean(BooleanModelOptionParameterSchema {})
+}
+
+fn boolean(value: bool) -> model_option_parameter_value::Value {
+    model_option_parameter_value::Value::Boolean(value)
 }
 
 /// Returns a pinned snapshot source of `paths`.

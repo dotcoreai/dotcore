@@ -155,11 +155,11 @@ fn descriptors_keep_engine_payloads_out_of_catalog_and_deployment_contracts() {
     );
     assert_eq!(
         field_numbers(strata, "StrataModelConfiguration"),
-        [("fixed_settings", 1)]
+        [("fixed_settings", 1), ("option_realizations", 2)]
     );
     assert_eq!(
         field_numbers(strata, "StrataResolvedModelState"),
-        [("fixed_settings", 1)]
+        [("fixed_settings", 1), ("option_realizations", 2)]
     );
     assert_eq!(
         field_layout(strata, "StrataFixedModelSettings"),
@@ -191,6 +191,30 @@ fn descriptors_keep_engine_payloads_out_of_catalog_and_deployment_contracts() {
             ("split_gguf", 6, ".dotcore.engine.strata.v1.StrataSplitGguf"),
             ("ready_pack", 7, ".dotcore.engine.strata.v1.StrataReadyPack"),
         ]
+    );
+    assert_eq!(
+        field_layout(strata, "StrataOptionRealization"),
+        [
+            ("option_id", 1, "TYPE_STRING"),
+            (
+                "vision",
+                2,
+                ".dotcore.engine.strata.v1.StrataVisionOptionRealization",
+            ),
+            (
+                "kv_cache_precision",
+                3,
+                ".dotcore.engine.strata.v1.StrataKvCachePrecisionOptionRealization",
+            ),
+        ]
+    );
+    assert_eq!(
+        field_numbers(strata, "StrataVisionOptionRealization"),
+        [("enabled_parameter_id", 1), ("auxiliary_artifact_id", 2)]
+    );
+    assert_eq!(
+        field_numbers(strata, "StrataKvCachePrecisionOptionRealization"),
+        []
     );
     assert_eq!(field_numbers(strata, "StrataInklingPack"), []);
     assert_eq!(
