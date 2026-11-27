@@ -7,13 +7,47 @@ package dotcore.engine.strata.v1;
 message StrataModelConfiguration {
   // Fixed Strata settings shared by every selection of this configuration.
   StrataFixedModelSettings fixed_settings = 1;
+
+  // Option realizations keyed by generic model option identity.
+  repeated StrataOptionRealization option_realizations = 2;
 }
 
 // Concrete Strata state retained in a resolved deployment snapshot.
 message StrataResolvedModelState {
   // Fixed settings copied from the selected configuration.
   StrataFixedModelSettings fixed_settings = 1;
+
+  // Selected realization evidence keyed by generic model option identity.
+  repeated StrataOptionRealization option_realizations = 2;
 }
+
+// Maps one generic model option to its Strata realization. Only Strata's Inkling engine realizes
+// options.
+message StrataOptionRealization {
+  // Stable model-local option identifier.
+  string option_id = 1;
+
+  oneof realization {
+    // Strata realization of a vision option.
+    StrataVisionOptionRealization vision = 2;
+
+    // Strata realization of a KV cache precision option.
+    StrataKvCachePrecisionOptionRealization kv_cache_precision = 3;
+  }
+}
+
+// Realizes one vision option for Strata's Inkling engine by loading a separate vision file.
+message StrataVisionOptionRealization {
+  // Boolean parameter controlling whether the vision file is loaded.
+  string enabled_parameter_id = 1;
+
+  // Model-local auxiliary artifact holding the vision file.
+  string auxiliary_artifact_id = 2;
+}
+
+// Realizes one KV cache precision option for Strata's Inkling engine by passing its precision as
+// the engine's KV cache type.
+message StrataKvCachePrecisionOptionRealization {}
 
 // Fixed Strata launch inputs. Editable values use generic engine parameter
 // schema and value contracts.
