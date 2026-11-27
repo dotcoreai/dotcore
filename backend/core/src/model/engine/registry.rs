@@ -425,6 +425,7 @@ mod tests {
             EngineKind::Vllm,
             EngineKind::Ninfer,
             EngineKind::Strata,
+            EngineKind::Omlx,
         ] {
             assert!(factories.get(kind).is_some(), "{kind:?}");
         }
@@ -440,6 +441,7 @@ mod tests {
             EngineKind::Vllm,
             EngineKind::Ninfer,
             EngineKind::Strata,
+            EngineKind::Omlx,
         ] {
             let integration = registry.integration(kind).expect("integration");
             assert_eq!(integration.definition.kind(), kind);
@@ -465,6 +467,7 @@ mod tests {
         assert!(!has_extractor(EngineKind::LlamaCpp));
         assert!(!has_extractor(EngineKind::Ninfer));
         assert!(!has_extractor(EngineKind::Strata));
+        assert!(!has_extractor(EngineKind::Omlx));
     }
 
     #[test]

@@ -24,6 +24,7 @@ pub(crate) use registry::{
 pub(crate) mod llama_cpp;
 pub(crate) mod loopback_http;
 pub(crate) mod ninfer;
+pub(crate) mod omlx;
 pub(crate) mod openai_compatible_transport;
 pub(crate) mod strata;
 mod system_one_transport;

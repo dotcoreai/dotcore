@@ -678,6 +678,15 @@ pub(super) fn engine_startup_failed_state(
                 gib(*free_bytes),
             ),
         ),
+        Some(StartupRefusal::UnsupportedOperatingSystem {
+            required, found, ..
+        }) => (
+            "engine_unsupported_operating_system",
+            format!(
+                "The engine needs {required} or newer and the node runs {found}; update the \
+                 node's operating system or deploy the model with another engine"
+            ),
+        ),
     };
     state.failure = Some(ModelDeploymentFailure {
         code: code.to_owned(),
@@ -1325,6 +1334,39 @@ mod tests {
                     "Exit status: 1".to_owned(),
                     format!("Engine refusal: {LINE}"),
                     "Output tail: RuntimeError: Engine core initialization failed".to_owned(),
+                ],
+            })
+        );
+    }
+
+    #[test]
+    fn an_operating_system_refusal_names_the_required_and_found_versions() {
+        const LINE: &str = "omlx: macOS 26 or newer is required, found 15.5";
+        let refusal = StartupRefusal::UnsupportedOperatingSystem {
+            required: "macOS 26".to_owned(),
+            found: "macOS 15.5".to_owned(),
+            line: LINE.to_owned(),
+        };
+
+        let failed = engine_startup_failed_state(
+            &loading_state(),
+            Some(&refusal),
+            vec![
+                "Stage: engine startup".to_owned(),
+                format!("Engine refusal: {LINE}"),
+            ],
+        );
+
+        assert_eq!(
+            failed.failure,
+            Some(ModelDeploymentFailure {
+                code: "engine_unsupported_operating_system".to_owned(),
+                message: "The engine needs macOS 26 or newer and the node runs macOS 15.5; update \
+                          the node's operating system or deploy the model with another engine"
+                    .to_owned(),
+                diagnostics: vec![
+                    "Stage: engine startup".to_owned(),
+                    format!("Engine refusal: {LINE}"),
                 ],
             })
         );

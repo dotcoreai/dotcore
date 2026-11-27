@@ -2539,7 +2539,7 @@ mod tests {
             .expect("resolved llama.cpp state")
         {
             State::LlamaCpp(state) => state,
-            State::Vllm(_) | State::Ninfer(_) | State::Strata(_) => {
+            State::Vllm(_) | State::Ninfer(_) | State::Strata(_) | State::Omlx(_) => {
                 panic!("resolved llama.cpp state")
             }
         }

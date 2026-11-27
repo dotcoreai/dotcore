@@ -146,9 +146,10 @@ fn vllm_payload(configuration: &ModelEngineConfiguration) -> Option<&VllmModelCo
         .and_then(|payload| payload.configuration.as_ref())
         .and_then(|payload| match payload {
             Configuration::Vllm(payload) => Some(payload),
-            Configuration::LlamaCpp(_) | Configuration::Ninfer(_) | Configuration::Strata(_) => {
-                None
-            }
+            Configuration::LlamaCpp(_)
+            | Configuration::Ninfer(_)
+            | Configuration::Strata(_)
+            | Configuration::Omlx(_) => None,
         })
 }
 

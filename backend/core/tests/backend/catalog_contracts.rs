@@ -2482,6 +2482,113 @@ fn vllm_launch_rejects_a_context_per_request_above_the_model_maximum() {
     launch(4096).expect("context per request within the maximum");
 }
 
+/// An oMLX launch on a Mac holds the context per request for each parallel request: resolution
+/// derives whichever context value is left out, and the plan's memory ceiling is the whole
+/// estimate over oMLX's overshoot. A total context other than their product is refused.
+#[test]
+fn omlx_launch_holds_the_context_per_request_for_each_parallel_request_on_a_mac() {
+    let catalog = omlx_catalog();
+    let model_id = CatalogModelId("fixture-omlx-model".to_owned());
+    let (target, inventory) = macos_native_target_capabilities();
+    let launch = |values: &[(&str, u64)]| {
+        resolve_local_launch(
+            &catalog,
+            &model_id,
+            "omlx-4bit",
+            &LocalModelDeploymentConfiguration {
+                model_artifact_binding_id: "fixture-mlx-4bit".to_owned(),
+                engine_parameter_values: Some(unsigned_values(values)),
+                ..Default::default()
+            },
+            &target,
+            &inventory,
+            None,
+        )
+        .and_then(|resolution| resolution.generate_missing_secrets(&dotcore::RandomSecretGenerator))
+        .and_then(|resolution| resolution.into_snapshot())
+    };
+    let literals = |snapshot: &ResolvedLocalModelDeploymentSnapshot| {
+        snapshot
+            .desired_launch_plan
+            .as_ref()
+            .expect("desired launch plan")
+            .arguments
+            .iter()
+            .filter_map(|argument| match argument.value.as_ref() {
+                Some(PortableArgument::Literal(literal)) => Some(literal.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+
+    let derived_total = launch(&[
+        ("context-per-request", 16_384),
+        ("parallel-requests", 3),
+        ("prompt-cache-memory-mib", 2_048),
+    ])
+    .expect("a left-out total context");
+    assert_eq!(
+        derived_total
+            .sizing
+            .as_ref()
+            .map(|sizing| (sizing.accelerator_memory_bytes, sizing.host_memory_bytes)),
+        Some((
+            Some(3_000_000_000 + 1_000 * 49_152),
+            Some(2_048 * 1_048_576)
+        ))
+    );
+    // (3,049,152,000 + 2 GiB) / 1.07 = 4.5232 GiB, rounded down.
+    assert_eq!(
+        literals(&derived_total),
+        [
+            "--snapshot",
+            "--served-id",
+            "fixture-omlx-model",
+            "--port",
+            "--context-per-request",
+            "16384",
+            "--parallel-requests",
+            "3",
+            "--memory-ceiling-gb",
+            "4.523",
+            "--prompt-cache-gb",
+            "2",
+        ]
+    );
+
+    let filled = launch(&[
+        ("total-context", 65_536),
+        ("parallel-requests", 2),
+        ("prompt-cache-memory-mib", 0),
+    ])
+    .expect("a left-out context per request");
+    assert_eq!(
+        literals(&filled)[4..],
+        [
+            "--context-per-request",
+            "32768",
+            "--parallel-requests",
+            "2",
+            "--memory-ceiling-gb",
+            "2.668",
+            "--prompt-cache-gb",
+            "0",
+        ]
+    );
+
+    assert_eq!(
+        launch(&[
+            ("total-context", 32_768),
+            ("context-per-request", 32_768),
+            ("parallel-requests", 2),
+            ("prompt-cache-memory-mib", 0),
+        ])
+        .expect_err("a total context below the product")
+        .to_string(),
+        "invalid engine parameter values: context per request of 32768 tokens is not the total context of 32768 tokens split among 2 parallel requests, 16384 tokens each; oMLX lets each parallel request use its full context per request, so leave the total context out or set it to 65536 tokens"
+    );
+}
+
 #[test]
 fn catalog_retains_boolean_engine_parameters_and_their_schema() {
     let catalog = synthetic_boolean_catalog(synthetic_boolean_model());
@@ -3678,4 +3785,89 @@ fn catalog_builder() -> CatalogBuilder {
             "hardware-classes/apple.yaml",
             vendor_hardware_class("apple"),
         )
+}
+
+/// Loads a synthetic oMLX release and a profile-shaped model sized from its total context and
+/// prompt cache, with the shared hardware classes.
+fn omlx_catalog() -> Catalog {
+    const ENGINE: &str = r#"
+engineReleaseId: "fixture-omlx"
+engineKind: "ENGINE_KIND_OMLX"
+version: "0.8.4"
+parameterSchema:
+  schemaId: "fixture-omlx-v1"
+  parameters:
+    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", description: "total-context", unsignedInteger: { minimum: "512", unit: "tokens" } }
+    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", description: "context-per-request", unsignedInteger: { minimum: "512", unit: "tokens", defaultValue: "32768" } }
+    - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_BASIC", description: "parallel-requests", unsignedInteger: { minimum: "1", unit: "requests", defaultValue: "2" } }
+    - { parameterId: "prompt-cache-memory-mib", displayName: "Prompt cache memory", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "prompt-cache-memory-mib", unsignedInteger: { minimum: "0", unit: "MiB", memoryPool: "MEMORY_POOL_HOST" } }
+artifacts:
+  - artifactId: "metal"
+    nix: { flake: "self", package: "engines.omlx.native", executable: "omlx-launcher" }
+    selectors:
+      - platform: { operatingSystem: "darwin", architecture: "arm64" }
+        accelerators: ["apple"]
+"#;
+    const MODEL: &str = r#"
+modelId: "fixture-omlx-model"
+displayName: "Fixture oMLX model"
+version: "1"
+maximumContextTokens: 262144
+artifacts:
+  - artifactId: "fixture-mlx-4bit"
+    weightQuantization: "4bit"
+    source:
+      repository: "dotcore/fixture-mlx-4bit"
+      revision: "0123456789abcdef0123456789abcdef01234567"
+      snapshot:
+        files:
+          - { path: "config.json", provenanceDigest: "74d2c57145e6ff11d1d2faa79594477f9bc903a611af1fb20218189fbbb77d82" }
+          - { path: "model.safetensors", provenanceDigest: "74d2c57145e6ff11d1d2faa79594477f9bc903a611af1fb20218189fbbb77d82" }
+          - { path: "tokenizer.json", provenanceDigest: "74d2c57145e6ff11d1d2faa79594477f9bc903a611af1fb20218189fbbb77d82" }
+configurations:
+  - configurationId: "omlx-apple"
+    engineArtifacts: [{ engineReleaseId: "fixture-omlx", engineArtifactId: "metal" }]
+    artifactBindings: [{ bindingId: "fixture-mlx-4bit", modelArtifactId: "fixture-mlx-4bit" }]
+    sizing:
+      parameters: { baseBytes: 3000000000, bytesPerKvToken: 1000 }
+      estimates:
+        acceleratorMemory:
+          unit: bytes
+          equation: "${baseBytes} + ${bytesPerKvToken} * ${total-context}"
+        hostMemory:
+          unit: bytes
+          equation: "${prompt-cache-memory-mib} * MiB"
+    hardwareSupport:
+      - hardwareClassId: "apple"
+        hardwareRequirements: { minimumSystemMemoryBytes: "16000000000" }
+        bindingSizing: [{ bindingId: "fixture-mlx-4bit" }]
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_OMLX"
+      omlx: { fixedSettings: { promptCacheMibParameterId: "prompt-cache-memory-mib" } }
+    executionCapabilities: { supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"] }
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
+    inputCapabilities: { supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"] }
+profiles:
+  - profileId: "omlx-4bit"
+    displayName: "4-bit oMLX"
+    description: "Runs the fixture through oMLX."
+    configurationId: "omlx-apple"
+    defaultModelArtifactBindingId: "fixture-mlx-4bit"
+    engineParameterDefaults:
+      values: [{ parameterId: "prompt-cache-memory-mib", unsignedInteger: "2048" }]
+"#;
+
+    let root = temporary_catalog_root();
+    create_empty_catalog_source(&root);
+    std::fs::write(root.join("engines/omlx.yaml"), ENGINE).expect("oMLX engine release");
+    std::fs::write(root.join("models/omlx.yaml"), MODEL).expect("oMLX model");
+    dotcore_catalog::test_support::write_hardware_classes(&root);
+    let catalog = Catalog::load_with_policy(
+        &root,
+        dotcore_catalog::OciArtifactPolicy::Development,
+        dotcore::model::engine::declaration_validator(),
+    )
+    .expect("oMLX catalog");
+    std::fs::remove_dir_all(&root).expect("catalog root cleanup");
+    catalog
 }

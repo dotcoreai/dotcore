@@ -770,6 +770,58 @@ mod tests {
     }
 
     #[test]
+    fn an_omlx_deployment_grows_into_its_estimate_after_ready() {
+        use dotcore_proto::dotcore::{
+            engine::v1::EngineKind,
+            model::v1::{ModelDeploymentStatus, model_deployment_snapshot},
+        };
+
+        let (target, inventory) =
+            crate::test_support::execution_target_capabilities(ExecutionPlatform::linux_amd64());
+        let deployment = |engine_kind: EngineKind| {
+            let mut deployment = sized_deployment(&target, ModelDeploymentStatus::Ready, None);
+            if let Some(model_deployment_snapshot::Source::Local(local)) = deployment
+                .snapshot
+                .as_mut()
+                .and_then(|snapshot| snapshot.source.as_mut())
+            {
+                local
+                    .engine_artifact
+                    .as_mut()
+                    .expect("engine artifact")
+                    .engine_kind = engine_kind as i32;
+            }
+            deployment.model_deployment_id = engine_kind.as_str_name().to_owned();
+            deployment
+        };
+
+        let workloads = node_workloads(
+            &[
+                deployment(EngineKind::Omlx),
+                deployment(EngineKind::LlamaCpp),
+            ],
+            Some(&inventory),
+        );
+
+        assert_eq!(
+            workloads[&target.site_node_id]
+                .iter()
+                .map(|workload| (workload.key.clone(), workload.grows_into_estimate))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    crate::hardware::capacity::WorkloadKey::inference("ENGINE_KIND_OMLX"),
+                    true
+                ),
+                (
+                    crate::hardware::capacity::WorkloadKey::inference("ENGINE_KIND_LLAMA_CPP"),
+                    false
+                ),
+            ]
+        );
+    }
+
+    #[test]
     fn a_ready_deployment_keeps_its_claim_until_its_memory_is_measured() {
         use dotcore_proto::dotcore::{
             deployment::v1::AcceleratorMemoryObservation, model::v1::ModelDeploymentStatus,

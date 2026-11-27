@@ -13,13 +13,22 @@ pub(crate) enum StartupRefusal {
         free_bytes: u64,
         line: String,
     },
+
+    /// The node's operating system is older than the engine runs on, so the engine can't start
+    /// there at all.
+    UnsupportedOperatingSystem {
+        required: String,
+        found: String,
+        line: String,
+    },
 }
 
 impl StartupRefusal {
     /// The output line the refusal was read from.
     pub(crate) fn line(&self) -> &str {
         match self {
-            Self::InsufficientFreeMemory { line, .. } => line,
+            Self::InsufficientFreeMemory { line, .. }
+            | Self::UnsupportedOperatingSystem { line, .. } => line,
         }
     }
 }

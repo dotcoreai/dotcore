@@ -203,7 +203,10 @@ fn llama_cpp_payload(
         .and_then(|payload| payload.configuration.as_ref())
         .and_then(|payload| match payload {
             Configuration::LlamaCpp(payload) => Some(payload),
-            Configuration::Vllm(_) | Configuration::Ninfer(_) | Configuration::Strata(_) => None,
+            Configuration::Vllm(_)
+            | Configuration::Ninfer(_)
+            | Configuration::Strata(_)
+            | Configuration::Omlx(_) => None,
         })
 }
 

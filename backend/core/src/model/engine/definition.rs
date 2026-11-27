@@ -1,6 +1,6 @@
 //! The behavior every supported inference engine provides, and the single list of those engines.
 //!
-//! Each engine package (llama.cpp, vLLM, ninfer, Strata) describes itself once: how its catalog
+//! Each engine package (llama.cpp, vLLM, ninfer, Strata, oMLX) describes itself once: how its catalog
 //! declarations are validated, how options become a launch plan and container workload, how
 //! readiness is probed, and which transport reaches it. Catalog validation, deployment
 //! realization, and the engine integration registry all look engines up here by kind, so adding
@@ -23,8 +23,8 @@ use dotcore_proto::dotcore::{
 use dotcore_runtime::{ExecutionTarget, LoopbackEndpoint, WorkloadSpec};
 
 use super::{
-    llama_cpp, ninfer, realization::ResolvedEngineSelection, startup_facts::StartupFactExtractor,
-    startup_refusal::StartupRefusal, strata, vllm,
+    llama_cpp, ninfer, omlx, realization::ResolvedEngineSelection,
+    startup_facts::StartupFactExtractor, startup_refusal::StartupRefusal, strata, vllm,
 };
 use crate::{
     inference::{EngineBindingError, EngineReadinessProbe, EngineTransportFactory},
@@ -32,11 +32,12 @@ use crate::{
 };
 
 /// Every supported engine, keyed by its unique engine kind.
-pub(crate) static ENGINES: [&dyn EngineDefinition; 4] = [
+pub(crate) static ENGINES: [&dyn EngineDefinition; 5] = [
     &llama_cpp::LlamaCpp,
     &vllm::Vllm,
     &ninfer::Ninfer,
     &strata::Strata,
+    &omlx::Omlx,
 ];
 
 /// Stateless, engine-owned behavior selected by engine kind.
@@ -298,6 +299,7 @@ mod tests {
             EngineKind::Vllm,
             EngineKind::Ninfer,
             EngineKind::Strata,
+            EngineKind::Omlx,
         ] {
             assert_eq!(
                 definition(kind as i32).map(|engine| engine.kind()),
@@ -313,9 +315,22 @@ mod tests {
         for engine in ENGINES {
             let expected: &[WorkloadArtifactKind] = match engine.kind() {
                 EngineKind::LlamaCpp => &[WorkloadArtifactKind::Oci, WorkloadArtifactKind::Nix],
+                EngineKind::Omlx => &[WorkloadArtifactKind::Nix],
                 _ => &[WorkloadArtifactKind::Oci],
             };
             assert_eq!(engine.artifact_kinds(), expected, "{}", engine.name());
+        }
+    }
+
+    #[test]
+    fn only_omlx_deployments_grow_into_their_estimate_after_ready() {
+        for engine in ENGINES {
+            assert_eq!(
+                engine.grows_into_estimate_after_ready(),
+                engine.kind() == EngineKind::Omlx,
+                "{}",
+                engine.name()
+            );
         }
     }
 }

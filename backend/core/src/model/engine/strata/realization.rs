@@ -32,7 +32,10 @@ pub(crate) fn realize_model(
         .and_then(|payload| payload.configuration.as_ref())
         .and_then(|payload| match payload {
             Configuration::Strata(payload) => Some(payload),
-            Configuration::LlamaCpp(_) | Configuration::Vllm(_) | Configuration::Ninfer(_) => None,
+            Configuration::LlamaCpp(_)
+            | Configuration::Vllm(_)
+            | Configuration::Ninfer(_)
+            | Configuration::Omlx(_) => None,
         })
         .ok_or_else(|| anyhow::anyhow!("configuration has no Strata payload"))?;
     let fixed_settings = payload

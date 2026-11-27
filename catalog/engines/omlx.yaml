@@ -1,0 +1,64 @@
+# Official oMLX macOS 26-27 release packaged with its package launcher in engines/omlx and exposed by
+# the repository flake as `engines.omlx.native`. The packaged master catalog rewrites `self` to the
+# locked Dotcore revision with precomputed store paths, and fails unless the version equals the
+# engine package version (checked by `checks.dotcore-catalog`). Bounds cite oMLX v0.8.4 sources
+# under `omlx/` and the launcher in engines/omlx.
+engineReleaseId: "omlx-0-8-4"
+engineKind: "ENGINE_KIND_OMLX"
+version: "0.8.4"
+parameterSchema:
+  schemaId: "omlx-v1"
+  parameters:
+    # Shared parameters: the engine adapter in backend/core/src/model/engine/ maps them to flags.
+    - parameterId: "total-context"
+      displayName: "Total context"
+      visibility: "PARAMETER_VISIBILITY_BASIC"
+      description: "Memory the model holds for all requests at once. Each parallel request may use a full context per request, so it is always the parallel requests times the context per request; change those two instead. oMLX manages its own memory: it grows into this as requests arrive and may use somewhat more than the estimate, so leave the machine room."
+      # At least Dotcore's context floor. No oMLX argument: the adapter keeps it the parallel
+      # requests times the context per request and derives the memory guard ceiling from the
+      # sizing it sets.
+      unsignedInteger:
+        minimum: "512"
+        unit: "tokens"
+    - parameterId: "context-per-request"
+      displayName: "Context per request"
+      visibility: "PARAMETER_VISIBILITY_BASIC"
+      description: "Largest context one request may use; longer prompts are refused. It reserves nothing up front: requests take memory as they grow."
+      # At least Dotcore's context floor. The launcher writes it as the model's
+      # `max_context_window`, a Python int with no upper bound (`model_settings.py`), which
+      # `validate_context_window` (`server.py`) enforces.
+      unsignedInteger:
+        minimum: "512"
+        unit: "tokens"
+        defaultValue: "32768"
+    - parameterId: "parallel-requests"
+      displayName: "Parallel requests"
+      visibility: "PARAMETER_VISIBILITY_BASIC"
+      description: "Requests generated at once; more wait in a queue. The total context grows with them, so each added request uses more memory; raise it when several people or agents use the model together."
+      # `--max-concurrent-requests` must be above 0 (`GlobalSettings.validate`, `settings.py`) and
+      # has no upper bound.
+      unsignedInteger:
+        minimum: "1"
+        unit: "requests"
+        defaultValue: "4"
+    - parameterId: "prompt-cache-memory-mib"
+      displayName: "Prompt cache memory"
+      visibility: "PARAMETER_VISIBILITY_ADVANCED"
+      description: "Memory used to reuse repeated prompts, such as agent system prompts, without processing them again. Raise it if the same long prompts come back often; it competes with the model for the Mac's memory, and 0 turns it off."
+      # The launcher passes 0 as `--no-cache`, and any other size as `--hot-cache-max-size`, which
+      # `parse_size` (`config.py`) reads without an upper bound.
+      unsignedInteger:
+        minimum: "0"
+        unit: "MiB"
+        memoryPool: "MEMORY_POOL_HOST"
+artifacts:
+  - artifactId: "metal"
+    nix:
+      flake: "self"
+      package: "engines.omlx.native"
+      executable: "omlx-launcher"
+    # Each selector is one set of target facts this build runs on. The launcher refuses macOS
+    # older than 26, which selectors can't express.
+    selectors:
+      - platform: { operatingSystem: "darwin", architecture: "arm64" }
+        accelerators: ["apple"]
