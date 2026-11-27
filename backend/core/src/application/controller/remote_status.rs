@@ -359,6 +359,7 @@ fn observed_state(
         endpoint,
         observed_placement,
         observation_stale: false,
+        observation_stale_reason: String::new(),
         steps,
     }
 }

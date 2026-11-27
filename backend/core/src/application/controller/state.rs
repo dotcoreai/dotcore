@@ -371,6 +371,7 @@ fn state(
         failure: None,
         observed_placement: None,
         observation_stale: false,
+        observation_stale_reason: String::new(),
         steps: None,
     }
 }
@@ -437,6 +438,7 @@ mod tests {
                 execution_target_id: "application-target-one".to_owned(),
             }),
             observation_stale: false,
+            observation_stale_reason: String::new(),
         };
 
         let pausing = pausing_state(Some(&previous));

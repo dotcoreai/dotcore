@@ -19,12 +19,15 @@ use dotcore_proto::dotcore::{
     },
     site::v1::Site,
 };
-use dotcore_site::node::{
-    control::{
-        ApplicationStatusEvidence, DeploymentStatusEvidence, ManagerNodeControlCoordinator,
-        NodeDeploymentReference,
+use dotcore_site::{
+    node::{
+        control::{
+            ApplicationStatusEvidence, DeploymentStatusEvidence, ManagerNodeControlCoordinator,
+            NodeDeploymentReference,
+        },
+        target_inventory::TargetCapabilitySource,
     },
-    target_inventory::TargetCapabilitySource,
+    view::desired::view_rejection_message,
 };
 use tokio::sync::Mutex as AsyncMutex;
 
@@ -203,7 +206,8 @@ where
                         )
                     })?;
                 let node = evidence.get(deployment.application_deployment_id.as_str());
-                state.observation_stale = match node.map(|node| node.evidence) {
+                let node_evidence = node.map(|node| node.evidence);
+                state.observation_stale = match node_evidence {
                     None | Some(DeploymentStatusEvidence::Current) => false,
                     // Only the record an accepted mutation wrote stands in for the node's
                     // acknowledgement; a record from an earlier report is not evidence.
@@ -214,6 +218,12 @@ where
                         DeploymentStatusEvidence::Unavailable
                         | DeploymentStatusEvidence::ViewRejected(_),
                     ) => true,
+                };
+                state.observation_stale_reason = match node_evidence {
+                    Some(DeploymentStatusEvidence::ViewRejected(code)) => {
+                        view_rejection_message(code).to_owned()
+                    }
+                    _ => String::new(),
                 };
                 let mut projected = project(
                     deployment,
