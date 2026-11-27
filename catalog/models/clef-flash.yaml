@@ -169,7 +169,7 @@ profiles:
   - profileId: "q4-k-m"
     displayName: "Q4_K_M"
     description: "Uses the smaller Q4_K_M weights."
-    configurationId: "llama-cpp"
+    configurationIds: ["llama-cpp"]
     defaultModelArtifactBindingId: "q4-k-m"
     engineParameterDefaults:
       values:
@@ -181,7 +181,7 @@ profiles:
   - profileId: "q8-0"
     displayName: "Q8_0"
     description: "Uses the higher-precision Q8_0 weights."
-    configurationId: "llama-cpp"
+    configurationIds: ["llama-cpp"]
     defaultModelArtifactBindingId: "q8-0"
     engineParameterDefaults:
       values:

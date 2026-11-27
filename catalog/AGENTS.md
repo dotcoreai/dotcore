@@ -16,6 +16,9 @@ skill to bump an engine. [`engines/AGENTS.md`](../engines/AGENTS.md) says where 
 - Model options (vision, speculative decoding) are what an operator turns on when deploying. Don't
   add a profile that only turns an option on, such as a "with vision" profile: declare the option
   as basic, and size the configuration for every value.
+- When one launch recipe needs a configuration per kind of hardware (a build or setting per
+  hardware class), list them all in one profile's `configurationIds` instead of a profile per host.
+  The [catalog spec](../docs/specs/catalog.md#validating-a-catalog) says what they must share.
 
 ## Parameters
 

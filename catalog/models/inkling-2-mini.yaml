@@ -424,7 +424,7 @@ profiles:
   - profileId: "nvfp4"
     displayName: "Inkling 2 Mini NVFP4"
     description: "Runs Inkling 2 Mini through vLLM for Linux NVIDIA inference."
-    configurationId: "vllm-nvidia-cuda-nvfp4"
+    configurationIds: ["vllm-nvidia-cuda-nvfp4"]
     defaultModelArtifactBindingId: "nvfp4"
     engineParameterDefaults:
       values:
@@ -445,7 +445,7 @@ profiles:
   - profileId: "strata-sq-10"
     displayName: "SQ-10 on Strata"
     description: "Runs Inkling 2 Mini's SQ-10 pack through Strata on an RTX 5090 or RTX PRO 6000 for text inference."
-    configurationId: "strata-nvidia-cuda"
+    configurationIds: ["strata-nvidia-cuda"]
     defaultModelArtifactBindingId: "sq-10"
     engineParameterDefaults: {}
     # Strata's total context is always the parallel requests times the context per request.
@@ -454,7 +454,7 @@ profiles:
   - profileId: "strata-sq-15"
     displayName: "SQ-15 on Strata"
     description: "Runs Inkling 2 Mini's SQ-15 pack through Strata on an RTX 5090 or RTX PRO 6000 for text inference."
-    configurationId: "strata-nvidia-cuda"
+    configurationIds: ["strata-nvidia-cuda"]
     defaultModelArtifactBindingId: "sq-15"
     engineParameterDefaults: {}
     # Strata's total context is always the parallel requests times the context per request.
@@ -463,7 +463,7 @@ profiles:
   - profileId: "strata-sq-20"
     displayName: "SQ-20 on Strata"
     description: "Runs Inkling 2 Mini's SQ-20 pack through Strata on an RTX 5090 or RTX PRO 6000 for text inference."
-    configurationId: "strata-nvidia-cuda"
+    configurationIds: ["strata-nvidia-cuda"]
     defaultModelArtifactBindingId: "sq-20"
     engineParameterDefaults: {}
     # Strata's total context is always the parallel requests times the context per request.
@@ -472,7 +472,7 @@ profiles:
   - profileId: "strata-gb10-sq-10"
     displayName: "SQ-10 on Strata for GB10"
     description: "Runs Inkling 2 Mini's SQ-10 pack through Strata on a GB10 for text inference."
-    configurationId: "strata-nvidia-gb10"
+    configurationIds: ["strata-nvidia-gb10"]
     defaultModelArtifactBindingId: "sq-10"
     engineParameterDefaults: {}
     # Strata's total context is always the parallel requests times the context per request.
@@ -481,7 +481,7 @@ profiles:
   - profileId: "strata-gb10-sq-15"
     displayName: "SQ-15 on Strata for GB10"
     description: "Runs Inkling 2 Mini's SQ-15 pack through Strata on a GB10 for text inference."
-    configurationId: "strata-nvidia-gb10"
+    configurationIds: ["strata-nvidia-gb10"]
     defaultModelArtifactBindingId: "sq-15"
     engineParameterDefaults: {}
     # Strata's total context is always the parallel requests times the context per request.
@@ -490,7 +490,7 @@ profiles:
   - profileId: "strata-gb10-sq-20"
     displayName: "SQ-20 on Strata for GB10"
     description: "Runs Inkling 2 Mini's SQ-20 pack through Strata on a GB10 for text inference."
-    configurationId: "strata-nvidia-gb10"
+    configurationIds: ["strata-nvidia-gb10"]
     defaultModelArtifactBindingId: "sq-20"
     engineParameterDefaults: {}
     # Strata's total context is always the parallel requests times the context per request.

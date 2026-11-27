@@ -531,7 +531,7 @@ configurations:
 profiles:
   - profileId: "q3-xl"
     displayName: "Unsloth Q3_K_XL"
-    configurationId: "llama-cpp"
+    configurationIds: ["llama-cpp"]
     defaultModelArtifactBindingId: "q3-xl"
     engineParameterDefaults:
       values:
@@ -540,7 +540,7 @@ profiles:
   - profileId: "q3-xl-q8-kv"
     displayName: "Unsloth Q3_K_XL with 8-bit KV cache"
     description: "Uses the smaller Q3 weights and stores the context cache at 8 bits, which fits more context in the same memory."
-    configurationId: "llama-cpp"
+    configurationIds: ["llama-cpp"]
     defaultModelArtifactBindingId: "q3-xl"
     engineParameterDefaults:
       values:
@@ -553,7 +553,7 @@ profiles:
             string: "q8_0"
   - profileId: "q4-xl"
     displayName: "Unsloth Q4_K_XL"
-    configurationId: "llama-cpp"
+    configurationIds: ["llama-cpp"]
     defaultModelArtifactBindingId: "q4-xl"
     engineParameterDefaults:
       values:
@@ -561,7 +561,7 @@ profiles:
           unsignedInteger: "2048"
   - profileId: "q5-xl"
     displayName: "Unsloth Q5_K_XL"
-    configurationId: "llama-cpp"
+    configurationIds: ["llama-cpp"]
     defaultModelArtifactBindingId: "q5-xl"
     engineParameterDefaults:
       values:
@@ -570,7 +570,7 @@ profiles:
   - profileId: "nvfp4"
     displayName: "Unsloth NVFP4"
     description: "Runs Qwen3.8 27B through vLLM for Linux NVIDIA inference."
-    configurationId: "vllm-nvidia-cuda"
+    configurationIds: ["vllm-nvidia-cuda"]
     defaultModelArtifactBindingId: "nvfp4"
     engineParameterDefaults:
       values:
@@ -588,7 +588,7 @@ profiles:
   - profileId: "ninfer-nvfp4"
     displayName: "ninfer"
     description: "Runs Qwen3.8 27B through ninfer on an RTX 5090 or RTX PRO 6000 for text and image inference."
-    configurationId: "ninfer-nvidia-gb202"
+    configurationIds: ["ninfer-nvidia-gb202"]
     defaultModelArtifactBindingId: "ninfer-nvfp4"
     engineParameterDefaults:
       values:

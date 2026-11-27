@@ -180,7 +180,7 @@ profiles:
   - profileId: "gpu"
     displayName: "Unsloth Q4_K_XL"
     description: "Uses GPU acceleration for text and image inference."
-    configurationId: "llama-cpp"
+    configurationIds: ["llama-cpp"]
     defaultModelArtifactBindingId: "primary"
     engineParameterDefaults:
       values:

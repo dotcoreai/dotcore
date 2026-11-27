@@ -582,7 +582,7 @@ profiles:
   - profileId: "q3-xl"
     displayName: "Unsloth Q3_K_XL"
     description: "Uses the smaller Q3 weights."
-    configurationId: "llama-cpp"
+    configurationIds: ["llama-cpp"]
     defaultModelArtifactBindingId: "q3-xl"
     engineParameterDefaults:
       values:
@@ -596,7 +596,7 @@ profiles:
   - profileId: "q4-xl"
     displayName: "Unsloth Q4_K_XL"
     description: "Uses the balanced Q4 weights."
-    configurationId: "llama-cpp"
+    configurationIds: ["llama-cpp"]
     defaultModelArtifactBindingId: "q4-xl"
     engineParameterDefaults:
       values:
@@ -610,7 +610,7 @@ profiles:
   - profileId: "q5-xl"
     displayName: "Unsloth Q5_K_XL"
     description: "Uses the higher-precision Q5 weights."
-    configurationId: "llama-cpp"
+    configurationIds: ["llama-cpp"]
     defaultModelArtifactBindingId: "q5-xl"
     engineParameterDefaults:
       values:
@@ -624,7 +624,7 @@ profiles:
   - profileId: "nvfp4"
     displayName: "Unsloth NVFP4"
     description: "Runs Qwen3.6 35B A3B through vLLM for Linux NVIDIA inference."
-    configurationId: "vllm-nvidia-cuda"
+    configurationIds: ["vllm-nvidia-cuda"]
     defaultModelArtifactBindingId: "nvfp4"
     engineParameterDefaults:
       values:
@@ -642,7 +642,7 @@ profiles:
   - profileId: "strata-q4-xl"
     displayName: "Unsloth Q4_K_XL on Strata"
     description: "Runs the balanced Q4 weights through Strata on an RTX 5090 or RTX PRO 6000, keeping the experts that don't fit on the GPU in host memory."
-    configurationId: "strata-nvidia-cuda"
+    configurationIds: ["strata-nvidia-cuda"]
     defaultModelArtifactBindingId: "q4-xl"
     engineParameterDefaults: {}
     # Strata's total context is always the parallel requests times the context per request.
@@ -651,7 +651,7 @@ profiles:
   - profileId: "strata-q6-xl"
     displayName: "Unsloth Q6_K_XL on Strata"
     description: "Runs the higher-precision Q6 weights through Strata on an RTX 5090 or RTX PRO 6000, keeping the experts that don't fit on the GPU in host memory."
-    configurationId: "strata-nvidia-cuda"
+    configurationIds: ["strata-nvidia-cuda"]
     defaultModelArtifactBindingId: "q6-xl"
     engineParameterDefaults: {}
     # Strata's total context is always the parallel requests times the context per request.
@@ -660,7 +660,7 @@ profiles:
   - profileId: "strata-q8"
     displayName: "Q8_0 on Strata"
     description: "Runs the 8-bit weights, the closest to the full model, through Strata on an RTX 5090 or RTX PRO 6000, keeping the experts that don't fit on the GPU in host memory."
-    configurationId: "strata-nvidia-cuda"
+    configurationIds: ["strata-nvidia-cuda"]
     defaultModelArtifactBindingId: "q8"
     engineParameterDefaults: {}
     # Strata's total context is always the parallel requests times the context per request.
@@ -669,7 +669,7 @@ profiles:
   - profileId: "strata-gb10-q4-xl"
     displayName: "Unsloth Q4_K_XL on Strata for GB10"
     description: "Runs the balanced Q4 weights through Strata on a GB10, keeping every expert in the memory its GPU shares with the host."
-    configurationId: "strata-nvidia-gb10"
+    configurationIds: ["strata-nvidia-gb10"]
     defaultModelArtifactBindingId: "q4-xl"
     engineParameterDefaults: {}
     # Strata's total context is always the parallel requests times the context per request.
@@ -678,7 +678,7 @@ profiles:
   - profileId: "strata-gb10-q6-xl"
     displayName: "Unsloth Q6_K_XL on Strata for GB10"
     description: "Runs the higher-precision Q6 weights through Strata on a GB10, keeping every expert in the memory its GPU shares with the host."
-    configurationId: "strata-nvidia-gb10"
+    configurationIds: ["strata-nvidia-gb10"]
     defaultModelArtifactBindingId: "q6-xl"
     engineParameterDefaults: {}
     # Strata's total context is always the parallel requests times the context per request.
@@ -687,7 +687,7 @@ profiles:
   - profileId: "strata-gb10-q8"
     displayName: "Q8_0 on Strata for GB10"
     description: "Runs the 8-bit weights, the closest to the full model, through Strata on a GB10, keeping every expert in the memory its GPU shares with the host."
-    configurationId: "strata-nvidia-gb10"
+    configurationIds: ["strata-nvidia-gb10"]
     defaultModelArtifactBindingId: "q8"
     engineParameterDefaults: {}
     # Strata's total context is always the parallel requests times the context per request.
