@@ -22,6 +22,11 @@ options:
     speculativeDecoding: { method: "SPECULATIVE_DECODING_METHOD_DSPARK" }
     visibility: "PARAMETER_VISIBILITY_ADVANCED"
     description: "Drafts a block of tokens ahead and has the model check them together, which makes code generation much faster; prose gains little or slows a bit. Loads the drafter next to the model, which uses more memory and holds less context."
+  - optionId: "dflash"
+    displayName: "DFlash 2"
+    speculativeDecoding: { method: "SPECULATIVE_DECODING_METHOD_DFLASH" }
+    visibility: "PARAMETER_VISIBILITY_ADVANCED"
+    description: "Drafts a block of tokens ahead with a small separate model and has the model check them together, which makes generation faster. Loads the drafter next to the model, which uses more memory."
   - optionId: "kv-cache"
     displayName: "KV cache precision"
     kvCachePrecision: {}
@@ -59,57 +64,90 @@ artifacts:
             provenanceDigest: "7f332727f9a3f093dd452a39cc978e6757627e5dad1b0673aa4e75174f236dd6"
           - path: "tokenizer_config.json"
             provenanceDigest: "bf09342d285139fd37ce10c70878af1d52cb390e9901e10248654293a80ee636"
-  # Strata's ready-made packs. Each holds the dense weights, the experts and the DSpark drafter in one
-  # file; the tokenizer files beside it are what the wrapper builds the tokenizer from.
+  # Strata's ready-made packs. Each holds the dense weights and the experts in one file; the drafter is
+  # `strata-dflash` and the tokenizer is `strata-tokenizer`. The repository's `SHA256SUMS.txt` is stale for
+  # the v2 files, so the digests come from its Hugging Face file listing.
   - artifactId: "sq-10"
     weightQuantization: "SQ-10"
     source:
       repository: "strata-engine/Inkling-2-Mini-Strata"
-      revision: "04996a1e2c45009b6a04f2af126cb6bdb2ba3587"
+      revision: "5623ceb47d7a01db827460ce1c23e7818a75661b"
       snapshot:
         files:
           - path: "Inkling-2-Mini-SQ-10.strata"
             provenanceDigest: "ac4d452ad03e4930abd9d46f9c5eec22b2f75a1da45a1e49bd24ccd58b065934"
-          - path: "chat_template.jinja"
-            provenanceDigest: "53a9035f3255945704b5857657cfb00c1165090c0641c4f782a0cbf268cc16dc"
-          - path: "tokenizer.json"
-            provenanceDigest: "7f332727f9a3f093dd452a39cc978e6757627e5dad1b0673aa4e75174f236dd6"
   - artifactId: "sq-15"
     weightQuantization: "SQ-15"
     source:
       repository: "strata-engine/Inkling-2-Mini-Strata"
-      revision: "04996a1e2c45009b6a04f2af126cb6bdb2ba3587"
+      revision: "5623ceb47d7a01db827460ce1c23e7818a75661b"
       snapshot:
         files:
           - path: "Inkling-2-Mini-SQ-15.strata"
             provenanceDigest: "2ea32eed533afba257e2cbee7b073dc2c3da80fe55d1d2d794779b5498e30737"
-          - path: "chat_template.jinja"
-            provenanceDigest: "53a9035f3255945704b5857657cfb00c1165090c0641c4f782a0cbf268cc16dc"
-          - path: "tokenizer.json"
-            provenanceDigest: "7f332727f9a3f093dd452a39cc978e6757627e5dad1b0673aa4e75174f236dd6"
   - artifactId: "sq-20"
     weightQuantization: "SQ-20"
     source:
       repository: "strata-engine/Inkling-2-Mini-Strata"
-      revision: "04996a1e2c45009b6a04f2af126cb6bdb2ba3587"
+      revision: "5623ceb47d7a01db827460ce1c23e7818a75661b"
       snapshot:
         files:
-          - path: "Inkling-2-Mini-SQ-20.strata"
-            provenanceDigest: "0bbfd52344f0dd4779a7807b5f73554a812f24c035e6877b63cd0d499f7e1b97"
+          # The v2 file (19,374,768,128 bytes); the binding keeps its id.
+          - path: "Inkling-2-Mini-SQv2-20.strata"
+            provenanceDigest: "429671f8eb5b50e593856e6eb82ebb7da9d1f07e99b553438b196f72cc86a6d6"
+  # Single-file GGUF builds the Inkling engine reads like a pack; neither repository ships a tokenizer, so
+  # they use `strata-tokenizer` too.
+  # GSQ-RCO IQ3_S, 11,425,259,648 bytes (ISTA-DASLab, 3.50 bits per weight).
+  - artifactId: "iq3-s"
+    weightQuantization: "IQ3_S"
+    source:
+      repository: "ISTA-DASLab/Inkling-2-Mini-GSQ-RCO-GGUF"
+      revision: "357051619a8805c032e58a9976cea9bddb0832cd"
+      snapshot:
+        files:
+          - path: "Inkling-2-Mini-GSQ-RCO-IQ3_S.gguf"
+            provenanceDigest: "8a3515374c3cd9b65a1677b17e805bb1e32df8e98756e5f0d2fe1837d62aa4cb"
+  # Unsloth Dynamic UD-Q4_K_XL, 17,629,760,736 bytes. Upstream labels its support "basic".
+  - artifactId: "q4-xl"
+    weightQuantization: "Q4_K_XL"
+    source:
+      repository: "unsloth/Inkling-2-Mini-GGUF"
+      revision: "8078d149286eec7193795413b9e0643da6d11fa1"
+      snapshot:
+        files:
+          - path: "Inkling-2-Mini-UD-Q4_K_XL.gguf"
+            provenanceDigest: "e64276656f072e9b2197a61723667cbdb71da66a716ffd966e572c21088f3cd3"
+auxiliaryArtifacts:
+  # Strata's vision file (Vision v2, 636,551,168 bytes), loaded next to the model while the `vision` option is
+  # on. Its digest is the repository's Hugging Face file listing.
+  - auxiliaryArtifactId: "strata-vision"
+    source:
+      repository: "strata-engine/Inkling-2-Mini-Strata"
+      revision: "5623ceb47d7a01db827460ce1c23e7818a75661b"
+      file:
+        path: "Inkling-2-Mini-Vision-v2.strata"
+        provenanceDigest: "34a176505276729b58744fc9ee40a5005bbff9a590d8e1f7dbe82baf33ef07d5"
+  # Strata's DFlash 2 drafter (551,600,700 bytes), the copy upstream downloads by default. The engine loads it
+  # while the `dflash` option is on.
+  - auxiliaryArtifactId: "strata-dflash"
+    source:
+      repository: "strata-engine/Inkling-2-Mini-DFlash2"
+      revision: "04ecd36faef74e696f0a7b6b3c119264442a6234"
+      file:
+        path: "Inkling-2-Mini-DFlash2-mix.safetensors"
+        provenanceDigest: "cf7dbb08560dfd99544af0cdbab2915406fc571f516b19aff0fe113b9458d387"
+  # The tokenizer and chat template Strata's Inkling engine builds its tokenizer from, for every Strata binding.
+  # The files are byte-identical in every revision of the pack repository.
+  - auxiliaryArtifactId: "strata-tokenizer"
+    source:
+      repository: "strata-engine/Inkling-2-Mini-Strata"
+      revision: "5623ceb47d7a01db827460ce1c23e7818a75661b"
+      snapshot:
+        files:
           - path: "chat_template.jinja"
             provenanceDigest: "53a9035f3255945704b5857657cfb00c1165090c0641c4f782a0cbf268cc16dc"
           - path: "tokenizer.json"
             provenanceDigest: "7f332727f9a3f093dd452a39cc978e6757627e5dad1b0673aa4e75174f236dd6"
-auxiliaryArtifacts:
-  # Strata's vision file, loaded next to the pack while the `vision` option is on. Its size and digest are the
-  # repository's own listing (`SHA256SUMS.txt` at this revision, 636,526,592 bytes).
-  - auxiliaryArtifactId: "strata-vision"
-    source:
-      repository: "strata-engine/Inkling-2-Mini-Strata"
-      revision: "04996a1e2c45009b6a04f2af126cb6bdb2ba3587"
-      file:
-        path: "Inkling-2-Mini-Vision.strata"
-        provenanceDigest: "6589eff47f9c20bc3a032faa3d449f10bf4f04a84cc6b2ee8a44d51d2b6fc677"
   # The checkpoint's own template, which carries the inkling reasoning and tool-call format.
   - auxiliaryArtifactId: "inkling-chat-template"
     source:
@@ -287,9 +325,11 @@ configurations:
       # The engine has no image-count or size cap and never resizes: an image costs 1 + ceil(h / 40) x
       # ceil(w / 40) tokens (`vllm/models/inkling2/processing.py`). The model card advises 40-4,096 px per
       # side. These limits are a policy within that: the 2,048 px side the engine profiles at startup, with
-      # its 2,705 tokens per image, and 4 images per request. Byte limits are 4 bytes per pixel at that size.
+      # its 2,705 tokens per image, and 32 images per request. Memory does not follow the count: the encoder holds
+      # one picture at a time, and each image's tokens count against the context per request. Byte limits are 4
+      # bytes per pixel at that size.
       imageInputCapacity:
-        maximumImageCount: 4
+        maximumImageCount: 32
         supportedMediaTypes: ["MODEL_IMAGE_MEDIA_TYPE_JPEG", "MODEL_IMAGE_MEDIA_TYPE_PNG"]
         maximumEncodedBytes: "16777216"
         maximumDecodedBytes: "16777216"
@@ -339,49 +379,72 @@ configurations:
     # The Inkling engine places its experts itself and takes no expert budgets.
     excludedEngineParameterIds: ["expert-vram-mib", "expert-host-memory-mib"]
     engineArtifacts:
-      - engineReleaseId: "strata-0-2-21"
+      - engineReleaseId: "strata-0-2-23"
         engineArtifactId: "linux-amd64-cuda"
     artifactBindings:
       - bindingId: "sq-10"
         modelArtifactId: "sq-10"
+        auxiliaryArtifactIds: ["strata-tokenizer"]
       - bindingId: "sq-15"
         modelArtifactId: "sq-15"
+        auxiliaryArtifactIds: ["strata-tokenizer"]
       - bindingId: "sq-20"
         modelArtifactId: "sq-20"
-    # Measured on an RTX 5090 (strata-0-2-21, 25 runs over the three bindings at 1-8 parallel requests and
-    # 64K-256K total contexts, each filled with real prompts, plus the runs that failed) and fitted per the
-    # model-sizing skill. Accelerator memory = weights and CUDA state + a chunk buffer at under 4 parallel
-    # requests + state per parallel request + per-token KV and scratch of the total context. The fit is on the peak
-    # a start needs: KV grows one layer visit at a time, and each step holds the old visit besides the new one
-    # (4,096 bytes per allocated token) and a 256 MiB floor, which samples taken during a run mostly miss. The
-    # catalog's equations are linear in the total context, so the scratch that follows a request's context is
-    # charged on the total: exact at 1 parallel request, high at more.
+        auxiliaryArtifactIds: ["strata-tokenizer"]
+      - bindingId: "iq3-s"
+        modelArtifactId: "iq3-s"
+        auxiliaryArtifactIds: ["strata-tokenizer"]
+      - bindingId: "q4-xl"
+        modelArtifactId: "q4-xl"
+        auxiliaryArtifactIds: ["strata-tokenizer"]
+    # Measured on an RTX 5090: the per-request and chunk terms on strata-0-2-21 (25 runs over the three packs at
+    # 1-8 parallel requests and 64K-256K total contexts, each filled with real prompts, plus the runs that
+    # failed), and the per-binding weights, the per-token slope, the DFlash 2 drafter and vision on
+    # strata-0-2-23 (one request filling the whole context of each binding, at and around the largest fit).
+    # Accelerator memory = weights and CUDA state + a chunk buffer at under 4 parallel requests + state per
+    # parallel request + per-token KV and growth copy of the total context. The fit is on the peak a start needs:
+    # KV grows one layer visit at a time, and each step holds the old visit besides the new one (4,096 bytes per
+    # allocated token) and a 256 MiB floor, which samples taken during a run mostly miss. Two SQ-20 runs that ran
+    # out of memory growing KV sit on that peak. The catalog's equations are linear in the total context, so
+    # terms that follow a request's context are charged on the total: exact at 1 parallel request, high at more.
     sizing:
-      bindingParameters: ["weightBytes", "marginBytes"]
+      bindingParameters: ["weightBytes", "hostPinnedBytes", "marginBytes"]
       parameters:
         # FP16 KV (the wrapper passes --kv fp16): 8 of the 48 layer visits keep full KV, 32 KiB per token.
         kvBytesPerToken: 32768
         # FP8 KV (--kv fp8): the engine's payload is 16 KiB per token (8 visits x 8 KV heads x 128 x (K + V) x
-        # 1 byte). Measured on an RTX 5090 with SQ-20 at 1 parallel request and 383,058 tokens, filled to 371,228
-        # (32.12 GB observed): the whole slope with the shared scratch below is 21,908 bytes per token, so the
-        # constant holds 22,000 less that scratch. Only the sum is measured, so it sits below the payload. Runs of
-        # SQ-10, SQ-15 and SQ-20 at 2 parallel requests read 16.9-19.8 KB per token on the total context, below
-        # the 22,000 because the scratch follows each request's context and the equation charges it on the total.
-        kvFp8BytesPerToken: 14768
+        # 1 byte). Measured on an RTX 5090 (strata-0-2-21) with SQ-20 at 1 parallel request and 383,058 tokens,
+        # filled to 371,228 (32.12 GB observed): the whole per-token slope was 21,908 bytes, so this constant holds
+        # 22,000 less the shared per-token term below. Only the sum is measured. Runs of SQ-10, SQ-15 and SQ-20 at
+        # 2 parallel requests read 16.9-19.8 KB per token on the total context, below the 22,000 because part of
+        # the slope follows each request's context and the equation charges it on the total.
+        kvFp8BytesPerToken: 17904
         # Sliding-window and convolution state of one request.
         requestStateBytes: 324960316
         # FP8 KV: the 40 sliding-window visits keep 1,024 tokens each, 40,960 token-visits of 4,096 bytes in FP16
         # and 2,112 in FP8 (payload and scales), 81,264,640 bytes less. Derived from the FP16 constant, unmeasured.
         requestStateFp8Bytes: 243695676
-        # Strata 0.2.21 reads pictures on the CPU, so the accelerator holds little for vision. Measured on an
-        # RTX 5090 with SQ-20 at 1 parallel request and 197,116 tokens (31.42 GB observed): starting with the
-        # vision file read 0.2 GB higher than without, and a request with two 1,024 px images raised nothing.
-        visionBytes: 250000000
-        # Prefill chunk buffers: the engine uses 2,048-token chunks at 1-3 parallel requests and 1,024 from 4 on.
+        # The engine reads pictures on the GPU on cards of 23.5 GiB or more, holding one picture at a time
+        # whatever the image count: the reader's weights (the 0.64 GB vision file) and the buffers of a
+        # 1,024-token picture, 1.1 GB (`INKLING_READER_GB` in upstream's `terminal/strata_control/vision_reader.py`;
+        # the engine sets that room aside in `ink_cuda_backend.cu`). On an RTX 5090 with SQ-20, a conversation
+        # growing to 32 images of 1,024 px after a full-context prompt added 0.67 GB once loaded and 0.94 GB at
+        # its peak.
+        visionBytes: 1100000000
+        # Prefill chunk buffers at 1-3 parallel requests, fitted with 2,048-token chunks; at one request the
+        # engine now picks 4,096-token chunks, whose extra memory the weights below hold.
         largeChunkBytes: 1451940443
-        # Start-up scratch per token of the context per request, with the per-token slope of the fit held at
-        # 40,000 bytes (a free fit read low at 1 parallel request with large contexts).
-        requestContextBytesPerToken: 7232
+        # The old layer visit KV growth holds besides the new one, 4,096 bytes per token of the total context:
+        # with the FP16 KV slope, 36,864 bytes per token, which every pack and GGUF launch matched.
+        requestContextBytesPerToken: 4096
+        # The DFlash 2 drafter while the `dflash` option is on, from the GB10's log of one request ("GPU memory
+        # taken 1,164 MiB": weights 943 MiB plus scratch 15 MiB) and upstream's reserve in `ink_cuda_backend.cu`
+        # (`df2_total_mib`: 112 MiB of other weights, 636 MiB of BF16 block weights on cards of 24 GiB and more,
+        # 42 MiB of rings per slot up to 8, 120 MiB of scratch and margin). The base is the 1,164 MiB less one
+        # slot's rings, the slot term upstream's. On an RTX 5090 at one request, SQ-20 with the drafter on and off
+        # differs by 1.21 GB at the full context (the engine logs 1,054 MiB taken), as this estimates.
+        dflashBaseBytes: 1176502272
+        dflashSlotBytes: 44040192
       estimates:
         acceleratorMemory:
           unit: bytes
@@ -394,39 +457,66 @@ configurations:
               * (${requestStateFp8Bytes} * ${parallel-requests} + ${kvFp8BytesPerToken} * ${total-context})
             + ${requestContextBytesPerToken} * ${total-context}
             + if(${options.vision.enabled}, 1, 0) * ${visionBytes}
+            + if(${options.dflash.enabled}, 1, 0) * (${dflashBaseBytes} + ${dflashSlotBytes} * ${parallel-requests})
           allowance: >-
             ${marginBytes}
+        # Only the IQ3_S build keeps a part of its dense weights in pinned host memory.
+        hostMemory:
+          unit: bytes
+          equation: >-
+            ${hostPinnedBytes}
     hardwareSupport:
       - hardwareClassId: "nvidia-gb202"
-        # The largest binding, sq-20, at 2 parallel requests and 32,768 tokens each (65,536 total) estimates
-        # about 26.3 GB with its allowance, which this minimum matches. A deployment picks those values; profiles
-        # keep the engine defaults.
+        # The smallest profile at its defaults, sq-10 at one request of 32,768 tokens with DFlash 2 on,
+        # estimates 20.17 GB with its allowance; the minimum adds the 1% the placement keeps free.
         hardwareRequirements:
-          minimumMemoryBytesPerDevice: "26300000000"
+          minimumMemoryBytesPerDevice: "20400000000"
         bindingSizing:
-          # weightBytes: the pack file plus CUDA context and engine buffers, fitted. marginBytes: covers the fit's
-          # largest under-prediction (299 MB), the 256 MiB growth floor, one growth step (67 MB) and the driver
-          # reserve beyond the 1% the capacity check keeps free (179 MB).
+          # weightBytes: the model file plus CUDA context and engine buffers, fitted per binding on strata-0-2-23
+          # to the peak of one request filling its whole context (the held memory plus the growth copy).
+          # marginBytes: covers the strata-0-2-21 fit's largest under-prediction (299 MB), the 256 MiB growth
+          # floor, one growth step and the driver reserve beyond the 1% the capacity check keeps free (179 MB).
           - bindingId: "sq-10"
             parameters:
-              weightBytes: 13200469858
+              weightBytes: 15094130025
+              hostPinnedBytes: 0
               marginBytes: 872415232
           - bindingId: "sq-15"
             parameters:
-              weightBytes: 17022986634
+              weightBytes: 18988901737
+              hostPinnedBytes: 0
               marginBytes: 872415232
+          # sq-20 (the v2 file) takes the larger of its DFlash 2 on and off fits, which differ by 8 MB.
           - bindingId: "sq-20"
             parameters:
-              weightBytes: 22028026435
+              weightBytes: 23971931497
+              hostPinnedBytes: 0
               marginBytes: 872415232
+          # The GGUFs, fitted the same way. The engine loads a smaller trunk for IQ3_S (1.26 GB on the card) and a
+          # larger one for UD-Q4_K_XL (3.29 GB) than for the packs. On one card of compute capability 8.0 or newer
+          # the IQ3_S build keeps the 0.93 GB token embedding in pinned host memory (upstream's `inkling_fit.py`),
+          # which `hostPinnedBytes` holds; host memory is not measured. The margin is the packs' plus 256 MiB, the
+          # reserve upstream adds for non-pack builds on this card (`ink_cuda_backend.cu`).
+          - bindingId: "iq3-s"
+            parameters:
+              weightBytes: 14974723433
+              hostPinnedBytes: 930000000
+              marginBytes: 1140850688
+          - bindingId: "q4-xl"
+            parameters:
+              weightBytes: 23724893545
+              hostPinnedBytes: 0
+              marginBytes: 1140850688
     engineConfiguration:
       engineKind: "ENGINE_KIND_STRATA"
       strata:
         fixedSettings:
-          inklingPack: {}
+          inklingEngine: { tokenizerAuxiliaryArtifactId: "strata-tokenizer" }
         optionRealizations:
           - optionId: "vision"
             vision: { enabledParameterId: "enabled", auxiliaryArtifactId: "strata-vision" }
+          - optionId: "dflash"
+            dflash: { auxiliaryArtifactId: "strata-dflash" }
           - optionId: "kv-cache"
             kvCachePrecision: {}
     executionCapabilities:
@@ -434,12 +524,13 @@ configurations:
     requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
     inputCapabilities:
       supportedModalities: ["MODEL_INPUT_MODALITY_TEXT", "MODEL_INPUT_MODALITY_IMAGE"]
-      # A policy for Strata 0.2.21, which reads every picture on the CPU: minutes for large ones, and a cancelled
-      # request does not free the engine. Two images of up to 1,024 px per side; upstream advises about 442
-      # tokens at this side. The visual token count is the model processor's formula at the cap, 1 + ceil(h / 40)
-      # x ceil(w / 40) (`vllm/models/inkling2/processing.py`), an upper bound. Byte limits are 4 bytes per pixel.
+      # A policy for Strata's picture reader, which runs on the GPU from 0.2.23 on cards reporting 23.5 GiB or more
+      # (the RTX 5090, the GB10's shared memory) and holds one picture at a time: 32 images per request, each of up
+      # to 1,024 px per side, whose tokens count against the context per request. Upstream advises about 442 tokens
+      # at this side. The visual token count is the model processor's formula at the cap, 1 + ceil(h / 40) x
+      # ceil(w / 40) (`vllm/models/inkling2/processing.py`), an upper bound. Byte limits are 4 bytes per pixel.
       imageInputCapacity:
-        maximumImageCount: 2
+        maximumImageCount: 32
         supportedMediaTypes: ["MODEL_IMAGE_MEDIA_TYPE_JPEG", "MODEL_IMAGE_MEDIA_TYPE_PNG"]
         maximumEncodedBytes: "4194304"
         maximumDecodedBytes: "4194304"
@@ -459,6 +550,17 @@ configurations:
           values:
             - parameterId: "enabled"
               boolean: false
+      # On by default, as upstream's engine drafts with it by default.
+      - optionId: "dflash"
+        parameters:
+          - parameterId: "enabled"
+            displayName: "Enabled"
+            boolean: {}
+        defaultValues:
+          optionId: "dflash"
+          values:
+            - parameterId: "enabled"
+              boolean: true
       - optionId: "kv-cache"
         parameters:
           - parameterId: "precision"
@@ -475,80 +577,127 @@ configurations:
     # The Inkling engine places its experts itself and takes no expert budgets.
     excludedEngineParameterIds: ["expert-vram-mib", "expert-host-memory-mib"]
     engineArtifacts:
-      - engineReleaseId: "strata-0-2-21"
+      - engineReleaseId: "strata-0-2-23"
         engineArtifactId: "linux-arm64-cuda"
     artifactBindings:
       - bindingId: "sq-10"
         modelArtifactId: "sq-10"
+        auxiliaryArtifactIds: ["strata-tokenizer"]
       - bindingId: "sq-15"
         modelArtifactId: "sq-15"
+        auxiliaryArtifactIds: ["strata-tokenizer"]
       - bindingId: "sq-20"
         modelArtifactId: "sq-20"
-    # Measured on a GB10 (strata-0-2-19) and fitted per the model-sizing skill, with the same equation as the
-    # RTX 5090 configuration: weights and CUDA state + state per parallel request + KV and start-up scratch per
-    # token of the total context, plus an allowance for the prompt buffers the engine grows as longer prompts
-    # arrive (charged on the total context, which the catalog's equations are linear in).
+        auxiliaryArtifactIds: ["strata-tokenizer"]
+      - bindingId: "iq3-s"
+        modelArtifactId: "iq3-s"
+        auxiliaryArtifactIds: ["strata-tokenizer"]
+      - bindingId: "q4-xl"
+        modelArtifactId: "q4-xl"
+        auxiliaryArtifactIds: ["strata-tokenizer"]
+    # Measured on a GB10 (strata-0-2-23; one request filling 250K and 1,040K tokens of a 1,048,576 context for
+    # each binding, the drafter on and off, FP8 KV, vision with 32 images, and 3 and 8 parallel requests) and
+    # fitted per the model-sizing skill, with the RTX 5090 configuration's equation: weights and CUDA state + a
+    # chunk buffer at under 4 parallel requests + state per parallel request + per-token KV and growth copy of
+    # the total context. The GB10's samples hold the growth copy: memory stays at its peak after KV stops
+    # growing, so the fit is on the sampled peak itself.
     sizing:
-      bindingParameters: ["weightBytes", "marginBytes"]
+      bindingParameters: ["weightBytes", "hostPinnedBytes", "marginBytes"]
       parameters:
         # FP16 KV (the wrapper passes --kv fp16): 32 KiB per token (upstream's memory notes).
         kvBytesPerToken: 32768
-        # FP8 KV: 16 KiB of payload per token plus one assumed fp32 scale per token, KV head and K or V (8 x 8 x 2 x
-        # 4 = 512 bytes), an upper bound. Derived, unmeasured on a GB10.
-        kvFp8BytesPerToken: 16896
-        # The sliding-window and convolution state each request holds.
-        requestStateBytes: 230000000
+        # FP8 KV (--kv fp8): with the per-token term below, the slope of SQ-10 at one request filled to 1,039,668
+        # tokens (36.99 GB at the peak), less that term. Below the 16 KiB payload: only the sum is measured.
+        kvFp8BytesPerToken: 14625
+        # Sliding-window and convolution state of one request, from the engine's logged runner memory at 1, 3
+        # and 8 parallel requests (chunks of 4,096, 2,048 and 1,024 tokens), less its starting KV.
+        requestStateBytes: 203816960
         # FP8 KV: the FP16 constant less the 81,264,640 bytes the RTX 5090 configuration derives for the
-        # sliding-window visits. Unmeasured on a GB10.
-        requestStateFp8Bytes: 148735360
-        # The vision file (636,526,592 bytes, the repository's listing) plus working memory for two images of up to
-        # 1,024 px, 640 MB. Strata reads pictures on the CPU, which on a GB10's shared memory still counts here.
-        # Derived, unmeasured on a GB10.
-        visionBytes: 1276526592
-        # Scratch sized when the engine starts, per token of the context per request.
-        requestContextBytesPerToken: 22500
-        # Memory grows about 85 KB per token of the longest prompt served and stays (see the RTX 5090 configuration).
-        promptBytesPerToken: 86000
+        # sliding-window visits. Derived, unmeasured.
+        requestStateFp8Bytes: 122552320
+        # The 1,025 MiB the engine holds back for the GPU picture reader (its weights and one 1,024-token
+        # picture), which stays loaded once the first picture arrives. A conversation growing to 32 images of
+        # 1,024 px added 0.84 GB at its peak.
+        visionBytes: 1074790400
+        # Prefill chunk buffers of 2,048 tokens over 1,024, from the same logged runner memory. At one request
+        # the engine picks 4,096-token chunks, whose extra 1.37 GB the weights below hold.
+        largeChunkBytes: 686686208
+        # The old layer visit KV growth holds besides the new one, 4,096 bytes per token of the total context.
+        requestContextBytesPerToken: 4096
+        # The DFlash 2 drafter while the `dflash` option is on: the engine's log of one request on a GB10 reads
+        # "GPU memory taken 1,164 MiB" (weights 943 MiB plus scratch 15 MiB), and upstream's reserve adds 42 MiB
+        # of rings per further slot, up to 8 (`df2_total_mib` in `ink_cuda_backend.cu`'s headers). The base is the
+        # 1,164 MiB less one slot's rings. At 3 and 8 requests the engine logs 1,762 and 2,091 MiB for the
+        # drafter and its batched drafting, above this term; the one-request chunk the weights hold covers it.
+        dflashBaseBytes: 1176502272
+        dflashSlotBytes: 44040192
       estimates:
         acceleratorMemory:
           unit: bytes
           equation: >-
             ${weightBytes}
+            + if(${parallel-requests} < 4, 1, 0) * ${largeChunkBytes}
             + if(${options.kv-cache.precision} == "fp8", 0, 1)
               * (${requestStateBytes} * ${parallel-requests} + ${kvBytesPerToken} * ${total-context})
             + if(${options.kv-cache.precision} == "fp8", 1, 0)
               * (${requestStateFp8Bytes} * ${parallel-requests} + ${kvFp8BytesPerToken} * ${total-context})
             + ${requestContextBytesPerToken} * ${total-context}
             + if(${options.vision.enabled}, 1, 0) * ${visionBytes}
+            + if(${options.dflash.enabled}, 1, 0) * (${dflashBaseBytes} + ${dflashSlotBytes} * ${parallel-requests})
           allowance: >-
             ${marginBytes}
-            + ${promptBytesPerToken} * ${total-context}
+        # Only the IQ3_S build keeps a part of its dense weights in pinned host memory, which the GB10 shares
+        # with the accelerator.
+        hostMemory:
+          unit: bytes
+          equation: >-
+            ${hostPinnedBytes}
     hardwareSupport:
       - hardwareClassId: "nvidia-gb10"
         bindingSizing:
-          # weightBytes: the pack file plus about 2 GB of CUDA context and engine buffers, the largest start-up
-          # reading at 1 parallel request. sq-20 is not measured: sq-15 plus the packs' size difference. marginBytes:
-          # covers prompt loads between the ones measured.
+          # weightBytes: the model file plus CUDA context and engine buffers, fitted per binding to the peak of one
+          # request with the drafter on. sq-10 and sq-20 (the v2 file) filled 1,040,384 tokens; sq-15 and the
+          # GGUFs filled 253,952 and add the 0.30 GB sq-10 grew beyond the per-token terms between its two fills.
+          # marginBytes: covers prompt loads between the ones measured.
           - bindingId: "sq-10"
             parameters:
-              weightBytes: 12445000000
+              weightBytes: 15481880576
+              hostPinnedBytes: 0
               marginBytes: 268435456
           - bindingId: "sq-15"
             parameters:
-              weightBytes: 16325000000
+              weightBytes: 19358728192
+              hostPinnedBytes: 0
               marginBytes: 268435456
           - bindingId: "sq-20"
             parameters:
-              weightBytes: 21325000000
+              weightBytes: 24379113472
+              hostPinnedBytes: 0
               marginBytes: 268435456
+          # The GGUFs, fitted the same way. The engine loads a smaller trunk for IQ3_S (1.26 GB) and a larger one
+          # for UD-Q4_K_XL (3.29 GB) than for the packs. The IQ3_S build keeps its 0.93 GB token embedding in
+          # pinned host memory (upstream's `inkling_fit.py`), which `hostPinnedBytes` holds. The margin adds the
+          # 256 MiB that upstream reserves for non-pack builds.
+          - bindingId: "iq3-s"
+            parameters:
+              weightBytes: 15330557952
+              hostPinnedBytes: 930000000
+              marginBytes: 536870912
+          - bindingId: "q4-xl"
+            parameters:
+              weightBytes: 24396218368
+              hostPinnedBytes: 0
+              marginBytes: 536870912
     engineConfiguration:
       engineKind: "ENGINE_KIND_STRATA"
       strata:
         fixedSettings:
-          inklingPack: {}
+          inklingEngine: { tokenizerAuxiliaryArtifactId: "strata-tokenizer" }
         optionRealizations:
           - optionId: "vision"
             vision: { enabledParameterId: "enabled", auxiliaryArtifactId: "strata-vision" }
+          - optionId: "dflash"
+            dflash: { auxiliaryArtifactId: "strata-dflash" }
           - optionId: "kv-cache"
             kvCachePrecision: {}
     executionCapabilities:
@@ -556,12 +705,13 @@ configurations:
     requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
     inputCapabilities:
       supportedModalities: ["MODEL_INPUT_MODALITY_TEXT", "MODEL_INPUT_MODALITY_IMAGE"]
-      # A policy for Strata 0.2.21, which reads every picture on the CPU: minutes for large ones, and a cancelled
-      # request does not free the engine. Two images of up to 1,024 px per side; upstream advises about 442
-      # tokens at this side. The visual token count is the model processor's formula at the cap, 1 + ceil(h / 40)
-      # x ceil(w / 40) (`vllm/models/inkling2/processing.py`), an upper bound. Byte limits are 4 bytes per pixel.
+      # A policy for Strata's picture reader, which runs on the GPU from 0.2.23 on cards reporting 23.5 GiB or more
+      # (the RTX 5090, the GB10's shared memory) and holds one picture at a time: 32 images per request, each of up
+      # to 1,024 px per side, whose tokens count against the context per request. Upstream advises about 442 tokens
+      # at this side. The visual token count is the model processor's formula at the cap, 1 + ceil(h / 40) x
+      # ceil(w / 40) (`vllm/models/inkling2/processing.py`), an upper bound. Byte limits are 4 bytes per pixel.
       imageInputCapacity:
-        maximumImageCount: 2
+        maximumImageCount: 32
         supportedMediaTypes: ["MODEL_IMAGE_MEDIA_TYPE_JPEG", "MODEL_IMAGE_MEDIA_TYPE_PNG"]
         maximumEncodedBytes: "4194304"
         maximumDecodedBytes: "4194304"
@@ -581,6 +731,17 @@ configurations:
           values:
             - parameterId: "enabled"
               boolean: false
+      # On by default, as upstream's engine drafts with it by default.
+      - optionId: "dflash"
+        parameters:
+          - parameterId: "enabled"
+            displayName: "Enabled"
+            boolean: {}
+        defaultValues:
+          optionId: "dflash"
+          values:
+            - parameterId: "enabled"
+              boolean: true
       - optionId: "kv-cache"
         parameters:
           - parameterId: "precision"
@@ -638,6 +799,26 @@ profiles:
     description: "Runs Inkling 2 Mini's SQ-20 pack through Strata."
     configurationIds: ["strata-nvidia-cuda", "strata-nvidia-gb10"]
     defaultModelArtifactBindingId: "sq-20"
+    engineParameterDefaults: {}
+    # Strata's total context is always the parallel requests times the context per request.
+    engineParameterVisibilityOverrides:
+      - { parameterId: "total-context", visibility: "PARAMETER_VISIBILITY_HIDDEN" }
+  # Both GGUF builds support the same options as the packs. Sizing is a first estimate, unmeasured; no
+  # recommendation lists them until it is.
+  - profileId: "strata-iq3-s"
+    displayName: "IQ3_S on Strata"
+    description: "Runs Inkling 2 Mini's GSQ-RCO IQ3_S build, a 3.5-bit single file, through Strata."
+    configurationIds: ["strata-nvidia-cuda", "strata-nvidia-gb10"]
+    defaultModelArtifactBindingId: "iq3-s"
+    engineParameterDefaults: {}
+    # Strata's total context is always the parallel requests times the context per request.
+    engineParameterVisibilityOverrides:
+      - { parameterId: "total-context", visibility: "PARAMETER_VISIBILITY_HIDDEN" }
+  - profileId: "strata-q4-xl"
+    displayName: "UD-Q4_K_XL on Strata"
+    description: "Runs Inkling 2 Mini's Unsloth UD-Q4_K_XL build, a 4-bit single file, through Strata."
+    configurationIds: ["strata-nvidia-cuda", "strata-nvidia-gb10"]
+    defaultModelArtifactBindingId: "q4-xl"
     engineParameterDefaults: {}
     # Strata's total context is always the parallel requests times the context per request.
     engineParameterVisibilityOverrides:
