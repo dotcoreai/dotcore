@@ -112,6 +112,45 @@ describe("profile compatibility", () => {
     );
   });
 
+  it("carries the variant the read picked for a target, also for a profile that then can't run", () => {
+    const read = indexProfileCompatibility(
+      create(ListModelProfileCompatibilityResponseSchema, {
+        entries: [
+          {
+            configurationId: "gb10",
+            modelId: "lab",
+            profileId: "iq3-s",
+            status: RUNS,
+            target: spark.placement,
+          },
+          {
+            configurationId: "gb10",
+            modelId: "lab",
+            profileId: "iq2-xs",
+            status: CANNOT_RUN,
+            target: spark.placement,
+          },
+          { modelId: "lab", profileId: "iq3-s", status: RUNS, target: ws1.placement },
+        ],
+        targets: [
+          { status: RUNS, target: spark.placement },
+          { status: RUNS, target: ws1.placement },
+        ],
+      }),
+    );
+
+    expect(profileTargetVerdict(read, "lab", "iq3-s", spark.placement)?.configurationId).toBe(
+      "gb10",
+    );
+    expect(profileTargetVerdict(read, "lab", "iq2-xs", spark.placement)).toMatchObject({
+      configurationId: "gb10",
+      status: "cannot-run",
+    });
+    expect(profileTargetVerdict(read, "lab", "iq3-s", ws1.placement)?.configurationId).toBe(
+      undefined,
+    );
+  });
+
   it("gives every profile the target's own verdict on a target that fails target-level checks", () => {
     for (const profileId of ["q4", "ninfer", "apple"]) {
       expect(verdictOn(profileId, mac)).toEqual({

@@ -1,3 +1,4 @@
+import { profileConfiguration } from "@/domain/profile-configuration";
 import type { EngineRelease } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import type { Model, ModelProfile } from "@/gen/dotcore/catalog/v1/model_pb";
 import type { ParameterDefinition } from "@/gen/dotcore/catalog/v1/parameter_pb";
@@ -68,9 +69,7 @@ export function profileContextSliderEnds(
   engineReleases: readonly EngineRelease[],
 ): ContextSliderEnds | undefined {
   const release = profileEngineRelease(model, profile, engineReleases);
-  const configuration = model.configurations.find(
-    (candidate) => candidate.configurationId === profile.configurationIds[0],
-  );
+  const configuration = profileConfiguration(model, profile);
   const parameter = (parameterId: string) =>
     release?.parameterSchema?.parameters.find(
       (candidate) =>

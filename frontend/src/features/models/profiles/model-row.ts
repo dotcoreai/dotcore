@@ -1,5 +1,6 @@
 import { type ValueRange, valueRange } from "@/components/data-table/data-table-model";
 import { localModelSnapshot, projectCatalogModelStatus } from "@/domain/model-projection";
+import { profileConfiguration, profileConfigurations } from "@/domain/profile-configuration";
 import { mergeRequestKinds } from "@/domain/request-kinds";
 import {
   type ContextSliderEnds,
@@ -380,22 +381,28 @@ function projectProfileRow(
   profile: ModelProfile,
   input: ProfileRowInput,
 ): ProfileRow {
-  const configuration = model.configurations.find(
-    (candidate) => candidate.configurationId === profile.configurationIds[0],
-  );
-  const releases = (configuration?.engineArtifacts ?? []).flatMap((reference) => {
-    const release = input.engineReleases.find(
-      (candidate) => candidate.engineReleaseId === reference.engineReleaseId,
-    );
-    return release ? [{ artifactId: reference.engineArtifactId, release }] : [];
-  });
+  // The first variant describes the profile until a machine picks one; the engines and hardware
+  // the row shows are the union of its variants'.
+  const variants = profileConfigurations(model, profile);
+  const configuration = profileConfiguration(model, profile);
+  const releases = variants
+    .flatMap((variant) => variant.engineArtifacts)
+    .flatMap((reference) => {
+      const release = input.engineReleases.find(
+        (candidate) => candidate.engineReleaseId === reference.engineReleaseId,
+      );
+      return release ? [{ artifactId: reference.engineArtifactId, release }] : [];
+    });
   const binding = configuration?.artifactBindings.find(
     (candidate) => candidate.bindingId === profile.defaultModelArtifactBindingId,
   );
   const artifact = model.artifacts.find(
     (candidate) => candidate.artifactId === binding?.modelArtifactId,
   );
-  const acceleratorRequirements = (configuration?.hardwareSupport ?? []).flatMap((support) => {
+  const acceleratorRequirements = uniqueBy(
+    variants.flatMap((variant) => variant.hardwareSupport),
+    (support) => support.hardwareClassId,
+  ).flatMap((support) => {
     const hardwareClass = input.hardwareClasses.find(
       (candidate) => candidate.hardwareClassId === support.hardwareClassId,
     );
@@ -422,7 +429,7 @@ function projectProfileRow(
   ).map((estimate) => ({ ...estimate, displayName: classDisplayName(estimate.hardwareClassId) }));
 
   const engineKinds = unique([
-    ...(configuration ? engineKindKeys(configuration.engineConfiguration?.engineKind) : []),
+    ...variants.flatMap((variant) => engineKindKeys(variant.engineConfiguration?.engineKind)),
     ...releases.flatMap(({ release }) => engineKindKeys(release.engineKind)),
   ]);
   const { sizing } = input;
@@ -443,7 +450,7 @@ function projectProfileRow(
 
   return {
     acceleratorRequirements,
-    configurationId: profile.configurationIds[0],
+    configurationId: configuration?.configurationId ?? "",
     contextSliderEnds: profileContextSliderEnds(model, profile, input.engineReleases),
     description: profile.description || undefined,
     displayName: profile.displayName || profile.profileId,
@@ -464,7 +471,7 @@ function projectProfileRow(
             atLocation(hardwareClassEstimates),
             atLocation(acceleratorRequirements),
             acceleratorRequirements.length === 0,
-            configuration,
+            variants,
           )
         : undefined,
     modelId: model.modelId,
@@ -514,18 +521,18 @@ function tokenCount(values: ModelOptionValues | undefined): bigint | undefined {
 }
 
 // Estimates span the given classes; without any, their largest declared minimum stands in, and a
-// profile without accelerators reads its system memory.
+// profile without accelerators reads its largest system memory across its variants.
 function profileMemory(
   estimates: readonly HardwareClassEstimate[],
   requirements: readonly ProfileAcceleratorRequirement[],
   cpuOnly: boolean,
-  configuration: ModelEngineConfiguration | undefined,
+  variants: readonly ModelEngineConfiguration[],
 ): ProfileMemory | undefined {
   const systemMemory = Math.max(
     0,
-    ...(configuration?.hardwareSupport ?? []).map((support) =>
-      Number(support.hardwareRequirements?.minimumSystemMemoryBytes ?? 0n),
-    ),
+    ...variants
+      .flatMap((variant) => variant.hardwareSupport)
+      .map((support) => Number(support.hardwareRequirements?.minimumSystemMemoryBytes ?? 0n)),
   );
   if (cpuOnly && systemMemory > 0) {
     return { kind: "system-ram", max: systemMemory, min: systemMemory };
@@ -564,6 +571,17 @@ function engineKindKeys(kind: EngineKind | undefined): string[] {
 
 function unique<T>(values: readonly T[]): T[] {
   return [...new Set(values)];
+}
+
+// Keeps the first value of each key.
+function uniqueBy<T>(values: readonly T[], key: (value: T) => string): T[] {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    const valueKey = key(value);
+    if (seen.has(valueKey)) return false;
+    seen.add(valueKey);
+    return true;
+  });
 }
 
 function uniquePlatforms(platforms: readonly ProfilePlatform[]): ProfilePlatform[] {

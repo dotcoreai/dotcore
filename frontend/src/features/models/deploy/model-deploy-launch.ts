@@ -1,6 +1,7 @@
 import { create } from "@bufbuild/protobuf";
 import { useMemo } from "react";
 
+import { profileConfiguration } from "@/domain/profile-configuration";
 import type { deploymentExposure } from "@/features/models/deployment-exposure";
 import { configurationSpeculativeOptions } from "@/features/models/profiles/model-row";
 import {
@@ -240,9 +241,7 @@ export function configurationStart(
     };
 
   const profile = model.profiles.find((candidate) => candidate.profileId === profileId);
-  const modelConfiguration = model.configurations.find(
-    (candidate) => candidate.configurationId === profile?.configurationIds[0],
-  );
+  const modelConfiguration = profileConfiguration(model, profile);
   const exposedIds = new Set(
     effectiveEngineParameters(profileEngineRelease(model, profile, engineReleases), profile).map(
       (parameter) => parameter.parameterId,
@@ -302,9 +301,7 @@ export function operatorSentence(reason: string): string {
 
 function profileSpeculativeChoice(model: Model, profileId: string): SpeculativeChoice {
   const profile = model.profiles.find((candidate) => candidate.profileId === profileId);
-  const configuration = model.configurations.find(
-    (candidate) => candidate.configurationId === profile?.configurationIds[0],
-  );
+  const configuration = profileConfiguration(model, profile);
   return defaultSpeculativeChoice(configurationSpeculativeOptions(model, configuration, profile));
 }
 

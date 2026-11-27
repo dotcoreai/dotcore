@@ -13,6 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { profileConfiguration } from "@/domain/profile-configuration";
 import {
   engineKindLabel,
   formatSpeculativeDefault,
@@ -172,9 +173,7 @@ export function CatalogProfileSections({
   profile: ModelProfile;
   row: ProfileRow;
 }) {
-  const configuration = model.configurations.find(
-    (candidate) => candidate.configurationId === profile.configurationIds[0],
-  );
+  const configuration = profileConfiguration(model, profile);
 
   return (
     <>

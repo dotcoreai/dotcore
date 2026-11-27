@@ -205,6 +205,7 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
       ) : null}
       {step === "Context" ? (
         <ModelDeployContextStep
+          configuration={machine.configuration}
           contextFits={context.contextFits}
           contextHints={context.contextHints}
           disabled={disabled}
@@ -225,7 +226,6 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
             revealedErrors: wizard.revealedErrors,
             shown: parameters.basicParameters,
           }}
-          profile={machine.profile}
           totalFollows={context.totalFollows}
         />
       ) : null}

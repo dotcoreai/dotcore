@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { executionTargetPresentation } from "@/domain/execution-target";
+import { profileConfiguration } from "@/domain/profile-configuration";
 import { useConfiguredExecutionTargets } from "@/features/deployments/use-configured-execution-targets";
 import { profileEstimateKey, projectProfileRows } from "@/features/models/profiles/model-row";
+import { profileTargetVerdict } from "@/features/models/profiles/profile-compatibility";
 import { compareProfiles } from "@/features/models/profiles/profile-fields";
 import { profileTableStart, startShows } from "@/features/models/profiles/profile-table-seed";
 import {
@@ -148,16 +150,6 @@ export function useModelDeployMachine(
   const targetsRead = useConfiguredExecutionTargets(listConfiguredExecutionTargets, open);
 
   const profile = model.profiles.find((candidate) => candidate.profileId === profileId);
-  const configuration = model.configurations.find(
-    (candidate) => candidate.configurationId === profile?.configurationIds[0],
-  );
-  // A configuration that excludes parameters gets a new release object per call, and the launch
-  // values and previews built on it must keep their identity across renders.
-  const engineRelease = useMemo(
-    () => profileEngineRelease(model, profile, engineReleases),
-    [model, profile, engineReleases],
-  );
-  const exposedParameters = effectiveEngineParameters(engineRelease, profile);
   const profileReadKey = profile ? profileEstimateKey(model.modelId, profile.profileId) : undefined;
   // The parameters sizing derives come from the backend's read of the profile; until it lands, an
   // empty one reads as missing, and the deploy waits for the read anyway.
@@ -244,6 +236,25 @@ export function useModelDeployMachine(
     sizingRead: contextRead.sizing,
   });
   const { launchesOn, pickedTarget } = target;
+  // The variant the compatibility read picked for the chosen target; the profile's first variant
+  // until a target is chosen or while the read is missing.
+  const pickedConfigurationId =
+    compatibility && target.selectedExecutionTarget
+      ? profileTargetVerdict(
+          compatibility,
+          model.modelId,
+          profileId,
+          target.selectedExecutionTarget,
+        )?.configurationId
+      : undefined;
+  const configuration = profileConfiguration(model, profile, pickedConfigurationId);
+  // A configuration that excludes parameters gets a new release object per call, and the launch
+  // values and previews built on it must keep their identity across renders.
+  const engineRelease = useMemo(
+    () => profileEngineRelease(model, profile, engineReleases, pickedConfigurationId),
+    [model, profile, engineReleases, pickedConfigurationId],
+  );
+  const exposedParameters = effectiveEngineParameters(engineRelease, profile);
   const selectedProfileRow = profileRows.find((row) => row.profileId === profileId);
   const selectedAvailability = selectedProfileRow && profileAvailability?.(selectedProfileRow);
   const noProfileRuns = Boolean(

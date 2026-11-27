@@ -1,3 +1,4 @@
+import { profileConfiguration } from "@/domain/profile-configuration";
 import type { EngineRelease } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import type { Model, ModelOptionValues, ModelProfile } from "@/gen/dotcore/catalog/v1/model_pb";
 import type { ParameterDefinition, ParameterValues } from "@/gen/dotcore/catalog/v1/parameter_pb";
@@ -119,7 +120,8 @@ export function changedEngineParameters(
 }
 
 /**
- * The engine release of the first engine artifact of a profile's configuration, with only the
+ * The engine release of the first engine artifact of a profile's configuration (the picked variant,
+ * else the first), with only the
  * engine parameters the configuration keeps and the parameter groups left with a member. Every
  * release a configuration approves shares one
  * parameter schema, so this release describes them all.
@@ -128,10 +130,9 @@ export function profileEngineRelease(
   model: Model,
   profile: ModelProfile | undefined,
   engineReleases: readonly EngineRelease[],
+  configurationId?: string,
 ): EngineRelease | undefined {
-  const configuration = model.configurations.find(
-    (candidate) => candidate.configurationId === profile?.configurationIds[0],
-  );
+  const configuration = profileConfiguration(model, profile, configurationId);
   const release = engineReleases.find(
     (candidate) => candidate.engineReleaseId === configuration?.engineArtifacts[0]?.engineReleaseId,
   );
