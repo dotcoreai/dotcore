@@ -1,5 +1,6 @@
-# Immutable provenance for Qwen3.5 9B's public GGUF tiers.
-# Qualification tier: q4-xl on Linux NVIDIA; every tier carries a measured sizing equation.
+# Immutable provenance for Qwen3.5 9B's public GGUF tiers and its MLX 4-bit build for oMLX.
+# Qualification tiers: q4-xl on Linux NVIDIA, and mlx-4bit on oMLX on an Apple Silicon Mac; every
+# tier carries a measured sizing equation.
 modelId: "qwen3-5-9b"
 displayName: "Qwen3.5 9B"
 version: "3.5-9b"
@@ -36,6 +37,37 @@ artifacts:
       file:
         path: "Qwen3.5-9B-UD-Q5_K_XL.gguf"
         provenanceDigest: "96cf42ddb97f9572410a72b9ed6f2299b1e887ee08da4c2a6c01e897cfa9f673"
+  # MLX community's 4-bit affine conversion (group size 64) for oMLX; its weight files also hold
+  # the vision tower, which the oMLX configuration doesn't serve.
+  - artifactId: "mlx-4bit"
+    weightQuantization: "MLX_4BIT"
+    source:
+      repository: "mlx-community/Qwen3.5-9B-4bit"
+      revision: "8b2b98c00a6b4d291155e4890773ca8f769aee53"
+      snapshot:
+        files:
+          - path: "chat_template.jinja"
+            provenanceDigest: "a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715"
+          - path: "config.json"
+            provenanceDigest: "a96942cb6a8a1d3f1d17514d81a1925d04362a6a3233b389d13012211baaa9f8"
+          - path: "model-00001-of-00002.safetensors"
+            provenanceDigest: "a68b87558c6ef43f74c2bd63ce7e9092ceddc3101f3def0030774bae5f42aadd"
+          - path: "model-00002-of-00002.safetensors"
+            provenanceDigest: "b0a770bf8469c7f3f18756a0e0283f1c1174344a83e059a4e483f6af4907352d"
+          - path: "model.safetensors.index.json"
+            provenanceDigest: "dd023913fb87cfdae27fb11dcf695117c925833796ccac3c64117d6652d8ff1e"
+          - path: "preprocessor_config.json"
+            provenanceDigest: "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516"
+          - path: "processor_config.json"
+            provenanceDigest: "14932921ca485d458a04dafd8069fbb0a4505622a48208d19ed247115801385b"
+          - path: "tokenizer.json"
+            provenanceDigest: "87a7830d63fcf43bf241c3c5242e96e62dd3fdc29224ca26fed8ea333db72de4"
+          - path: "tokenizer_config.json"
+            provenanceDigest: "e98f1901ac6f0adff67b1d540bfa0c36ac1a0cf59eb72ed78146ef89aafa1182"
+          - path: "video_preprocessor_config.json"
+            provenanceDigest: "7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13"
+          - path: "vocab.json"
+            provenanceDigest: "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003"
 auxiliaryArtifacts:
   - auxiliaryArtifactId: "vision-projector"
     source:
@@ -202,6 +234,83 @@ configurations:
           values:
             - parameterId: "enabled"
               boolean: false
+  # oMLX on Apple Silicon Macs with macOS 26 or later, text only. oMLX allocates memory as requests
+  # arrive, under a whole-process ceiling the adapter derives from this estimate.
+  - configurationId: "omlx-apple"
+    engineArtifacts:
+      - engineReleaseId: "omlx-0-8-4"
+        engineArtifactId: "metal"
+    artifactBindings:
+      - bindingId: "mlx-4bit"
+        modelArtifactId: "mlx-4bit"
+    sizing:
+      bindingParameters: ["baseBytes", "marginBytes"]
+      parameters:
+        # MLX KV cache in bfloat16, from config.json: 8 full-attention layers x 2 (K and V) x 4 KV
+        # heads x 256 dimensions x 2 bytes.
+        kvBytesPerToken: 32768
+        # Gated DeltaNet recurrent state per request, from config.json: 24 linear-attention layers x
+        # (conv 3 x 8192 + state 32 heads x 128 x 128) values, counted at 4 bytes.
+        slotStateBytes: 52690944
+        # Attention scores of one full prefill chunk at the default 32k context per request: oMLX's
+        # 2048-token chunk x 16 attention heads x 4 bytes x 32768 tokens. oMLX prefills one chunk at
+        # a time and shrinks chunks of longer contexts to fit its ceiling rather than refusing them.
+        prefillBytes: 4294967296
+        # oMLX refuses prompts above 95% of its ceiling less the prompt cache, and the adapter sets
+        # the ceiling to the estimate / 1.07, so the estimate holds 1.07 / 0.95 of the engine's
+        # memory: these add 0.1264 of the per-token and per-request terms, and marginBytes holds
+        # that share of the fixed terms.
+        guardBytesPerToken: 4140
+        guardBytesPerRequest: 6655699
+      estimates:
+        # What oMLX holds at full load: weights and runtime, the KV cache of every request, their
+        # recurrent state and one prefill chunk's attention scores.
+        acceleratorMemory:
+          unit: bytes
+          equation: >-
+            ${baseBytes}
+            + ${kvBytesPerToken} * ${total-context}
+            + ${parallel-requests} * ${slotStateBytes}
+            + ${prefillBytes}
+          # The memory guard's headroom, and 0.07 of the prompt cache for the ceiling's overshoot.
+          allowance: >-
+            ${marginBytes}
+            + ${guardBytesPerToken} * ${total-context}
+            + ${parallel-requests} * ${guardBytesPerRequest}
+            + ${prompt-cache-memory-mib} * 72 * KiB
+        # The in-memory prompt cache, which oMLX keeps out of its prompt admission limit.
+        hostMemory:
+          unit: bytes
+          equation: >-
+            ${prompt-cache-memory-mib} * MiB
+    hardwareSupport:
+      - hardwareClassId: "apple"
+        # The default 4 x 32k context estimates about 20.5 GB.
+        hardwareRequirements:
+          minimumSystemMemoryBytes: "24000000000"
+        # Measured on an M3 Max (36 GiB, macOS 26) at 2 parallel requests x 32k context with a 2 GiB
+        # prompt cache: 6.78 GB at start, at most 14.26 GB in two 6-minute runs of near-full prompts,
+        # no refusals. oMLX throttled prefill chunks against the host's free memory, so the scores
+        # term is derived, not measured unthrottled; 4 parallel requests are extrapolated by the
+        # KV and state terms.
+        bindingSizing:
+          - bindingId: "mlx-4bit"
+            parameters:
+              # Measured footprint at start: 5.95 GB of weight files plus the MLX runtime.
+              baseBytes: 6778246688
+              # 512 MiB for allocator slack beyond the equation, plus the guard share of the base,
+              # the prefill scores and that slack.
+              marginBytes: 2003407952
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_OMLX"
+      omlx:
+        fixedSettings:
+          promptCacheMibParameterId: "prompt-cache-memory-mib"
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
 profiles:
   - profileId: "q3-xl"
     displayName: "Unsloth Q3_K_XL"
@@ -245,6 +354,18 @@ profiles:
         values:
           - parameterId: "enabled"
             boolean: false
+  - profileId: "omlx-4bit"
+    displayName: "MLX 4-bit on oMLX"
+    description: "Runs the MLX 4-bit weights through oMLX on a Mac with macOS 26 or later, faster than llama.cpp. Text only."
+    configurationId: "omlx-apple"
+    defaultModelArtifactBindingId: "mlx-4bit"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"
+    # oMLX's total context is always the parallel requests times the context per request.
+    engineParameterVisibilityOverrides:
+      - { parameterId: "total-context", visibility: "PARAMETER_VISIBILITY_HIDDEN" }
 intelligence:
   overall: 11
 license:
