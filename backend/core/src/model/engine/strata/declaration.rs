@@ -2,15 +2,17 @@
 //!
 //! A release must declare well-formed unsigned-integer or secret parameters, Linux artifacts only,
 //! and the deployment's data folder Strata's start wrapper writes to. A configuration must bind
-//! model artifacts shaped as its engine path says, with the draft layer it names, run on exactly
-//! one NVIDIA accelerator, and keep exactly the release parameters its engine path launches with.
-//! Only the Inkling engine realizes options: a vision option with its vision file, which alone
-//! makes image input available, and a KV cache precision option. Launch values must give Strata a total context that is exactly what
-//! its parallel requests hold.
+//! model artifacts shaped as its engine path says, with the draft layer or tokenizer it names, run
+//! on exactly one NVIDIA accelerator, and keep exactly the release parameters its engine path
+//! launches with. Only the Inkling engine realizes options: a vision option with its vision file,
+//! which alone makes image input available, a DFlash switch with its drafter file, and a KV cache
+//! precision option. Launch values must give Strata a total context that is exactly what its
+//! parallel requests hold.
 
 use std::collections::BTreeSet;
 
 use dotcore_catalog::{
+    options::SPECULATIVE_ENABLED_PARAMETER_ID,
     shared_parameters::{
         self, CONTEXT_PER_REQUEST_PARAMETER_ID, ContextRule, PARALLEL_REQUESTS_PARAMETER_ID,
         TOTAL_CONTEXT_PARAMETER_ID, is_shared_parameter,
@@ -22,7 +24,7 @@ use dotcore_proto::dotcore::{
     catalog::v1::{
         EngineRelease, HardwareClass, HuggingFaceArtifactSource, HuggingFaceSnapshotArtifact,
         Model, ModelConfigurationOption, ModelEngineConfiguration, ModelInputModality,
-        ModelParallelShape, ParameterValues, StoragePlacement,
+        ModelParallelShape, ParameterValues, SpeculativeDecodingMethod, StoragePlacement,
         hugging_face_artifact_source::Content as HuggingFaceContent,
         model_option::Kind as ModelOptionKind,
         model_option_parameter_definition::ParameterType as ModelOptionParameterType,
@@ -55,8 +57,8 @@ const MODEL_FILE_EXTENSION: &str = ".gguf";
 const DRAFT_LAYER_FILES: [&str; 3] = ["dense.bin", "dense.txt", "experts.bin"];
 /// Files within a ready-made pack's folder the start wrapper needs.
 const READY_PACK_FILES: [&str; 2] = ["native_experts.txt", "tokenizer/vocab.json"];
-/// Files beside an Inkling pack the start wrapper builds the tokenizer from.
-const INKLING_PACK_FILES: [&str; 2] = ["tokenizer.json", "chat_template.jinja"];
+/// Files at the root of an Inkling tokenizer artifact the start wrapper builds the tokenizer from.
+const INKLING_TOKENIZER_FILES: [&str; 2] = ["tokenizer.json", "chat_template.jinja"];
 
 /// Strata's context rule: it holds a full context per request for each parallel request, so a
 /// total context fills the context per request as its even split among the parallel requests,
@@ -253,7 +255,8 @@ fn validate_payload(
             "configuration {:?} has invalid fixed Strata settings: the engine path is declared; for \
              the main engine, the architecture takes lowercase letters, digits and '_', the MTP \
              draft depth is 1 to {}, the model files are declared, a pack path names its draft \
-             layer, and a ready-made pack names plain relative paths",
+             layer, and a ready-made pack names plain relative paths; the Inkling engine names its \
+             tokenizer",
             configuration.configuration_id,
             super::MAXIMUM_MTP_DRAFT_TOKENS
         ));
@@ -303,10 +306,10 @@ fn validate_parameters(
             ));
         }
         // The Inkling engine places its experts itself and takes no expert budgets.
-        Some(EnginePath::InklingPack(_)) => {
+        Some(EnginePath::InklingEngine(_)) => {
             if declared != launched {
                 errors.push(anyhow::anyhow!(
-                    "configuration {:?} runs an Inkling pack, whose engine takes only the context and parallel request parameters; exclude the others",
+                    "configuration {:?} runs Strata's Inkling engine, which takes only the context and parallel request parameters; exclude the others",
                     configuration.configuration_id
                 ));
             }
@@ -355,8 +358,8 @@ fn validate_main_engine_parameters<'a>(
     references
 }
 
-/// Accepts bindings whose model artifacts have the shape the fixed settings' model files declare,
-/// each selecting exactly the draft layer the settings name, if any.
+/// Accepts bindings whose model artifacts have the shape the fixed settings' engine path declares,
+/// each selecting exactly the draft layer or tokenizer the settings name, if any.
 fn validate_artifacts(
     model: &Model,
     configuration: &ModelEngineConfiguration,
@@ -366,7 +369,7 @@ fn validate_artifacts(
     let Some(engine_path) = fixed.engine_path.as_ref() else {
         return;
     };
-    let draft_layer = super::draft_layer_artifact_id(fixed);
+    let bound = super::bound_auxiliary_artifact_id(fixed);
     if configuration.artifact_bindings.is_empty() {
         errors.push(anyhow::anyhow!(
             "configuration {:?} binds no model artifact",
@@ -378,11 +381,11 @@ fn validate_artifacts(
             .auxiliary_artifact_ids
             .iter()
             .map(String::as_str)
-            .ne(draft_layer)
+            .ne(bound)
         {
             errors.push(anyhow::anyhow!(
-                "configuration {:?} binding {:?} must select exactly the draft layer its fixed \
-                 Strata settings name, if any",
+                "configuration {:?} binding {:?} must select exactly the draft layer or tokenizer \
+                 its fixed Strata settings name, if any",
                 configuration.configuration_id,
                 binding.binding_id
             ));
@@ -404,7 +407,7 @@ fn validate_artifacts(
             ));
         }
     }
-    if let Some(draft_layer) = draft_layer
+    if let Some(draft_layer) = super::draft_layer_artifact_id(fixed)
         && !model
             .auxiliary_artifacts
             .iter()
@@ -417,6 +420,24 @@ fn validate_artifacts(
              holding {} in one folder",
             configuration.configuration_id,
             DRAFT_LAYER_FILES.join(", ")
+        ));
+    }
+    if let Some(inkling) = super::inkling_engine(fixed)
+        && !model
+            .auxiliary_artifacts
+            .iter()
+            .find(|artifact| {
+                artifact.auxiliary_artifact_id == inkling.tokenizer_auxiliary_artifact_id
+            })
+            .and_then(|artifact| artifact.source.as_ref())
+            .is_some_and(valid_inkling_tokenizer)
+    {
+        errors.push(anyhow::anyhow!(
+            "configuration {:?} tokenizer {:?} must be a model auxiliary artifact holding {} at its \
+             root",
+            configuration.configuration_id,
+            inkling.tokenizer_auxiliary_artifact_id,
+            INKLING_TOKENIZER_FILES.join(", ")
         ));
     }
 }
@@ -453,12 +474,9 @@ fn artifact_shape(
                 "a snapshot holding the ready-made pack and the GGUF files its fixed settings name",
             ),
         },
-        EnginePath::InklingPack(_) => (
-            snapshot.is_some_and(|snapshot| {
-                super::inkling_pack_path(content)
-                    .is_some_and(|pack| holds_files(snapshot, inkling_pack_files(pack)))
-            }),
-            "a snapshot holding exactly one Inkling pack file with tokenizer.json and chat_template.jinja beside it",
+        EnginePath::InklingEngine(_) => (
+            super::inkling_model_path(content).is_some(),
+            "a snapshot holding exactly one Inkling model file, a .strata pack or a .gguf",
         ),
     })
 }
@@ -484,7 +502,8 @@ fn validate_execution_shape(
 /// Strata's main engine fixes speculative decoding and serves text only, so its configurations
 /// declare no options and no image input. The Inkling engine realizes each declared option once:
 /// at most one vision option, which loads a separate vision file and makes image input available,
-/// and at most one KV cache precision option offering precisions the engine takes.
+/// at most one speculative-decoding option, a DFlash switch loading a separate drafter file, and at
+/// most one KV cache precision option offering precisions the engine takes.
 fn validate_inputs_and_options(
     model: &Model,
     configuration: &ModelEngineConfiguration,
@@ -492,7 +511,7 @@ fn validate_inputs_and_options(
     fixed: &StrataFixedModelSettings,
     errors: &mut Vec<anyhow::Error>,
 ) {
-    let inkling = matches!(fixed.engine_path, Some(EnginePath::InklingPack(_)));
+    let inkling = matches!(fixed.engine_path, Some(EnginePath::InklingEngine(_)));
     if !inkling && (!configuration.options.is_empty() || !payload.option_realizations.is_empty()) {
         errors.push(anyhow::anyhow!(
             "configuration {:?} declares options, which Strata realizes only on its Inkling engine",
@@ -501,7 +520,10 @@ fn validate_inputs_and_options(
     }
 
     let mut option_ids = BTreeSet::new();
+    // Each option mounts its own file, so two options naming one artifact would mount it twice.
+    let mut option_files = BTreeSet::new();
     let mut vision_count = 0;
+    let mut speculative_count = 0;
     let mut kv_cache_precision_count = 0;
     for realization in payload.option_realizations.iter().filter(|_| inkling) {
         let option = configuration
@@ -519,10 +541,25 @@ fn validate_inputs_and_options(
                     (Some(ModelOptionKind::Vision(_)), Some(Realization::Vision(vision))) => {
                         vision_count += 1;
                         boolean_parameter(option, &vision.enabled_parameter_id)
-                            && valid_vision_file(
+                            && option_files.insert(vision.auxiliary_artifact_id.as_str())
+                            && valid_option_file(
                                 model,
                                 configuration,
                                 &vision.auxiliary_artifact_id,
+                            )
+                    }
+                    (
+                        Some(ModelOptionKind::SpeculativeDecoding(kind)),
+                        Some(Realization::Dflash(dflash)),
+                    ) => {
+                        speculative_count += 1;
+                        kind.method == SpeculativeDecodingMethod::Dflash as i32
+                            && boolean_parameter(option, SPECULATIVE_ENABLED_PARAMETER_ID)
+                            && option_files.insert(dflash.auxiliary_artifact_id.as_str())
+                            && valid_option_file(
+                                model,
+                                configuration,
+                                &dflash.auxiliary_artifact_id,
                             )
                     }
                     (
@@ -555,6 +592,7 @@ fn validate_inputs_and_options(
             .iter()
             .any(|option| !option_ids.contains(option.option_id.as_str()))
             || vision_count > 1
+            || speculative_count > 1
             || kv_cache_precision_count > 1)
     {
         errors.push(anyhow::anyhow!(
@@ -585,9 +623,9 @@ fn validate_inputs_and_options(
     }
 }
 
-/// Whether a vision file is a single-file model auxiliary artifact that no binding selects: the
-/// vision option selects it only while vision is on.
-fn valid_vision_file(
+/// Whether an option's file is a single-file model auxiliary artifact that no binding selects: the
+/// option selects it only while it is on.
+fn valid_option_file(
     model: &Model,
     configuration: &ModelEngineConfiguration,
     artifact_id: &str,
@@ -636,16 +674,6 @@ fn ready_pack_files(pack: &StrataReadyPack) -> impl Iterator<Item = String> + '_
     )
 }
 
-/// The files an Inkling pack's snapshot must hold beside its pack file: the tokenizer files.
-fn inkling_pack_files(pack_path: &str) -> impl Iterator<Item = String> {
-    let folder = pack_path
-        .rsplit_once('/')
-        .map_or(String::new(), |(folder, _)| format!("{folder}/"));
-    INKLING_PACK_FILES
-        .iter()
-        .map(move |file| format!("{folder}{file}"))
-}
-
 /// Whether `snapshot` holds every one of `paths`.
 fn holds_files(
     snapshot: &HuggingFaceSnapshotArtifact,
@@ -666,6 +694,19 @@ fn valid_draft_layer(source: &HuggingFaceArtifactSource) -> bool {
         .map(|file| file.path.rsplit_once('/').unwrap_or(("", &file.path)))
         .unzip();
     folders.len() == 1 && DRAFT_LAYER_FILES.iter().all(|name| names.contains(name))
+}
+
+/// Whether an Inkling tokenizer is a snapshot holding the tokenizer files at its root.
+fn valid_inkling_tokenizer(source: &HuggingFaceArtifactSource) -> bool {
+    let Some(HuggingFaceContent::Snapshot(snapshot)) = source.content.as_ref() else {
+        return false;
+    };
+    holds_files(
+        snapshot,
+        INKLING_TOKENIZER_FILES
+            .iter()
+            .map(|file| (*file).to_owned()),
+    )
 }
 
 /// Returns the fixed Strata settings of a configuration's engine payload, if it has them.
@@ -690,9 +731,9 @@ mod tests {
     use dotcore_proto::dotcore::{
         catalog::v1::{
             BooleanParameterSchema, HuggingFaceArtifactSource, HuggingFaceFileArtifact,
-            ModelConfigurationOption, ModelImageInputCapacity, ModelInputCapabilities,
-            ParameterDefinition, StringEnumModelOptionParameterSchema,
-            UnsignedIntegerParameterSchema,
+            HuggingFaceSnapshotFile, ModelConfigurationOption, ModelImageInputCapacity,
+            ModelInputCapabilities, ParameterDefinition, SpeculativeDecodingModelOption,
+            StringEnumModelOptionParameterSchema, UnsignedIntegerParameterSchema,
         },
         model::v1::{
             LocalModelDeploymentConfiguration, ResolvedLocalModelDeploymentSnapshot,
@@ -707,11 +748,12 @@ mod tests {
         },
         test_support::{
             strata::{
-                API_KEY_PARAMETER_ID, CATALOG_ENGINE, CATALOG_MODEL, DRAFT_LAYER_ARTIFACT_ID,
-                EXPERT_HOST_MEMORY_MIB_PARAMETER_ID, EXPERT_VRAM_MIB_PARAMETER_ID,
-                VISION_ARTIFACT_ID, catalog_engine_with_api_key, configuration,
-                inkling_options_declaration, inkling_pack_configuration, load_catalog, model,
-                ready_pack_configuration, release, release_with_api_key, split_gguf_configuration,
+                API_KEY_PARAMETER_ID, CATALOG_ENGINE, CATALOG_MODEL, DFLASH_ARTIFACT_ID,
+                DRAFT_LAYER_ARTIFACT_ID, EXPERT_HOST_MEMORY_MIB_PARAMETER_ID,
+                EXPERT_VRAM_MIB_PARAMETER_ID, VISION_ARTIFACT_ID, catalog_engine_with_api_key,
+                configuration, inkling_configuration, inkling_options_declaration, load_catalog,
+                model, ready_pack_configuration, release, release_with_api_key,
+                split_gguf_configuration,
             },
             unsigned_parameter_values,
         },
@@ -728,7 +770,7 @@ mod tests {
             configuration(),
             split_gguf_configuration(),
             ready_pack_configuration(),
-            inkling_pack_configuration(),
+            inkling_configuration(),
         ] {
             assert_eq!(
                 messages(validate_model_configuration(
@@ -942,12 +984,12 @@ mod tests {
     }
 
     #[test]
-    fn an_inkling_pack_keeps_no_expert_parameter() {
+    fn the_inkling_engine_keeps_no_expert_parameter() {
         for kept in [
             EXPERT_VRAM_MIB_PARAMETER_ID,
             EXPERT_HOST_MEMORY_MIB_PARAMETER_ID,
         ] {
-            let mut configuration = inkling_pack_configuration();
+            let mut configuration = inkling_configuration();
             configuration
                 .excluded_engine_parameter_ids
                 .retain(|parameter_id| parameter_id != kept);
@@ -959,7 +1001,7 @@ mod tests {
                     &release()
                 )),
                 [
-                    "configuration \"strata-fixture-inkling-pack\" runs an Inkling pack, whose engine takes only the context and parallel request parameters; exclude the others"
+                    "configuration \"strata-fixture-inkling\" runs Strata's Inkling engine, which takes only the context and parallel request parameters; exclude the others"
                 ],
                 "{kept}"
             );
@@ -967,30 +1009,23 @@ mod tests {
     }
 
     #[test]
-    fn an_inkling_binding_holds_one_pack_file_with_its_tokenizer_files_beside_it() {
+    fn an_inkling_binding_holds_one_pack_or_gguf_file() {
+        let wrong_shape = [
+            "configuration \"strata-fixture-inkling\" binding \"fixture-inkling-pack\" requires a model artifact that is a snapshot holding exactly one Inkling model file, a .strata pack or a .gguf",
+        ];
         for (edit, case) in [
             (
-                |files: &mut Vec<_>| retain_paths(files, "SQ-10.strata"),
-                "no pack",
-            ),
-            (
-                |files: &mut Vec<_>| retain_paths(files, "tokenizer.json"),
-                "no tokenizer",
-            ),
-            (
-                |files: &mut Vec<_>| retain_paths(files, "chat_template.jinja"),
-                "no template",
-            ),
-            (
-                |files: &mut Vec<_>| rename(files, "SQ-10.strata", "packs/SQ-10.strata"),
-                "tokenizer elsewhere",
+                |files: &mut Vec<_>| {
+                    files.retain(|file: &HuggingFaceSnapshotFile| file.path != "SQ-10.strata")
+                },
+                "no model file",
             ),
             (|files: &mut Vec<_>| add(files, "SQ-15.strata"), "two packs"),
-        ]
-            as [(
-                fn(&mut Vec<dotcore_proto::dotcore::catalog::v1::HuggingFaceSnapshotFile>),
-                &str,
-            ); 5]
+            (
+                |files: &mut Vec<_>| add(files, "SQ-15.gguf"),
+                "a pack and a GGUF",
+            ),
+        ] as [(fn(&mut Vec<HuggingFaceSnapshotFile>), &str); 3]
         {
             let mut model = model();
             edit(snapshot_files(&mut model.artifacts[3].source));
@@ -998,25 +1033,22 @@ mod tests {
             assert_eq!(
                 messages(validate_model_configuration(
                     &model,
-                    &inkling_pack_configuration(),
+                    &inkling_configuration(),
                     &release()
                 )),
-                [
-                    "configuration \"strata-fixture-inkling-pack\" binding \"fixture-inkling-pack\" requires a model artifact that is a snapshot holding exactly one Inkling pack file with tokenizer.json and chat_template.jinja beside it"
-                ],
+                wrong_shape,
                 "{case}"
             );
         }
 
         let mut nested = model();
-        let files = snapshot_files(&mut nested.artifacts[3].source);
-        for file in files.iter_mut() {
+        for file in snapshot_files(&mut nested.artifacts[3].source).iter_mut() {
             file.path = format!("SQ-10/{}", file.path);
         }
         assert_eq!(
             messages(validate_model_configuration(
                 &nested,
-                &inkling_pack_configuration(),
+                &inkling_configuration(),
                 &release()
             )),
             Vec::<String>::new()
@@ -1027,33 +1059,13 @@ mod tests {
         assert_eq!(
             messages(validate_model_configuration(
                 &single_file,
-                &inkling_pack_configuration(),
+                &inkling_configuration(),
                 &release()
             )),
-            [
-                "configuration \"strata-fixture-inkling-pack\" binding \"fixture-inkling-pack\" requires a model artifact that is a snapshot holding exactly one Inkling pack file with tokenizer.json and chat_template.jinja beside it"
-            ]
+            wrong_shape
         );
 
-        fn retain_paths(
-            files: &mut Vec<dotcore_proto::dotcore::catalog::v1::HuggingFaceSnapshotFile>,
-            removed: &str,
-        ) {
-            files.retain(|file| file.path != removed);
-        }
-        fn rename(
-            files: &mut [dotcore_proto::dotcore::catalog::v1::HuggingFaceSnapshotFile],
-            from: &str,
-            to: &str,
-        ) {
-            for file in files.iter_mut().filter(|file| file.path == from) {
-                file.path = to.to_owned();
-            }
-        }
-        fn add(
-            files: &mut Vec<dotcore_proto::dotcore::catalog::v1::HuggingFaceSnapshotFile>,
-            path: &str,
-        ) {
+        fn add(files: &mut Vec<HuggingFaceSnapshotFile>, path: &str) {
             let mut file = files[0].clone();
             file.path = path.to_owned();
             files.push(file);
@@ -1061,7 +1073,51 @@ mod tests {
     }
 
     #[test]
-    fn bindings_select_exactly_the_declared_draft_layer() {
+    fn the_inkling_tokenizer_holds_its_files_at_its_root() {
+        let mut missing = model();
+        snapshot_files(&mut missing.auxiliary_artifacts[1].source)
+            .retain(|file| file.path != "chat_template.jinja");
+        let mut nested = model();
+        for file in snapshot_files(&mut nested.auxiliary_artifacts[1].source).iter_mut() {
+            file.path = format!("tokenizer/{}", file.path);
+        }
+        let mut file = model();
+        file.auxiliary_artifacts[1].source = Some(file_source("tokenizer.json"));
+
+        for model in [missing, nested, file] {
+            assert_eq!(
+                messages(validate_model_configuration(
+                    &model,
+                    &inkling_configuration(),
+                    &release()
+                )),
+                [
+                    "configuration \"strata-fixture-inkling\" tokenizer \"fixture-inkling-tokenizer\" must be a model auxiliary artifact holding tokenizer.json, chat_template.jinja at its root"
+                ]
+            );
+        }
+
+        let mut unnamed = inkling_configuration();
+        let Some(EnginePath::InklingEngine(inkling)) =
+            fixed_settings(&mut unnamed).engine_path.as_mut()
+        else {
+            panic!("Inkling engine settings");
+        };
+        inkling.tokenizer_auxiliary_artifact_id.clear();
+        unnamed.artifact_bindings.truncate(1);
+        unnamed.artifact_bindings[0].auxiliary_artifact_ids.clear();
+        assert_eq!(
+            messages(validate_model_configuration(&model(), &unnamed, &release())),
+            [
+                "configuration \"strata-fixture-inkling\" has invalid fixed Strata settings: the engine path is declared; for the main engine, the architecture takes lowercase letters, digits and '_', the MTP draft depth is 1 to 8, the model files are declared, a pack path names its draft layer, and a ready-made pack names plain relative paths; the Inkling engine names its tokenizer",
+                "configuration \"strata-fixture-inkling\" binding \"fixture-inkling-pack\" must select exactly the draft layer or tokenizer its fixed Strata settings name, if any",
+                "configuration \"strata-fixture-inkling\" tokenizer \"\" must be a model auxiliary artifact holding tokenizer.json, chat_template.jinja at its root",
+            ]
+        );
+    }
+
+    #[test]
+    fn bindings_select_exactly_the_declared_draft_layer_or_tokenizer() {
         let mut single_with_draft = configuration();
         single_with_draft.artifact_bindings[0]
             .auxiliary_artifact_ids
@@ -1070,8 +1126,17 @@ mod tests {
         split_without_draft.artifact_bindings[0]
             .auxiliary_artifact_ids
             .clear();
+        let mut inkling_without_tokenizer = inkling_configuration();
+        inkling_without_tokenizer.artifact_bindings.truncate(1);
+        inkling_without_tokenizer.artifact_bindings[0]
+            .auxiliary_artifact_ids
+            .clear();
 
-        for configuration in [single_with_draft, split_without_draft] {
+        for configuration in [
+            single_with_draft,
+            split_without_draft,
+            inkling_without_tokenizer,
+        ] {
             let binding = &configuration.artifact_bindings[0].binding_id;
             assert_eq!(
                 messages(validate_model_configuration(
@@ -1080,7 +1145,7 @@ mod tests {
                     &release()
                 )),
                 [format!(
-                    "configuration {:?} binding {binding:?} must select exactly the draft layer its fixed Strata settings name, if any",
+                    "configuration {:?} binding {binding:?} must select exactly the draft layer or tokenizer its fixed Strata settings name, if any",
                     configuration.configuration_id
                 )]
             );
@@ -1180,7 +1245,7 @@ mod tests {
                 &release()
             )),
             [
-                "configuration \"strata-fixture-inkling-pack\" has invalid Strata realization for option \"kv-cache\""
+                "configuration \"strata-fixture-inkling\" has invalid Strata realization for option \"kv-cache\""
             ]
         );
 
@@ -1190,7 +1255,7 @@ mod tests {
             .push(VISION_ARTIFACT_ID.to_owned());
         assert!(
             messages(validate_model_configuration(&model, &bound_vision, &release()))
-                .contains(&"configuration \"strata-fixture-inkling-pack\" has invalid Strata realization for option \"vision\"".to_owned())
+                .contains(&"configuration \"strata-fixture-inkling\" has invalid Strata realization for option \"vision\"".to_owned())
         );
 
         let mut text_only = configuration;
@@ -1198,7 +1263,103 @@ mod tests {
         assert_eq!(
             messages(validate_model_configuration(&model, &text_only, &release())),
             [
-                "configuration \"strata-fixture-inkling-pack\" must declare image input with its limits exactly when a Strata vision option serves it"
+                "configuration \"strata-fixture-inkling\" must declare image input with its limits exactly when a Strata vision option serves it"
+            ]
+        );
+    }
+
+    #[test]
+    fn inkling_engine_realizes_at_most_one_dflash_switch_with_its_drafter_file() {
+        let (model, configuration) = inkling_options_declaration();
+        let invalid_dflash = [
+            "configuration \"strata-fixture-inkling\" has invalid Strata realization for option \"dflash\"",
+        ];
+
+        let mut other_method = model.clone();
+        other_method.options[2].kind = Some(ModelOptionKind::SpeculativeDecoding(
+            SpeculativeDecodingModelOption {
+                method: SpeculativeDecodingMethod::Dspark as i32,
+            },
+        ));
+        assert_eq!(
+            messages(validate_model_configuration(
+                &other_method,
+                &configuration,
+                &release()
+            )),
+            invalid_dflash
+        );
+
+        let mut folder = model.clone();
+        folder.auxiliary_artifacts[3].source = model.auxiliary_artifacts[1].source.clone();
+        assert_eq!(
+            messages(validate_model_configuration(
+                &folder,
+                &configuration,
+                &release()
+            )),
+            invalid_dflash
+        );
+
+        let mut bound = configuration.clone();
+        bound.artifact_bindings[0]
+            .auxiliary_artifact_ids
+            .push(DFLASH_ARTIFACT_ID.to_owned());
+        assert!(
+            messages(validate_model_configuration(&model, &bound, &release()))
+                .contains(&invalid_dflash[0].to_owned())
+        );
+
+        let mut shared = configuration.clone();
+        let Some(Configuration::Strata(payload)) = shared
+            .engine_configuration
+            .as_mut()
+            .and_then(|wrapper| wrapper.configuration.as_mut())
+        else {
+            panic!("Strata payload");
+        };
+        let Some(Realization::Vision(vision)) = payload.option_realizations[0].realization.clone()
+        else {
+            panic!("vision realization");
+        };
+        let Some(Realization::Dflash(dflash)) = payload.option_realizations[2].realization.as_mut()
+        else {
+            panic!("DFlash realization");
+        };
+        dflash.auxiliary_artifact_id = vision.auxiliary_artifact_id;
+        assert_eq!(
+            messages(validate_model_configuration(&model, &shared, &release())),
+            invalid_dflash
+        );
+
+        let mut two = model.clone();
+        let mut second = two.options[2].clone();
+        second.option_id = "dflash-2".to_owned();
+        two.options.push(second);
+        let mut two_configuration = configuration.clone();
+        let mut option = two_configuration.options[2].clone();
+        option.option_id = "dflash-2".to_owned();
+        option.default_values.as_mut().expect("defaults").option_id = "dflash-2".to_owned();
+        two_configuration.options.push(option);
+        let Some(Configuration::Strata(payload)) = two_configuration
+            .engine_configuration
+            .as_mut()
+            .and_then(|wrapper| wrapper.configuration.as_mut())
+        else {
+            panic!("Strata payload");
+        };
+        let mut realization = payload.option_realizations[2].clone();
+        realization.option_id = "dflash-2".to_owned();
+        payload.option_realizations.push(realization);
+        assert_eq!(
+            messages(validate_model_configuration(
+                &two,
+                &two_configuration,
+                &release()
+            )),
+            [
+                "configuration \"strata-fixture-inkling\" has invalid Strata realization for option \"dflash-2\"",
+                "configuration \"strata-fixture-inkling\" requires one unambiguous Strata realization per model option"
             ]
         );
     }
@@ -1238,8 +1399,7 @@ mod tests {
         assert!(validate_hardware_support(&split_gguf_configuration(), &[&nvidia]).is_empty());
         assert!(validate_hardware_support(&configuration(), &[&unified]).is_empty());
         assert!(
-            validate_hardware_support(&inkling_pack_configuration(), &[&nvidia, &unified])
-                .is_empty()
+            validate_hardware_support(&inkling_configuration(), &[&nvidia, &unified]).is_empty()
         );
         assert_eq!(
             messages(validate_hardware_support(
@@ -1668,7 +1828,7 @@ mod tests {
 
     fn snapshot_files(
         source: &mut Option<HuggingFaceArtifactSource>,
-    ) -> &mut Vec<dotcore_proto::dotcore::catalog::v1::HuggingFaceSnapshotFile> {
+    ) -> &mut Vec<HuggingFaceSnapshotFile> {
         match source.as_mut().and_then(|source| source.content.as_mut()) {
             Some(HuggingFaceContent::Snapshot(snapshot)) => &mut snapshot.files,
             _ => panic!("snapshot source"),

@@ -1,15 +1,15 @@
 //! In-code Strata fixtures for backend unit tests, shaped like the Qwen3.6 35B-A3B and Qwen3.8
 //! Flash-Next Strata profiles.
 //!
-//! They provide a text-only model with a single GGUF, a split GGUF set, a ready-made pack and an
-//! Inkling pack, plus a draft layer; a valid Strata configuration for each, and an Inkling one with
-//! vision and KV cache precision options; and accepted deployment
-//! snapshots whose
-//! launch plan is the canonical plan for the profile: a 32,768-token total context and context per
-//! request for one parallel request, and an 8 GiB expert accelerator memory cap.
+//! They provide a text-only model with a single GGUF, a split GGUF set, a ready-made pack, an
+//! Inkling pack and an Inkling GGUF, plus a draft layer and an Inkling tokenizer; a valid Strata
+//! configuration for each engine path, and an Inkling one with vision, DFlash and KV cache
+//! precision options; and accepted deployment snapshots whose launch plan is the canonical plan for
+//! the profile: a 32,768-token total context and context per request for one parallel request, and
+//! an 8 GiB expert accelerator memory cap.
 
 use dotcore_catalog::{
-    options::KV_CACHE_PRECISION_PARAMETER_ID,
+    options::{KV_CACHE_PRECISION_PARAMETER_ID, SPECULATIVE_ENABLED_PARAMETER_ID},
     shared_parameters::{
         CONTEXT_PER_REQUEST_PARAMETER_ID, PARALLEL_REQUESTS_PARAMETER_ID,
         TOTAL_CONTEXT_PARAMETER_ID,
@@ -25,19 +25,19 @@ use dotcore_proto::dotcore::{
         ModelExecutionCapabilities, ModelImageInputCapacity, ModelInputCapabilities,
         ModelInputModality, ModelOption, ModelOptionParameterDefinition, ModelOptionParameterValue,
         ModelOptionValues, ModelParallelShape, ParameterDefinition, ParameterValue,
-        ParameterValues, ParameterVisibility, SecretParameterSchema, StorageBinding, StorageKind,
-        StoragePlacement, StringEnumModelOptionParameterSchema, UnsignedIntegerParameterSchema,
-        VisionModelOption, hugging_face_artifact_source, model_option,
-        model_option_parameter_definition, model_option_parameter_value, parameter_definition,
-        parameter_value,
+        ParameterValues, ParameterVisibility, SecretParameterSchema, SpeculativeDecodingMethod,
+        SpeculativeDecodingModelOption, StorageBinding, StorageKind, StoragePlacement,
+        StringEnumModelOptionParameterSchema, UnsignedIntegerParameterSchema, VisionModelOption,
+        hugging_face_artifact_source, model_option, model_option_parameter_definition,
+        model_option_parameter_value, parameter_definition, parameter_value,
     },
     engine::{
         strata::v1::{
-            StrataFixedModelSettings, StrataInklingPack, StrataKvCachePrecisionOptionRealization,
-            StrataMainEngine, StrataModelConfiguration, StrataOptionRealization, StrataReadyPack,
-            StrataSingleGguf, StrataSplitGguf, StrataVisionOptionRealization,
-            strata_fixed_model_settings::EnginePath, strata_main_engine::ModelFiles,
-            strata_option_realization::Realization,
+            StrataDflashOptionRealization, StrataFixedModelSettings, StrataInklingEngine,
+            StrataKvCachePrecisionOptionRealization, StrataMainEngine, StrataModelConfiguration,
+            StrataOptionRealization, StrataReadyPack, StrataSingleGguf, StrataSplitGguf,
+            StrataVisionOptionRealization, strata_fixed_model_settings::EnginePath,
+            strata_main_engine::ModelFiles, strata_option_realization::Realization,
         },
         v1::{EngineKind, EngineModelConfiguration, engine_model_configuration::Configuration},
     },
@@ -59,6 +59,9 @@ const PACK_EXPERT_HOST_MEMORY_MIB: u64 = 4_096;
 
 /// Auxiliary artifact holding the fixture model's separate draft layer.
 pub(crate) const DRAFT_LAYER_ARTIFACT_ID: &str = "fixture-draft-layer";
+
+/// Auxiliary artifact holding the tokenizer files every Inkling binding uses.
+pub(crate) const INKLING_TOKENIZER_ARTIFACT_ID: &str = "fixture-inkling-tokenizer";
 
 /// Secret engine parameter some fixtures add: the deployment's API key.
 pub(crate) const API_KEY_PARAMETER_ID: &str = "api-key";
@@ -114,15 +117,18 @@ pub(crate) fn local_model_snapshot_with_options(
         .iter()
         .find(|artifact| artifact.artifact_id == binding.model_artifact_id)
         .cloned();
-    local.auxiliary_artifacts = model
-        .auxiliary_artifacts
+    // Resolution keeps the realization's order, which the plan checks.
+    local.auxiliary_artifacts = selection
+        .auxiliary_artifact_ids
         .iter()
-        .filter(|artifact| {
-            selection
-                .auxiliary_artifact_ids
-                .contains(&artifact.auxiliary_artifact_id)
+        .map(|id| {
+            model
+                .auxiliary_artifacts
+                .iter()
+                .find(|artifact| &artifact.auxiliary_artifact_id == id)
+                .cloned()
+                .expect("fixture auxiliary artifact")
         })
-        .cloned()
         .collect();
     local
         .hardware_support
@@ -163,6 +169,34 @@ pub(crate) fn local_model_snapshot_with_options(
     local.desired_launch_plan = None;
     refresh_launch_plan(local);
     snapshot
+}
+
+/// Returns an accepted snapshot of [`inkling_options_declaration`] serving `inkling-2-mini` from the
+/// binding `binding_id`, with vision and DFlash as given and the default KV cache precision.
+pub(crate) fn inkling_model_snapshot(
+    binding_id: &str,
+    vision: bool,
+    dflash: bool,
+) -> ModelDeploymentSnapshot {
+    let (model, mut configuration) = inkling_options_declaration();
+    configuration
+        .artifact_bindings
+        .sort_by_key(|binding| binding.binding_id != binding_id);
+    assert_eq!(configuration.artifact_bindings[0].binding_id, binding_id);
+    let values = configuration
+        .options
+        .iter()
+        .map(|option| {
+            let mut values = option.default_values.clone().expect("fixture defaults");
+            match option.option_id.as_str() {
+                "vision" => values.values[0].value = Some(boolean(vision)),
+                "dflash" => values.values[0].value = Some(boolean(dflash)),
+                _ => {}
+            }
+            values
+        })
+        .collect::<Vec<_>>();
+    local_model_snapshot_with_options("inkling-2-mini", &model, &configuration, &values)
 }
 
 /// Returns [`local_model_snapshot`] from [`release_with_api_key`], with `api_key` as the value of
@@ -374,8 +408,8 @@ pub(crate) fn load_catalog(engine: &str, model: &str) -> anyhow::Result<dotcore_
     .map_err(anyhow::Error::new)
 }
 
-/// Returns a model with a single GGUF, a split GGUF set, a ready-made pack, an Inkling pack and a
-/// draft layer, and no options.
+/// Returns a model with a single GGUF, a split GGUF set, a ready-made pack, an Inkling pack, an
+/// Inkling GGUF, a draft layer and an Inkling tokenizer, and no options.
 pub(crate) fn model() -> Model {
     Model {
         model_id: "fixture-strata-model".to_owned(),
@@ -421,22 +455,28 @@ pub(crate) fn model() -> Model {
             ModelArtifact {
                 artifact_id: "fixture-inkling-pack".to_owned(),
                 weight_quantization: "SQ-10".to_owned(),
-                source: Some(snapshot_source([
-                    "SQ-10.strata",
-                    "chat_template.jinja",
-                    "config.json",
-                    "tokenizer.json",
-                ])),
+                source: Some(snapshot_source(["SQ-10.strata", "config.json"])),
+            },
+            ModelArtifact {
+                artifact_id: "fixture-inkling-gguf".to_owned(),
+                weight_quantization: "IQ3_S".to_owned(),
+                source: Some(snapshot_source(["IQ3_S/Inkling-IQ3_S.gguf"])),
             },
         ],
-        auxiliary_artifacts: vec![ModelAuxiliaryArtifact {
-            auxiliary_artifact_id: DRAFT_LAYER_ARTIFACT_ID.to_owned(),
-            source: Some(snapshot_source([
-                "mtp/dense.bin",
-                "mtp/dense.txt",
-                "mtp/experts.bin",
-            ])),
-        }],
+        auxiliary_artifacts: vec![
+            ModelAuxiliaryArtifact {
+                auxiliary_artifact_id: DRAFT_LAYER_ARTIFACT_ID.to_owned(),
+                source: Some(snapshot_source([
+                    "mtp/dense.bin",
+                    "mtp/dense.txt",
+                    "mtp/experts.bin",
+                ])),
+            },
+            ModelAuxiliaryArtifact {
+                auxiliary_artifact_id: INKLING_TOKENIZER_ARTIFACT_ID.to_owned(),
+                source: Some(snapshot_source(["chat_template.jinja", "tokenizer.json"])),
+            },
+        ],
         ..Default::default()
     }
 }
@@ -511,25 +551,30 @@ pub(crate) fn ready_pack_configuration() -> ModelEngineConfiguration {
     )
 }
 
-/// Returns a valid Strata configuration that runs the fixture's Inkling pack, which takes neither
-/// expert parameter.
-pub(crate) fn inkling_pack_configuration() -> ModelEngineConfiguration {
+/// Returns a valid Strata configuration that runs the fixture's Inkling pack, its first binding, or
+/// its Inkling GGUF on Strata's Inkling engine, which takes neither expert parameter. Both bindings
+/// select the Inkling tokenizer.
+pub(crate) fn inkling_configuration() -> ModelEngineConfiguration {
     let mut configuration = configuration();
-    configuration.configuration_id = "strata-fixture-inkling-pack".to_owned();
+    configuration.configuration_id = "strata-fixture-inkling".to_owned();
     configuration.excluded_engine_parameter_ids = vec![
         EXPERT_VRAM_MIB_PARAMETER_ID.to_owned(),
         EXPERT_HOST_MEMORY_MIB_PARAMETER_ID.to_owned(),
     ];
-    configuration.artifact_bindings = vec![ModelArtifactBinding {
-        binding_id: "fixture-inkling-pack".to_owned(),
-        model_artifact_id: "fixture-inkling-pack".to_owned(),
-        auxiliary_artifact_ids: Vec::new(),
-    }];
+    configuration.artifact_bindings = ["fixture-inkling-pack", "fixture-inkling-gguf"]
+        .map(|artifact_id| ModelArtifactBinding {
+            binding_id: artifact_id.to_owned(),
+            model_artifact_id: artifact_id.to_owned(),
+            auxiliary_artifact_ids: vec![INKLING_TOKENIZER_ARTIFACT_ID.to_owned()],
+        })
+        .to_vec();
     configuration.engine_configuration = Some(EngineModelConfiguration {
         engine_kind: EngineKind::Strata as i32,
         configuration: Some(Configuration::Strata(StrataModelConfiguration {
             fixed_settings: Some(StrataFixedModelSettings {
-                engine_path: Some(EnginePath::InklingPack(StrataInklingPack {})),
+                engine_path: Some(EnginePath::InklingEngine(StrataInklingEngine {
+                    tokenizer_auxiliary_artifact_id: INKLING_TOKENIZER_ARTIFACT_ID.to_owned(),
+                })),
             }),
             option_realizations: Vec::new(),
         })),
@@ -537,12 +582,15 @@ pub(crate) fn inkling_pack_configuration() -> ModelEngineConfiguration {
     configuration
 }
 
-/// Vision file of the fixture's Inkling pack, a single-file auxiliary artifact.
+/// Vision file of the fixture's Inkling model, a single-file auxiliary artifact.
 pub(crate) const VISION_ARTIFACT_ID: &str = "fixture-vision";
 
-/// Returns [`model`] and [`inkling_pack_configuration`] with a vision option, off by default, that
-/// loads [`VISION_ARTIFACT_ID`], and a KV cache precision option offering `fp16` and `fp8`, `fp16`
-/// by default.
+/// DFlash drafter file of the fixture's Inkling model, a single-file auxiliary artifact.
+pub(crate) const DFLASH_ARTIFACT_ID: &str = "fixture-dflash";
+
+/// Returns [`model`] and [`inkling_configuration`] with a vision option, off by default, that loads
+/// [`VISION_ARTIFACT_ID`], a KV cache precision option offering `fp16` and `fp8`, `fp16` by
+/// default, and a DFlash switch, on by default, that loads [`DFLASH_ARTIFACT_ID`].
 pub(crate) fn inkling_options_declaration() -> (Model, ModelEngineConfiguration) {
     let mut model = model();
     model.options = vec![
@@ -562,24 +610,30 @@ pub(crate) fn inkling_options_declaration() -> (Model, ModelEngineConfiguration)
                 KvCachePrecisionModelOption {},
             )),
         },
-    ];
-    model.auxiliary_artifacts.push(ModelAuxiliaryArtifact {
-        auxiliary_artifact_id: VISION_ARTIFACT_ID.to_owned(),
-        source: Some(HuggingFaceArtifactSource {
-            repository: "dotcore/fixture-strata".to_owned(),
-            revision: "0123456789abcdef0123456789abcdef01234567".to_owned(),
-            content: Some(hugging_face_artifact_source::Content::File(
-                HuggingFaceFileArtifact {
-                    path: "Vision.strata".to_owned(),
-                    provenance_digest:
-                        "74d2c57145e6ff11d1d2faa79594477f9bc903a611af1fb20218189fbbb77d82"
-                            .to_owned(),
+        ModelOption {
+            option_id: "dflash".to_owned(),
+            display_name: "DFlash".to_owned(),
+            description: "Fixture option.".to_owned(),
+            visibility: ParameterVisibility::Advanced as i32,
+            kind: Some(model_option::Kind::SpeculativeDecoding(
+                SpeculativeDecodingModelOption {
+                    method: SpeculativeDecodingMethod::Dflash as i32,
                 },
             )),
+        },
+    ];
+    model.auxiliary_artifacts.extend(
+        [
+            (VISION_ARTIFACT_ID, "Vision.strata"),
+            (DFLASH_ARTIFACT_ID, "DFlash2.safetensors"),
+        ]
+        .map(|(auxiliary_artifact_id, path)| ModelAuxiliaryArtifact {
+            auxiliary_artifact_id: auxiliary_artifact_id.to_owned(),
+            source: Some(file_source(path)),
         }),
-    });
+    );
 
-    let mut configuration = inkling_pack_configuration();
+    let mut configuration = inkling_configuration();
     configuration.options = vec![
         configuration_option("vision", "enabled", boolean_type(), boolean(false)),
         configuration_option(
@@ -592,13 +646,19 @@ pub(crate) fn inkling_options_declaration() -> (Model, ModelEngineConfiguration)
             ),
             model_option_parameter_value::Value::String("fp16".to_owned()),
         ),
+        configuration_option(
+            "dflash",
+            SPECULATIVE_ENABLED_PARAMETER_ID,
+            boolean_type(),
+            boolean(true),
+        ),
     ];
     let Some(Configuration::Strata(payload)) = configuration
         .engine_configuration
         .as_mut()
         .and_then(|wrapper| wrapper.configuration.as_mut())
     else {
-        unreachable!("the Inkling pack configuration has a Strata payload");
+        unreachable!("the Inkling configuration has a Strata payload");
     };
     payload.option_realizations = vec![
         StrataOptionRealization {
@@ -613,6 +673,12 @@ pub(crate) fn inkling_options_declaration() -> (Model, ModelEngineConfiguration)
             realization: Some(Realization::KvCachePrecision(
                 StrataKvCachePrecisionOptionRealization {},
             )),
+        },
+        StrataOptionRealization {
+            option_id: "dflash".to_owned(),
+            realization: Some(Realization::Dflash(StrataDflashOptionRealization {
+                auxiliary_artifact_id: DFLASH_ARTIFACT_ID.to_owned(),
+            })),
         },
     ];
     configuration.input_capabilities = Some(ModelInputCapabilities {
@@ -690,6 +756,21 @@ fn boolean_type() -> model_option_parameter_definition::ParameterType {
 
 fn boolean(value: bool) -> model_option_parameter_value::Value {
     model_option_parameter_value::Value::Boolean(value)
+}
+
+/// Returns a pinned single-file source of `path`.
+fn file_source(path: &str) -> HuggingFaceArtifactSource {
+    HuggingFaceArtifactSource {
+        repository: "dotcore/fixture-strata".to_owned(),
+        revision: "0123456789abcdef0123456789abcdef01234567".to_owned(),
+        content: Some(hugging_face_artifact_source::Content::File(
+            HuggingFaceFileArtifact {
+                path: path.to_owned(),
+                provenance_digest:
+                    "74d2c57145e6ff11d1d2faa79594477f9bc903a611af1fb20218189fbbb77d82".to_owned(),
+            },
+        )),
+    }
 }
 
 /// Returns a pinned snapshot source of `paths`.

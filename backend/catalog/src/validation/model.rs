@@ -47,6 +47,11 @@ use crate::{
 
 const MAX_WEIGHT_QUANTIZATION_BYTES: usize = 128;
 const SPECULATIVE_TOKEN_COUNT_UNIT: &str = "tokens";
+/// Speculative-decoding methods whose options are an on/off switch rather than a token count.
+const SWITCH_SPECULATIVE_METHODS: [SpeculativeDecodingMethod; 2] = [
+    SpeculativeDecodingMethod::Dspark,
+    SpeculativeDecodingMethod::Dflash,
+];
 
 pub fn validate_model(
     model: &Model,
@@ -685,14 +690,17 @@ fn valid_configuration_option(
 }
 
 /// Describes how a speculative-decoding option's parameters depart from its method's shape. A
-/// DSpark option declares a single boolean switch, since its drafter proposes a fixed-length
-/// block. Other methods declare a single speculative-token count in tokens whose range starts at
-/// 0, which is off, and reaches at least 1.
+/// DSpark or DFlash option declares a single boolean switch, since its drafter proposes a
+/// fixed-length block. Other methods declare a single speculative-token count in tokens whose
+/// range starts at 0, which is off, and reaches at least 1.
 fn speculative_parameter_problem(
     method: i32,
     parameters: &[ModelOptionParameterDefinition],
 ) -> Option<String> {
-    let parameter_id = if method == SpeculativeDecodingMethod::Dspark as i32 {
+    let parameter_id = if SWITCH_SPECULATIVE_METHODS
+        .iter()
+        .any(|switch| *switch as i32 == method)
+    {
         SPECULATIVE_ENABLED_PARAMETER_ID
     } else {
         SPECULATIVE_TOKEN_COUNT_PARAMETER_ID
@@ -1752,36 +1760,54 @@ mod tests {
     }
 
     #[test]
-    fn dspark_options_declare_a_switch_instead_of_a_count() {
-        let mut model = speculative_model();
-        model.options[0].kind = Some(model_option::Kind::SpeculativeDecoding(
-            SpeculativeDecodingModelOption {
-                method: SpeculativeDecodingMethod::Dspark as i32,
-            },
-        ));
+    fn switch_methods_declare_a_switch_instead_of_a_count() {
+        for method in [
+            SpeculativeDecodingMethod::Dspark,
+            SpeculativeDecodingMethod::Dflash,
+        ] {
+            let mut model = speculative_model();
+            model.options[0].kind = Some(model_option::Kind::SpeculativeDecoding(
+                SpeculativeDecodingModelOption {
+                    method: method as i32,
+                },
+            ));
 
+            assert_eq!(
+                option_errors(&model),
+                vec![
+                    "model \"fixture-model\" configuration \"local\" speculative decoding option \"mtp\" must name its parameter \"enabled\""
+                ],
+                "{method:?} with a count"
+            );
+
+            set_switch(&mut model.configurations[0].options[0]);
+
+            assert_eq!(option_errors(&model), Vec::<String>::new(), "{method:?}");
+        }
+
+        let mut mtp_switch = speculative_model();
+        set_switch(&mut mtp_switch.configurations[0].options[0]);
         assert_eq!(
-            option_errors(&model),
+            option_errors(&mtp_switch),
             vec![
-                "model \"fixture-model\" configuration \"local\" speculative decoding option \"mtp\" must name its parameter \"enabled\""
+                "model \"fixture-model\" configuration \"local\" speculative decoding option \"mtp\" must name its parameter \"token-count\""
             ]
         );
 
-        let option = &mut model.configurations[0].options[0];
-        option.parameters = vec![ModelOptionParameterDefinition {
-            parameter_id: "enabled".to_owned(),
-            display_name: "Enabled".to_owned(),
-            parameter_type: Some(ParameterType::Boolean(BooleanModelOptionParameterSchema {})),
-        }];
-        option.default_values = Some(ModelOptionValues {
-            option_id: "mtp".to_owned(),
-            values: vec![ModelOptionParameterValue {
+        fn set_switch(option: &mut ModelConfigurationOption) {
+            option.parameters = vec![ModelOptionParameterDefinition {
                 parameter_id: "enabled".to_owned(),
-                value: Some(Value::Boolean(true)),
-            }],
-        });
-
-        assert_eq!(option_errors(&model), Vec::<String>::new());
+                display_name: "Enabled".to_owned(),
+                parameter_type: Some(ParameterType::Boolean(BooleanModelOptionParameterSchema {})),
+            }];
+            option.default_values = Some(ModelOptionValues {
+                option_id: "mtp".to_owned(),
+                values: vec![ModelOptionParameterValue {
+                    parameter_id: "enabled".to_owned(),
+                    value: Some(Value::Boolean(true)),
+                }],
+            });
+        }
     }
 
     #[test]
