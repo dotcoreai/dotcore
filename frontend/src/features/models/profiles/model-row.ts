@@ -349,6 +349,7 @@ export function engineKindLabel(key: string): string {
 const engineKindLabels: Record<string, string> = {
   "llama-cpp": "llama.cpp",
   ninfer: "ninfer",
+  omlx: "oMLX",
   strata: "Strata",
   vllm: "vLLM",
 };

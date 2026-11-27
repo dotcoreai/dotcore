@@ -17,6 +17,10 @@ describe("engineKindLabel", () => {
   it("names Strata", () => {
     expect(engineKindLabel("strata")).toBe("Strata");
   });
+
+  it("names oMLX", () => {
+    expect(engineKindLabel("omlx")).toBe("oMLX");
+  });
 });
 
 describe("sizing-derived parameters", () => {
