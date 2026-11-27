@@ -10,7 +10,7 @@ Code: `backend/runtime/` (owner-neutral contracts), `backend/runtime_backends/`,
 ## Capabilities
 
 - Run models and apps on Linux with Docker and NVIDIA GPUs.
-- Run models as native llama.cpp processes on a Mac, and apps in Docker Desktop.
+- Run models as native llama.cpp or oMLX processes on a Mac, and apps in Docker Desktop.
 - Restart the Dotcore server without stopping native workloads.
 - Run a development site on a declared machine, without its hardware, and see memory and fit
   behave as on the real machine.

@@ -33,6 +33,9 @@
 * Re-measure the memory overshoot: force a low ceiling under full load and compare peak
   `phys_footprint` to it. The adapter divides its estimate by that constant (1.07 at 0.8.4); update
   it when the measurement moves. Never run long full-load tests on a personal laptop.
+* Re-check the refusal margin: oMLX refuses a prompt that would cross 95% of the ceiling, so each
+  model's estimate must stay at least 1.126 times its engine memory plus 1.07 times its prompt
+  cache (1.07 / 0.95). Update the catalog sizing when the margin or the overshoot changes.
 * Re-check the memory guard's refusal forms (HTTP 400 and the in-stream error frame) and the
   adapter's error classification.
 * Releases are immutable: declare the new one in `catalog/engines/omlx.yaml` and move every model
