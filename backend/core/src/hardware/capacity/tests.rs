@@ -415,6 +415,7 @@ fn a_starting_workload_counts_its_accelerator_memory_once_and_holds_its_host_est
         let claim = |attributed: Option<u64>| Workload {
             key: WorkloadKey::inference("starting"),
             expects_use: true,
+            grows_into_estimate: false,
             phase: WorkloadPhase::Starting,
             memory_architecture,
             device_ids: vec![gpu.clone()],
@@ -498,6 +499,7 @@ fn a_unified_claim_subtracts_all_of_its_attributed_memory_whatever_the_device_id
         let claim = Workload {
             key: WorkloadKey::inference("starting"),
             expects_use: true,
+            grows_into_estimate: false,
             phase: WorkloadPhase::Starting,
             memory_architecture: Unified,
             device_ids: Vec::new(),
@@ -533,6 +535,7 @@ fn an_unsized_starting_workload_makes_the_pools_it_may_use_unknown() {
     let unsized_claim = |memory_architecture, device_ids: Vec<String>| Workload {
         key: WorkloadKey::inference("starting"),
         expects_use: true,
+        grows_into_estimate: false,
         phase: WorkloadPhase::Starting,
         memory_architecture,
         device_ids,
@@ -608,6 +611,7 @@ fn a_starting_workload_with_an_unknown_claim_keeps_its_measured_use() {
     let starting = |device_ids: Vec<String>| Workload {
         key: WorkloadKey::inference("starting"),
         expects_use: true,
+        grows_into_estimate: false,
         phase: WorkloadPhase::Starting,
         memory_architecture: Dedicated,
         device_ids,
@@ -648,6 +652,7 @@ fn a_starting_workload_whose_gpus_dont_resolve_makes_its_nodes_gpu_pools_unknown
     let claim = Workload {
         key: WorkloadKey::inference("starting"),
         expects_use: true,
+        grows_into_estimate: false,
         phase: WorkloadPhase::Starting,
         memory_architecture: Dedicated,
         device_ids: Vec::new(),
@@ -681,6 +686,7 @@ fn attribution_newer_than_the_gpu_reading_subtracts_at_most_its_measured_use() {
     let claim = |estimate_bytes: u64, attributed: u64| Workload {
         key: WorkloadKey::inference("starting"),
         expects_use: true,
+        grows_into_estimate: false,
         phase: WorkloadPhase::Starting,
         memory_architecture: Dedicated,
         device_ids: vec![gpu.clone()],
@@ -730,6 +736,7 @@ fn a_claim_counts_only_in_the_pools_it_shares_with_the_target() {
     let claim = Workload {
         key: WorkloadKey::inference("starting"),
         expects_use: true,
+        grows_into_estimate: false,
         phase: WorkloadPhase::Starting,
         memory_architecture: Dedicated,
         device_ids: vec![gpus[0].clone()],
@@ -771,6 +778,7 @@ fn a_preview_draws_each_pool_with_the_verdicts_the_evaluator_gives_on_named_mach
     let ready = |gpu: &str, memory_architecture, estimate, attributed: Option<u64>| Workload {
         key: WorkloadKey::inference("running"),
         expects_use: true,
+        grows_into_estimate: false,
         phase: WorkloadPhase::Ready,
         memory_architecture,
         device_ids: vec![gpu.to_owned()],
@@ -860,6 +868,48 @@ fn a_preview_draws_each_pool_with_the_verdicts_the_evaluator_gives_on_named_mach
                     Exceeds,
                     32 * GIB + 497 * MIB - RTX_5090_TOTAL,
                     true,
+                ),
+                host_pool(
+                    64 * GIB,
+                    HOST_64G_LINE,
+                    vec![
+                        segment(SegmentSource::Estimated, "running", GIB),
+                        other(4 * GIB),
+                    ],
+                    Fits,
+                ),
+            ],
+        ),
+        // A running model whose engine grows into its estimate after ready keeps claiming what its
+        // attributed use hasn't reached yet.
+        (
+            "rtx-5090 with a model growing into its estimate",
+            &rtx_5090_desktop,
+            vec![MachineWorkload {
+                gpu_bytes: [(rtx_5090_gpu.to_owned(), 4 * GIB)].into(),
+                host_bytes: GIB,
+            }],
+            vec![Workload {
+                grows_into_estimate: true,
+                ..ready(
+                    rtx_5090_gpu,
+                    Dedicated,
+                    estimate(10 * GIB, GIB),
+                    Some(4 * GIB),
+                )
+            }],
+            estimate(8 * GIB, 0),
+            vec![
+                device_pool(
+                    vec![
+                        segment(SegmentSource::Measured, "running", 4 * GIB),
+                        segment(SegmentSource::Claimed, "running", 6 * GIB),
+                        other(497 * MIB),
+                        previewed(8 * GIB),
+                    ],
+                    Fits,
+                    0,
+                    false,
                 ),
                 host_pool(
                     64 * GIB,
@@ -992,6 +1042,7 @@ fn a_preview_of_an_unknown_pool_draws_what_is_known_and_judges_nothing() {
     let unsized_workload = Workload {
         key: WorkloadKey::inference("starting"),
         expects_use: true,
+        grows_into_estimate: false,
         phase: WorkloadPhase::Starting,
         memory_architecture: Dedicated,
         device_ids: vec![gpus[0].clone()],
@@ -1066,6 +1117,7 @@ fn ready_and_stopping_workloads_split_measured_use_without_changing_what_is_free
     let workload = |workload_id: &str, phase, attributed: Option<u64>| Workload {
         key: WorkloadKey::inference(workload_id),
         expects_use: true,
+        grows_into_estimate: false,
         phase,
         memory_architecture: Dedicated,
         device_ids: vec![gpu.clone()],
@@ -1096,6 +1148,114 @@ fn ready_and_stopping_workloads_split_measured_use_without_changing_what_is_free
 }
 
 #[test]
+fn a_ready_workload_growing_into_its_estimate_keeps_claiming_what_its_measured_use_hasnt_reached() {
+    const RTX_5090_TOTAL: u64 = 32_607 * MIB;
+    const MAC_TOTAL: u64 = 64 * GIB;
+    const MAC_IDLE_USED: u64 = 8 * GIB;
+    let ready = |gpu: &str, memory_architecture, grows_into_estimate, attributed: u64| Workload {
+        key: WorkloadKey::inference("ready"),
+        expects_use: true,
+        grows_into_estimate,
+        phase: WorkloadPhase::Ready,
+        memory_architecture,
+        device_ids: vec![gpu.to_owned()],
+        estimate: Estimate {
+            accelerator_bytes: Some(10 * GIB),
+            host_bytes: Some(GIB),
+        },
+        attributed: (attributed > 0).then(|| BTreeMap::from([(gpu.to_owned(), attributed)])),
+    };
+    let pools = |machine: &str, gpu_bytes: u64, workload: &dyn Fn(&str) -> Workload| {
+        let description = described(machine);
+        let gpu = description.gpu_ids().next().expect("a GPU").to_owned();
+        let snapshot = description
+            .render(
+                &[MachineWorkload {
+                    gpu_bytes: [(gpu.clone(), gpu_bytes)].into(),
+                    host_bytes: 0,
+                }],
+                SystemTime::now(),
+            )
+            .expect("rendered snapshot");
+        snapshot_capacity(&snapshot, vec![gpu.as_str()])
+            .with_workloads(&[workload(&gpu)])
+            .pools
+    };
+
+    // On a dedicated GPU it claims the rest of its accelerator estimate; its host estimate stands
+    // for its host use.
+    let growing = pools("rtx-5090", 4 * GIB, &|gpu| {
+        ready(gpu, Dedicated, true, 4 * GIB)
+    });
+    assert_eq!(
+        growing[0].occupancy.workloads,
+        vec![
+            segment(SegmentSource::Measured, "ready", 4 * GIB),
+            segment(SegmentSource::Claimed, "ready", 6 * GIB),
+        ]
+    );
+    assert_eq!(growing[0].occupancy.claimed_bytes, Some(6 * GIB));
+    assert_eq!(
+        growing[0].free_bytes(),
+        Some(RTX_5090_TOTAL - RESERVED - 10 * GIB)
+    );
+    assert_eq!(
+        growing[1].occupancy.workloads,
+        vec![segment(SegmentSource::Estimated, "ready", GIB)]
+    );
+    assert_eq!(growing[1].occupancy.claimed_bytes, Some(0));
+
+    // An engine that doesn't grow claims nothing once ready.
+    let holding = pools("rtx-5090", 4 * GIB, &|gpu| {
+        ready(gpu, Dedicated, false, 4 * GIB)
+    });
+    assert_eq!(
+        holding[0].occupancy.workloads,
+        vec![segment(SegmentSource::Measured, "ready", 4 * GIB)]
+    );
+    assert_eq!(holding[0].occupancy.claimed_bytes, Some(0));
+    assert_eq!(
+        holding[0].free_bytes(),
+        Some(RTX_5090_TOTAL - RESERVED - 4 * GIB)
+    );
+
+    // Measured past its estimate, it claims nothing and all of its use is its own.
+    let past = pools("rtx-5090", 12 * GIB, &|gpu| {
+        ready(gpu, Dedicated, true, 12 * GIB)
+    });
+    assert_eq!(
+        past[0].occupancy.workloads,
+        vec![segment(SegmentSource::Measured, "ready", 12 * GIB)]
+    );
+    assert_eq!(past[0].occupancy.claimed_bytes, Some(0));
+
+    // On unified memory it claims the rest of both estimates in the host pool.
+    let unified = pools("mac-64g", 4 * GIB, &|gpu| {
+        ready(gpu, Unified, true, 4 * GIB)
+    });
+    assert_eq!(
+        unified[0].occupancy.workloads,
+        vec![
+            segment(SegmentSource::Measured, "ready", 4 * GIB),
+            segment(SegmentSource::Claimed, "ready", 7 * GIB),
+        ]
+    );
+    assert_eq!(unified[0].occupancy.claimed_bytes, Some(7 * GIB));
+    assert_eq!(
+        unified[0].free_bytes(),
+        Some(MAC_TOTAL - MAC_IDLE_USED - 11 * GIB)
+    );
+
+    // With nothing attributed, its estimate stands for its use and it claims nothing.
+    let unattributed = pools("mac-64g", 4 * GIB, &|gpu| ready(gpu, Unified, true, 0));
+    assert_eq!(
+        unattributed[0].occupancy.workloads,
+        vec![segment(SegmentSource::Estimated, "ready", 11 * GIB)]
+    );
+    assert_eq!(unattributed[0].occupancy.claimed_bytes, Some(0));
+}
+
+#[test]
 fn an_application_named_in_a_preview_splits_other_use_without_changing_its_verdicts() {
     const TOTAL: u64 = 32_607 * MIB;
     let description = described("rtx-5090");
@@ -1111,6 +1271,7 @@ fn an_application_named_in_a_preview_splits_other_use_without_changing_its_verdi
         key: WorkloadKey::inference("model"),
         phase: WorkloadPhase::Ready,
         expects_use: true,
+        grows_into_estimate: false,
         memory_architecture: Dedicated,
         device_ids: vec![gpu.clone()],
         estimate: Estimate::default(),

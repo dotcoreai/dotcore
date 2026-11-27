@@ -52,6 +52,12 @@ pub(crate) fn engine_artifact_kinds(kind: i32) -> &'static [dotcore_domain::Work
     definition::definition(kind).map_or(&[], |engine| engine.artifact_kinds())
 }
 
+/// Returns whether the deployments of the engine of a raw engine kind grow into their estimate
+/// after they are ready; an unsupported kind doesn't.
+pub(crate) fn grows_into_estimate_after_ready(kind: i32) -> bool {
+    definition::definition(kind).is_some_and(|engine| engine.grows_into_estimate_after_ready())
+}
+
 /// Returns the context values resolution derives for values that leave them out, by the context
 /// rule the engine of a raw engine kind gives the model's configuration; an unsupported kind takes
 /// the shared rule.

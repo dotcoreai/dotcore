@@ -1488,6 +1488,7 @@ mod tests {
                 key: WorkloadKey::applications("app"),
                 phase: WorkloadPhase::Other,
                 expects_use: true,
+                grows_into_estimate: false,
                 memory_architecture: MemoryArchitecture::Dedicated,
                 device_ids: vec!["GPU-a".to_owned()],
                 estimate: Estimate::default(),

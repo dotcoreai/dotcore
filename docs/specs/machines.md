@@ -156,6 +156,9 @@ What is in use in a pool.
   claims.
 - A starting local model deployment claims its resolved estimate until it's ready and measured, less
   the use already measured for it.
+- An engine may declare that its deployments grow into their estimate after they're ready. A ready
+  local model deployment of such an engine keeps claiming its estimate less its measured use, in
+  each pool and never below zero. A ready deployment of any other engine claims nothing.
 - Application deployments occupy pools by the GPU memory attributed to them, in the host pool on
   unified GPUs. They carry no estimate and claim nothing.
 

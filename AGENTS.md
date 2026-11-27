@@ -234,8 +234,9 @@ in the same change that adds, removes or renames a folder it lists.
 - **memory pool**: memory a target draws from: one pool per dedicated GPU, and one host pool per
   node, which unified GPUs share.
 - **occupancy**: what is in use in a memory pool: measured use per deployment, other use, and
-  claims. A **claim** is a starting model deployment's estimate, counted until it reports measured
-  use; advisory, never a reservation.
+  claims. A **claim** is the part of a model deployment's estimate its measured use hasn't reached,
+  counted while it starts, or while it runs on an engine that grows into its estimate after ready;
+  advisory, never a reservation.
 - **demand**: a configuration's estimated bytes per memory pool on one target.
 - **placement preview**: the capacity component's answer for one configuration on one target: each
   pool's occupancy with the demand and the fit line.

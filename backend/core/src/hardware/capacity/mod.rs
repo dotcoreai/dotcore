@@ -62,10 +62,11 @@ impl TargetCapacity {
     }
 
     /// Counts in the target's pools what the workloads of its node hold there, each in the pools
-    /// it shares with the target: its own devices and the node's host pool. Starting workloads
-    /// claim memory beyond what is measured of them, and a claim whose size or devices aren't known
-    /// makes the pools it may use unknown. Other workloads only split the measured use: what the
-    /// node attributes to them, or a ready workload's estimate where nothing is attributed.
+    /// it shares with the target: its own devices and the node's host pool. Starting workloads,
+    /// and ready ones growing into their estimate, claim memory beyond what is measured of them,
+    /// and a claim whose size or devices aren't known makes the pools it may use unknown. Other
+    /// workloads only split the measured use: what the node attributes to them, or a ready
+    /// workload's estimate where nothing is attributed.
     pub(crate) fn with_workloads(mut self, workloads: &[Workload]) -> Self {
         occupy(&mut self.pools, workloads);
         self
@@ -236,9 +237,9 @@ pub(crate) struct Occupancy {
     /// it moves with every observation and is never retained.
     pub(crate) measured_bytes: Option<u64>,
 
-    /// Bytes starting workloads are expected to take beyond what is measured of them: their
-    /// claims. Absent when a starting workload that may use the pool has an unknown claim there.
-    /// Advisory, never a reservation.
+    /// Bytes starting workloads, and ready ones growing into their estimate, are expected to take
+    /// beyond what is measured of them: their claims. Absent when a starting workload that may use
+    /// the pool has an unknown claim there. Advisory, never a reservation.
     pub(crate) claimed_bytes: Option<u64>,
 
     /// What each workload holds of the measured and claimed bytes, in workload order; the rest of
@@ -290,7 +291,7 @@ pub(crate) enum SegmentSource {
     /// A ready workload's estimate standing for measured use the node doesn't attribute to it.
     Estimated,
 
-    /// A starting workload's estimate beyond what is measured of it.
+    /// A starting workload's estimate beyond what is measured of it, or a growing ready workload's.
     Claimed,
 
     /// Measured use no workload accounts for.
@@ -301,11 +302,12 @@ pub(crate) enum SegmentSource {
 }
 
 /// A workload on a node and the memory it holds there: its estimate on the pools its own target
-/// draws from, and the accelerator memory the node attributes to it. While it starts, it claims its
-/// estimate: its accelerator estimate counts beyond what the node already attributes to it, while
-/// its host estimate counts whole, since attribution sees only accelerator memory and host memory
-/// loads through the whole start. Once ready and measured, its claim ends and it holds only
-/// measured use.
+/// draws from, and the memory the node attributes to it: accelerator memory on dedicated devices,
+/// the process's whole footprint on unified memory. While it starts, it claims its estimate: its
+/// accelerator estimate counts beyond what the node already attributes to it, while its host
+/// estimate counts whole, since host memory loads through the whole start. Once ready and measured, it holds its measured use, and its claim
+/// ends unless it grows into its estimate after ready: then it keeps claiming its estimate beyond
+/// the use attributed to it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Workload {
     /// Identity of the workload, which a pool's segments name.
@@ -325,6 +327,10 @@ pub(crate) struct Workload {
     pub(crate) device_ids: Vec<String>,
 
     pub(crate) estimate: Estimate,
+
+    /// Whether the workload keeps growing into its estimate after it is ready, so a ready workload
+    /// keeps claiming what its attributed use hasn't reached of its estimate.
+    pub(crate) grows_into_estimate: bool,
 
     /// Accelerator memory the node attributes to the workload's processes, by device id; absent
     /// until the node attributes any.
@@ -375,7 +381,8 @@ pub(crate) enum WorkloadPhase {
     /// Not ready yet, or ready before any reading measured it: it claims its estimate.
     Starting,
 
-    /// Ready: it holds its attributed use, or its estimate where nothing is attributed.
+    /// Ready: it holds its attributed use, or its estimate where nothing is attributed, and claims
+    /// the rest of its estimate when it grows into it.
     Ready,
 
     /// Any other phase, such as stopping: it holds only what is attributed to it.
@@ -417,24 +424,55 @@ impl Workload {
         }
     }
 
+    /// What a ready workload that grows into its estimate claims in `pool`: its estimate's share of
+    /// the pool beyond the use attributed to it there. Absent when it doesn't grow, isn't ready, or
+    /// nothing is attributed to it there, since its estimate then stands for its use.
+    ///
+    /// On unified memory the claim subtracts the attributed use from the accelerator and host
+    /// estimates together. That holds only because attribution there is the process's whole
+    /// footprint, host and accelerator memory alike (macOS `phys_footprint`).
+    fn growth_claim_in(&self, pool: &Pool) -> Option<ClaimShare> {
+        if !self.grows_into_estimate || self.phase != WorkloadPhase::Ready {
+            return None;
+        }
+        let attributed = self.attributed_in(pool);
+        (attributed > 0).then(|| ClaimShare {
+            loading_bytes: self.estimate_in(pool),
+            attributed_bytes: attributed,
+            held_bytes: 0,
+        })
+    }
+
     /// What a workload that isn't starting holds of `pool`'s measured use, before it is capped by
     /// that use: the memory attributed to it there, or, when ready with nothing attributed there,
     /// its estimate's share of the pool. Host memory is never attributed, so a dedicated
     /// workload's host estimate always stands for its host use.
     fn use_in(&self, pool: &Pool) -> (SegmentSource, u64) {
-        let attributed = match (self.memory_architecture, pool.kind) {
+        let attributed = self.attributed_in(pool);
+        if attributed > 0 || self.phase != WorkloadPhase::Ready {
+            return (SegmentSource::Measured, attributed);
+        }
+        (SegmentSource::Estimated, self.estimate_in(pool))
+    }
+
+    /// Accelerator memory the node attributes to the workload in `pool`: on a dedicated device,
+    /// what it attributes there, and on unified memory, all of it in the host pool.
+    fn attributed_in(&self, pool: &Pool) -> u64 {
+        match (self.memory_architecture, pool.kind) {
             (MemoryArchitecture::Dedicated, PoolKind::Device) => pool
                 .device_id()
                 .map(|device_id| self.attributed_on(device_id))
                 .unwrap_or_default(),
             (MemoryArchitecture::Unified, PoolKind::Host) => self.attributed_total(),
             _ => 0,
-        };
-        if attributed > 0 || self.phase != WorkloadPhase::Ready {
-            return (SegmentSource::Measured, attributed);
         }
+    }
+
+    /// The workload's estimate's share of `pool`: its accelerator estimate's share of a device it
+    /// holds, its host estimate in the host pool, and both together on unified memory.
+    fn estimate_in(&self, pool: &Pool) -> u64 {
         let host_bytes = self.estimate.host_bytes.unwrap_or_default();
-        let estimated = match (self.memory_architecture, pool.kind) {
+        match (self.memory_architecture, pool.kind) {
             (MemoryArchitecture::Dedicated, PoolKind::Device) => {
                 match (self.device_index(pool), self.estimate.accelerator_bytes) {
                     (Some(index), Some(bytes)) => device_share(bytes, self.device_ids.len(), index),
@@ -447,8 +485,7 @@ impl Workload {
                 .accelerator_bytes
                 .map_or(0, |bytes| bytes.saturating_add(host_bytes)),
             (MemoryArchitecture::Unified, PoolKind::Device) => 0,
-        };
-        (SegmentSource::Estimated, estimated)
+        }
     }
 
     /// Whether the workload may use `pool`: a device it holds, or any device when its devices
@@ -620,7 +657,8 @@ struct HostMemory {
 }
 
 /// Counts in each pool what the workloads hold there: claims of starting workloads first, then
-/// what the others hold of the measured use, each segment in workload order.
+/// those of ready workloads growing into their estimate, then what the others hold of the measured
+/// use, each segment in workload order.
 fn occupy(pools: &mut [Pool], workloads: &[Workload]) {
     for pool in pools {
         // Attribution can be newer than the pool's reading, so what it accounts for never
@@ -656,10 +694,32 @@ fn occupy(pools: &mut [Pool], workloads: &[Workload]) {
             segments.push((index, workload.segment(SegmentSource::Measured, measured)));
             segments.push((index, workload.segment(SegmentSource::Claimed, bytes)));
         }
+        let growing = workloads
+            .iter()
+            .enumerate()
+            .filter_map(|(index, workload)| {
+                Some((index, workload, workload.growth_claim_in(pool)?))
+            })
+            .collect::<Vec<_>>();
+        for (index, workload, share) in growing {
+            // Use past its estimate is still its own, so all of its attributed use is measured.
+            let measured = share.attributed_bytes.min(measured_left);
+            measured_left -= measured;
+            let bytes = share.loading_bytes.saturating_sub(measured);
+            pool.occupancy.claimed_bytes = pool
+                .occupancy
+                .claimed_bytes
+                .map(|claimed| claimed.saturating_add(bytes));
+            segments.push((index, workload.segment(SegmentSource::Measured, measured)));
+            segments.push((index, workload.segment(SegmentSource::Claimed, bytes)));
+        }
         let mut running = workloads
             .iter()
             .enumerate()
-            .filter(|(_, workload)| workload.phase != WorkloadPhase::Starting)
+            .filter(|(_, workload)| {
+                workload.phase != WorkloadPhase::Starting
+                    && workload.growth_claim_in(pool).is_none()
+            })
             .map(|(index, workload)| (index, workload, workload.use_in(pool)))
             .collect::<Vec<_>>();
         // Attributed use is measured, so it takes its share of the reading before estimates.

@@ -41,7 +41,9 @@ use crate::{
     },
     model::{
         advisory::local_deployment_advisories,
-        engine::{EngineIntegrationRegistry, engine_artifact_kinds},
+        engine::{
+            EngineIntegrationRegistry, engine_artifact_kinds, grows_into_estimate_after_ready,
+        },
         resolution::{
             ModelLaunchResolutionError, apply_profile_defaults,
             resolve_local_launch_on_selected_target,
@@ -290,8 +292,9 @@ pub(crate) fn evaluate_profile(
 /// order: each with its resolved estimate on its target's devices and its node's host memory, and
 /// the accelerator memory its node attributes to it. Deployments queued, preparing, downloading,
 /// loading or warming up are starting and claim their estimate, an unknown size without a
-/// resolved estimate, and so do ready ones whose memory no reading has measured yet; other ready
-/// ones count their measured use, and the others only what is attributed to them.
+/// resolved estimate, and so do ready ones whose memory no reading has measured yet. Other ready
+/// ones count their measured use, and keep claiming the rest of their estimate when their engine
+/// grows into it after ready; the others count only what is attributed to them.
 pub(crate) fn node_workloads(
     deployments: &[ModelDeployment],
     inventory: Option<&TargetCapabilityInventory>,
@@ -360,6 +363,10 @@ pub(crate) fn node_workloads(
                         host_bytes: sizing.host_memory_bytes,
                     })
                     .unwrap_or_default(),
+                grows_into_estimate: local
+                    .engine_artifact
+                    .as_ref()
+                    .is_some_and(|artifact| grows_into_estimate_after_ready(artifact.engine_kind)),
                 attributed,
             });
     }
@@ -699,6 +706,7 @@ mod tests {
             phase,
             // Only starting and ready deployments are expected to hold memory.
             expects_use: phase != WorkloadPhase::Other,
+            grows_into_estimate: false,
             memory_architecture: MemoryArchitecture::Dedicated,
             device_ids: vec!["GPU-0".to_owned()],
             estimate: Estimate {

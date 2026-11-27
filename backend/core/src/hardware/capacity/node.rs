@@ -507,6 +507,7 @@ mod tests {
         };
         let not_applicable = Workload {
             expects_use: false,
+            grows_into_estimate: false,
             ..unread.clone()
         };
         let not_applicable = Workload {
@@ -695,6 +696,7 @@ mod tests {
             key,
             phase: WorkloadPhase::Ready,
             expects_use: true,
+            grows_into_estimate: false,
             memory_architecture: Dedicated,
             device_ids: vec![gpu.to_owned()],
             estimate,

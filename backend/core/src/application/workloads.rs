@@ -95,6 +95,7 @@ pub(crate) fn node_workloads(
                 memory_architecture,
                 device_ids,
                 estimate: Estimate::default(),
+                grows_into_estimate: false,
                 attributed: attributed.filter(|attributed| !attributed.is_empty()),
             });
     }

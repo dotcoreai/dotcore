@@ -95,6 +95,13 @@ pub(crate) trait EngineDefinition: Send + Sync {
         false
     }
 
+    /// Whether the engine's deployments keep growing into their memory estimate after they are
+    /// ready, rather than holding it once loaded, so capacity keeps claiming the part of the
+    /// estimate a running deployment hasn't reached yet.
+    fn grows_into_estimate_after_ready(&self) -> bool {
+        false
+    }
+
     /// Selects the concrete engine state and artifacts for a configuration's option values.
     fn realize_model(
         &self,
