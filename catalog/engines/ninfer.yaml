@@ -1,9 +1,9 @@
 # ninfer image built from the pinned source of `engines/ninfer/docker-image.nix`, loaded from its
 # stored image or built locally on the hosting node. ninfer compiles only for
 # the GB202 chip (sm_120a) of the RTX 5090 and RTX PRO 6000.
-engineReleaseId: "ninfer-13ebb92"
+engineReleaseId: "ninfer-40dec5f"
 engineKind: "ENGINE_KIND_NINFER"
-version: "13ebb92"
+version: "40dec5f"
 parameterSchema:
   schemaId: "ninfer-v3"
   parameterGroups:
@@ -38,11 +38,10 @@ parameterSchema:
       displayName: "Parallel requests"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "Requests generated at once; more wait in a queue, and new ones are refused when the queue is full. The total context grows with them unless you set it, so each added request uses more accelerator memory; raise it only when several callers use the model together."
-      # `--max-concurrency` takes 1 to `kMaximumConcurrency` (`include/ninfer/types.h`,
-      # `src/product/config/schema.cpp`).
+      # `--max-concurrency` takes any positive uint32; startup rejects a capacity that doesn't fit
+      # (`Field::MaxConcurrency`, `src/product/config/schema.cpp`; `docs/startup-configuration.md`).
       unsignedInteger:
         minimum: "1"
-        maximum: "8"
         unit: "requests"
         defaultValue: "4"
     - parameterId: "host-context-mib"

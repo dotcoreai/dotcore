@@ -43,8 +43,10 @@
    missing.
 3. Launch the profile with `just dev::workload-launch` and the custom argument token
    `--log-level=debug`, and read its startup `context` lines with `dotc dev workload logs`: the
-   block size must equal the configuration's state record size, and the token estimate must cover
-   the total context.
+   block size must equal the configuration's state record size. The `KV ~` token count is
+   ninfer's own estimate and can read below the total context with short contexts per request, so
+   check capacity under load instead: every parallel request at its full context at once must run
+   together without pausing.
 4. `just backend::test-nvidia-5090` on an RTX 5090 that no other workload uses (from the root)
    deploys the engine from the workspace's development source through its loader and serves the
    profile. It needs the profile's `.ninfer` artifact in the shared cache and about 32 GB of free

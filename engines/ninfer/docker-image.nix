@@ -7,8 +7,8 @@
     context = fetchFromGitHub {
       owner = "Neroued";
       repo = "ninfer";
-      rev = "13ebb92f6f1d56b676e5300cb19555b2ba24053a";
-      hash = "sha256-4g9EAShDAtAI41n638oZyXZPblgYodX5u7l3MflGhKo=";
+      rev = "40dec5ff312809d162cbe41dd5682e054e0bcc00";
+      hash = "sha256-jtcZARoSaaHd0UZtPcrIxCxlAUlKggRaFhPbuqXs60E=";
     };
     # Compiled only for the GB202 chip (sm_120a) of the RTX 5090 and RTX PRO 6000.
     platforms = [ "linux/amd64" ];
