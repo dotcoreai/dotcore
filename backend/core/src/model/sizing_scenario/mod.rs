@@ -45,6 +45,7 @@ use crate::{
         resolution::{
             ModelLaunchResolutionError, ResolvedLocalModelValues, apply_profile_defaults,
             resolve_local_values_each_class, resolve_local_values_for_target,
+            select_profile_configuration,
         },
     },
 };
@@ -148,8 +149,21 @@ pub(crate) struct ProfileSizing {
     /// is unsupported for the whole profile or can't be applied, or the defaults don't resolve.
     configuration: Option<LocalModelDeploymentConfiguration>,
 
-    /// Declarations the configuration selects; present with the configuration.
-    declarations: Option<CatalogLocalModelDeclarations>,
+    /// Declarations of each profile configuration holding the configuration's binding; present
+    /// with the configuration.
+    declarations: Vec<CatalogLocalModelDeclarations>,
+}
+
+impl ProfileSizing {
+    /// Declarations of the profile configuration the snapshot resolved to.
+    fn declarations_for(
+        &self,
+        snapshot: &ResolvedLocalModelDeploymentSnapshot,
+    ) -> Option<&CatalogLocalModelDeclarations> {
+        self.declarations.iter().find(|declarations| {
+            declarations.configuration.configuration_id == snapshot.configuration_id
+        })
+    }
 }
 
 /// A profile's advisory memory fit on one running target.
@@ -199,8 +213,8 @@ impl MemoryFits {
 }
 
 /// Sizes one profile with its default binding and options under the scenario, or under its
-/// engine parameter defaults without one, once per supported hardware class. When several reasons
-/// make the scenario unsupported, the first in maximum context, parameter range, then derived
+/// engine parameter defaults without one, once per hardware class each of its configurations
+/// supports. When several reasons make the scenario unsupported, the first in maximum context, parameter range, then derived
 /// range order wins; a derived value out of range on some classes marks only those classes. A
 /// scenario the declarations can't take leaves the profile without estimates.
 pub(crate) fn size_profile(
@@ -218,13 +232,14 @@ pub(crate) fn size_profile(
         sizing,
         scenario: scenario.copied(),
         configuration: None,
-        declarations: None,
+        declarations: Vec::new(),
     };
-    let Some((defaults, declarations)) = profile_defaults(catalog, model, profile) else {
+    let Some((defaults, variants)) = profile_defaults(catalog, model, profile) else {
         return unsized_profile(sizing);
     };
+    let shared = &variants[0];
     let configuration = match scenario {
-        Some(scenario) => match with_scenario_values(&declarations, defaults, scenario) {
+        Some(scenario) => match with_scenario_values(shared, defaults, scenario) {
             Some(Ok(configuration)) => configuration,
             Some(Err(reason)) => {
                 sizing.set_unsupported_reason(reason);
@@ -269,7 +284,7 @@ pub(crate) fn size_profile(
         sizing.set_unsupported_reason(SizingScenarioUnsupportedReason::DerivedParameterOutOfRange);
     } else {
         sizing.engine_parameter_values = Some(with_derived_context_values(
-            &declarations,
+            shared,
             configuration
                 .engine_parameter_values
                 .clone()
@@ -283,7 +298,7 @@ pub(crate) fn size_profile(
         sizing,
         scenario: scenario.copied(),
         configuration: Some(configuration),
-        declarations: Some(declarations),
+        declarations: variants,
     }
 }
 
@@ -295,9 +310,9 @@ pub(crate) fn default_context_per_request(
     model: &Model,
     profile: &ModelProfile,
 ) -> Option<u64> {
-    let (defaults, declarations) = profile_defaults(catalog, model, profile)?;
+    let (defaults, variants) = profile_defaults(catalog, model, profile)?;
     let values = with_derived_context_values(
-        &declarations,
+        &variants[0],
         defaults.engine_parameter_values.unwrap_or_default(),
     );
     unsigned_parameter_value(&values, CONTEXT_PER_REQUEST_PARAMETER_ID)
@@ -314,9 +329,9 @@ pub(crate) fn smallest_total_serving(
     profile: &ModelProfile,
     context_tokens_per_request: u64,
 ) -> Option<u64> {
-    let (defaults, declarations) = profile_defaults(catalog, model, profile)?;
+    let (defaults, variants) = profile_defaults(catalog, model, profile)?;
     smallest_serving_total(
-        &declarations,
+        &variants[0],
         &defaults.engine_parameter_values.unwrap_or_default(),
         context_tokens_per_request,
     )
@@ -388,7 +403,7 @@ pub(crate) fn target_memory_fit(
     let base = profile_sizing
         .configuration
         .as_ref()
-        .zip(profile_sizing.declarations.as_ref())
+        .zip(profile_sizing.declarations_for(snapshot))
         .map(|(configuration, declarations)| ContextFitBase {
             model_id: &model_id,
             profile_id: &profile_sizing.sizing.profile_id,
@@ -466,7 +481,7 @@ fn scenario_memory_fit(
         .scenario
         .filter(|scenario| scenario.total_context_tokens().is_none())
         .and_then(|_| {
-            one_request_configuration(profile_sizing.declarations.as_ref()?, configuration)
+            one_request_configuration(profile_sizing.declarations_for(snapshot)?, configuration)
         });
     let model_id = CatalogModelId(profile_sizing.sizing.model_id.clone());
     match resolve_local_values_for_target(
@@ -539,22 +554,22 @@ pub(crate) fn configuration_largest_contexts(
     selected_target: &SelectedTargetCapabilities,
     minimums: Option<&HardwareRequirements>,
 ) -> LargestContexts {
-    let Some(declarations) = catalog
-        .local_model_declarations(
-            model_id,
+    let Some(declarations) = select_profile_configuration(
+        catalog,
+        model_id,
+        profile_id,
+        &configuration.model_artifact_binding_id,
+        selected_target,
+    )
+    .map_err(|error| {
+        debug!(
+            model_id = %model_id.0,
             profile_id,
-            &configuration.model_artifact_binding_id,
-        )
-        .map_err(|error| {
-            debug!(
-                model_id = %model_id.0,
-                profile_id,
-                error = %format!("{:#}", anyhow::Error::new(error)),
-                "configuration declarations don't resolve for the context's largest fit"
-            );
-        })
-        .ok()
-    else {
+            error = %format!("{:#}", anyhow::Error::new(error)),
+            "configuration declarations don't resolve for the context's largest fit"
+        );
+    })
+    .ok() else {
         return LargestContexts::default();
     };
     largest_contexts(
@@ -938,14 +953,16 @@ struct ContextFitBase<'a> {
 }
 
 /// Completes the profile's default configuration with its profile and engine defaults, and reads
-/// the declarations it selects. Returns none, logging why, when either doesn't resolve.
+/// the declarations of each profile configuration holding its binding, never empty. The profile's
+/// configurations share the engine release, maximum context and defaults, so target-independent
+/// sizing reads the first. Returns none, logging why, when either doesn't resolve.
 fn profile_defaults(
     catalog: &Catalog,
     model: &Model,
     profile: &ModelProfile,
 ) -> Option<(
     LocalModelDeploymentConfiguration,
-    CatalogLocalModelDeclarations,
+    Vec<CatalogLocalModelDeclarations>,
 )> {
     let model_id = CatalogModelId(model.model_id.clone());
     let log = |error: anyhow::Error| {

@@ -105,8 +105,27 @@ const PROGRESS_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
 const ROUTER_FAILURE_DIAGNOSTIC_MAX_CHARS: usize = 256;
 const IMAGE_PROMPT: &str = "Identify the dominant color of this image. Reply with one color word.";
 const IMAGE_MAX_COMPLETION_TOKENS: u32 = 256;
+/// Images in the many-image request: Inkling's per-request image cap.
+pub(crate) const MANY_IMAGE_COUNT: usize = 32;
+/// Side of each many-image picture, in pixels. Small, so the 32 MiB router body limit never binds.
+const MANY_IMAGE_SIDE: u32 = 64;
+const MANY_IMAGE_PROMPT: &str =
+    "All of these images show the same color. Identify it. Reply with one color word.";
+/// The router's request body limit that the many-image request must stay under.
+const ROUTER_BODY_LIMIT_BYTES: usize = 32 * 1024 * 1024;
+/// Prompt that makes a drafter's guesses easy to accept: a long, regular answer.
+const DRAFTING_PROMPT: &str =
+    "Count from 1 to 60, separated by single spaces. Reply with only the numbers.";
+const DRAFTING_MAX_COMPLETION_TOKENS: u32 = 512;
+/// Bounds the wait for the engine to account a finished request's drafts in its metrics.
+const DRAFTING_METRICS_TIMEOUT: Duration = Duration::from_secs(30);
+/// Bound on the one drafting answer, which a loaded engine may take a while to generate.
+const DRAFTING_RESPONSE_TIMEOUT: Duration = Duration::from_secs(2 * 60);
+/// Bound on the many-image answer, which the engine takes a while to read and answer.
+const MANY_IMAGE_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+const DRAFTING_METRICS_MAX_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 const RED_JPEG: &str = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/2wBDAQMDAwQDBAgEBAgQCwkLEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBD/wAARCABAAEADAREAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAj/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFgEBAQEAAAAAAAAAAAAAAAAAAAcJ/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AnRDGqYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD//Z";
-const BLUE_PNG: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABAAQMAAACQp+OdAAAAIGNIUk0AAHomAACAhAAA+gAAAIDoAAB1MAAA6mAAADqYAAAXcJy6UTwAAAAGUExURQAA/////3vcmSwAAAABYktHRAH/Ai3eAAAAD0lEQVQoz2NgGAWjgHwAAAJAAAGMxat3AAAAAElFTkSuQmCC";
+pub(crate) const BLUE_PNG: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABAAQMAAACQp+OdAAAAIGNIUk0AAHomAACAhAAA+gAAAIDoAAB1MAAA6mAAADqYAAAXcJy6UTwAAAAGUExURQAA/////3vcmSwAAAABYktHRAH/Ai3eAAAAD0lEQVQoz2NgGAWjgHwAAAJAAAGMxat3AAAAAElFTkSuQmCC";
 const VALID_LLAMA_CPP_CUSTOM_ARGUMENTS: [&str; 2] = ["--reasoning-format", "none"];
 const INVALID_LLAMA_CPP_ARGUMENT: &str = "--dotcore-invalid-llama-argument";
 const STRATA_RTX_5090_QWEN3_6: StrataCase = StrataCase {
@@ -115,13 +134,17 @@ const STRATA_RTX_5090_QWEN3_6: StrataCase = StrataCase {
     minimum_free_bytes: STRATA_RTX_5090_MINIMUM_FREE_BYTES,
     ready_timeout: DEPLOYMENT_TIMEOUT,
     built_pack_path: None,
+    vision: false,
+    dflash: false,
 };
 const STRATA_GB10_QWEN3_6: StrataCase = StrataCase {
     model_id: "qwen3-6-35b-a3b",
-    profile_id: "strata-gb10-q4-xl",
+    profile_id: "strata-q4-xl",
     minimum_free_bytes: STRATA_GB10_MINIMUM_FREE_BYTES,
     ready_timeout: DEPLOYMENT_TIMEOUT,
     built_pack_path: None,
+    vision: false,
+    dflash: false,
 };
 /// The IQ2_XS profile builds its pack under the data storage on first start.
 const STRATA_RTX_5090_QWEN3_8_IQ2_XS: StrataCase = StrataCase {
@@ -130,6 +153,8 @@ const STRATA_RTX_5090_QWEN3_8_IQ2_XS: StrataCase = StrataCase {
     minimum_free_bytes: STRATA_RTX_5090_QWEN3_8_MINIMUM_FREE_BYTES,
     ready_timeout: STRATA_QWEN3_8_READY_TIMEOUT,
     built_pack_path: Some("pack"),
+    vision: false,
+    dflash: false,
 };
 const STRATA_RTX_5090_INKLING_SQ_20: StrataCase = StrataCase {
     model_id: "inkling-2-mini",
@@ -137,13 +162,38 @@ const STRATA_RTX_5090_INKLING_SQ_20: StrataCase = StrataCase {
     minimum_free_bytes: STRATA_RTX_5090_INKLING_MINIMUM_FREE_BYTES,
     ready_timeout: DEPLOYMENT_TIMEOUT,
     built_pack_path: None,
+    vision: false,
+    dflash: true,
+};
+/// Runs with the vision option on and sends images, which catches the upstream server silently
+/// dropping the vision file when the engine reports no image support.
+const STRATA_RTX_5090_INKLING_SQ_10_VISION: StrataCase = StrataCase {
+    model_id: "inkling-2-mini",
+    profile_id: "strata-sq-10",
+    minimum_free_bytes: STRATA_RTX_5090_INKLING_MINIMUM_FREE_BYTES,
+    ready_timeout: DEPLOYMENT_TIMEOUT,
+    built_pack_path: None,
+    vision: true,
+    dflash: true,
+};
+/// The GSQ-RCO IQ3_S build is one GGUF file that the engine reads like a pack.
+const STRATA_RTX_5090_INKLING_IQ3_S: StrataCase = StrataCase {
+    model_id: "inkling-2-mini",
+    profile_id: "strata-iq3-s",
+    minimum_free_bytes: STRATA_RTX_5090_INKLING_IQ3_S_MINIMUM_FREE_BYTES,
+    ready_timeout: DEPLOYMENT_TIMEOUT,
+    built_pack_path: None,
+    vision: false,
+    dflash: true,
 };
 const STRATA_GB10_INKLING_SQ_10: StrataCase = StrataCase {
     model_id: "inkling-2-mini",
-    profile_id: "strata-gb10-sq-10",
+    profile_id: "strata-sq-10",
     minimum_free_bytes: STRATA_GB10_INKLING_MINIMUM_FREE_BYTES,
     ready_timeout: DEPLOYMENT_TIMEOUT,
     built_pack_path: None,
+    vision: false,
+    dflash: true,
 };
 /// Where Strata's deployment-scoped cache storage is mounted in its container.
 const STRATA_DATA_PATH: &str = "/data";
@@ -156,6 +206,8 @@ const STRATA_GB10_MINIMUM_FREE_BYTES: u64 = 48_000_000_000;
 const STRATA_RTX_5090_QWEN3_8_MINIMUM_FREE_BYTES: u64 = 28_000_000_000;
 /// The SQ-20 profile's default total context holds about 26.9 GB of the RTX 5090 at its largest prompt.
 const STRATA_RTX_5090_INKLING_MINIMUM_FREE_BYTES: u64 = 28_000_000_000;
+/// The IQ3_S profile holds its 11.4 GB file, the drafter and its default total context on the RTX 5090.
+const STRATA_RTX_5090_INKLING_IQ3_S_MINIMUM_FREE_BYTES: u64 = 24_000_000_000;
 /// The SQ-10 profile's default total context holds about 17.6 GB of host memory on the GB10 at its
 /// largest prompt, and the host keeps room for the OS.
 const STRATA_GB10_INKLING_MINIMUM_FREE_BYTES: u64 = 24_000_000_000;
@@ -387,7 +439,7 @@ async fn hw_gb10_strata_serves_chat_through_the_router_and_removes_its_storage()
 }
 
 /// Qualifies Inkling 2 Mini SQ-20 on Strata through the router on an RTX 5090: the deployment
-/// reaches Ready, a chat completion answers under the route's model name, and removal deletes the
+/// reaches Ready with DFlash 2 drafting, a chat completion answers under the route's model name, and removal deletes the
 /// deployment's storage.
 #[tokio::test]
 #[ignore = "hardware: just backend::test-nvidia-5090"]
@@ -396,8 +448,29 @@ async fn hw_nvidia5090_strata_inkling_sq_20_serves_chat_through_the_router_and_r
     qualify_strata_site(&STRATA_RTX_5090_INKLING_SQ_20).await
 }
 
+/// Qualifies Inkling 2 Mini IQ3_S on Strata through the router on an RTX 5090: the deployment
+/// reaches Ready with DFlash 2 drafting, a chat completion answers under the route's model name,
+/// and removal deletes the deployment's storage.
+#[tokio::test]
+#[ignore = "hardware: just backend::test-nvidia-5090"]
+async fn hw_nvidia5090_strata_inkling_iq3_s_serves_chat_through_the_router_and_removes_its_storage()
+-> anyhow::Result<()> {
+    qualify_strata_site(&STRATA_RTX_5090_INKLING_IQ3_S).await
+}
+
+/// Qualifies Inkling 2 Mini SQ-10 on Strata with vision on, through the router on an RTX 5090: the
+/// deployment reaches Ready with DFlash 2 drafting, a chat completion answers, Chat and Responses
+/// requests with a red and a blue image name each image's color, and one request with the
+/// per-request cap of small images names their shared color.
+#[tokio::test]
+#[ignore = "hardware: just backend::test-nvidia-5090"]
+async fn hw_nvidia5090_strata_inkling_sq_10_vision_reads_images_through_the_router()
+-> anyhow::Result<()> {
+    qualify_strata_site(&STRATA_RTX_5090_INKLING_SQ_10_VISION).await
+}
+
 /// Qualifies Inkling 2 Mini SQ-10 on Strata through the router on a GB10: the deployment reaches
-/// Ready, a chat completion answers under the route's model name, and removal deletes the
+/// Ready with DFlash 2 drafting, a chat completion answers under the route's model name, and removal deletes the
 /// deployment's storage.
 #[tokio::test]
 #[ignore = "hardware: just backend::test-gb10"]
@@ -545,7 +618,7 @@ fn qualification_case(
     let selected_artifact_id = model
         .configurations
         .iter()
-        .find(|configuration| configuration.configuration_id == profile.configuration_id)
+        .find(|configuration| configuration.configuration_id == local.configuration_id)
         .and_then(|configuration| {
             configuration
                 .artifact_bindings
@@ -1694,7 +1767,19 @@ fn strata_profile_defaults(
             model_artifact_binding_id: profile.default_model_artifact_binding_id,
             engine_parameter_values: profile.engine_parameter_defaults,
             custom_argument_tokens: Vec::new(),
-            option_overrides: Vec::new(),
+            option_overrides: if case.vision {
+                vec![dotcore_proto::dotcore::catalog::v1::ModelOptionValues {
+                    option_id: "vision".to_owned(),
+                    values: vec![dotcore_proto::dotcore::catalog::v1::ModelOptionParameterValue {
+                        parameter_id: "enabled".to_owned(),
+                        value: Some(
+                            dotcore_proto::dotcore::catalog::v1::model_option_parameter_value::Value::Boolean(true),
+                        ),
+                    }],
+                }]
+            } else {
+                Vec::new()
+            },
         },
     )
 }
@@ -1810,6 +1895,9 @@ async fn qualify_strata(
         .http_port
         .context("READY Strata deployment must publish its loopback host port")?;
     assert_exact_alias(engine_port, model_id).await;
+    if case.dflash {
+        assert_strata_drafts_accepted(engine_port, model_id).await;
+    }
 
     // The router needs the backend's state lock back.
     drop(service);
@@ -1830,6 +1918,11 @@ async fn qualify_strata(
         "max_completion_tokens": 4096,
     }))?;
     let response = router_request(router.inference_address, &http_post(&body)).await;
+    if case.vision {
+        // Runs before the router stops; it panics on any answer that ignores the image.
+        assert_router_image_inputs(router.inference_address, model_id).await;
+        assert_router_many_images(router.inference_address, model_id).await;
+    }
     router.stop().await;
     anyhow::ensure!(
         response.starts_with(b"HTTP/1.1 200"),
@@ -1892,6 +1985,10 @@ struct StrataCase {
     minimum_free_bytes: u64,
     ready_timeout: Duration,
     built_pack_path: Option<&'static str>,
+    /// Turns the vision option on and sends image requests.
+    vision: bool,
+    /// Expects DFlash 2 drafting, which the profile has on by default, and accepted drafts.
+    dflash: bool,
 }
 
 async fn assert_router_chat(
@@ -1936,6 +2033,7 @@ async fn assert_router_chat(
         "tool_choice": {"type": "function", "function": {"name": "ready"}},
         "stream": true,
         "stream_options": {"include_usage": true},
+        "temperature": 0,
     }))
     .expect("router tool payload");
     let tool_response = router_request(inference_address, &http_post(&tool)).await;
@@ -2148,6 +2246,219 @@ async fn assert_router_image_inputs(address: std::net::SocketAddr, model_id: &st
     }
 }
 
+/// Sends one conversation with `MANY_IMAGE_COUNT` small images through the router and checks the
+/// answer names their shared color, so the engine read the images and the count passed the router.
+async fn assert_router_many_images(address: std::net::SocketAddr, model_id: &str) {
+    let chat = serde_json::to_vec(&many_image_chat_request(model_id)).expect("many-image payload");
+    assert!(
+        chat.len() < ROUTER_BODY_LIMIT_BYTES,
+        "many-image request is {} bytes, over the router's {ROUTER_BODY_LIMIT_BYTES} byte body limit",
+        chat.len()
+    );
+    eprintln!(
+        "[nvidia-docker] Model={model_id} operation=many images phase=before images={MANY_IMAGE_COUNT} body_bytes={}",
+        chat.len()
+    );
+    let started = Instant::now();
+    let response = bounded_request(address, &http_post(&chat), MANY_IMAGE_RESPONSE_TIMEOUT).await;
+    assert!(
+        response.starts_with(b"HTTP/1.1 200"),
+        "router many-image response: {}",
+        router_failure_diagnostics(&response)
+    );
+    eprintln!(
+        "[nvidia-docker] Model={model_id} operation=many images phase=after state=complete elapsed_ms={}",
+        started.elapsed().as_millis()
+    );
+    assert_image_color(
+        &http_response_json(&response),
+        "/choices/0/message/content",
+        model_id,
+        &format!("PNG x{MANY_IMAGE_COUNT}"),
+        "red",
+        "Chat",
+        &response,
+    );
+}
+
+/// Builds one Chat request whose single user turn holds `MANY_IMAGE_COUNT` distinct red images.
+pub(crate) fn many_image_chat_request(model_id: &str) -> Value {
+    let mut content = vec![serde_json::json!({"type": "text", "text": MANY_IMAGE_PROMPT})];
+    content.extend(many_red_image_urls(MANY_IMAGE_COUNT).into_iter().map(
+        |url| serde_json::json!({"type": "image_url", "image_url": {"url": url, "detail": "auto"}}),
+    ));
+    serde_json::json!({
+        "model": model_id,
+        "messages": [{"role": "user", "content": content}],
+        "max_completion_tokens": IMAGE_MAX_COMPLETION_TOKENS,
+        "temperature": 0,
+    })
+}
+
+/// Solid PNG data URLs that all read as red but differ byte for byte, so an engine's image cache
+/// can't collapse them into one picture.
+fn many_red_image_urls(count: usize) -> Vec<String> {
+    (0..count)
+        .map(|index| {
+            let shade = u8::try_from(index).expect("image index fits a byte");
+            let picture = image::RgbImage::from_pixel(
+                MANY_IMAGE_SIDE,
+                MANY_IMAGE_SIDE,
+                image::Rgb([255 - shade, 0, shade]),
+            );
+            let mut bytes = Vec::new();
+            image::DynamicImage::ImageRgb8(picture)
+                .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png)
+                .expect("encode many-image PNG");
+            format!("data:image/png;base64,{}", STANDARD.encode(bytes))
+        })
+        .collect()
+}
+
+/// Checks a Strata engine runs DFlash 2 and accepts its drafts: one regular, repetitive answer
+/// is generated, then the engine's own metrics must show drafting on, no residency veto note
+/// (the engine's "DFlash 2 not loaded" line) and more accepted draft tokens than before the request.
+async fn assert_strata_drafts_accepted(port: u16, model_id: &str) {
+    let address = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let body = serde_json::to_vec(&serde_json::json!({
+        "model": model_id,
+        "messages": [{"role": "user", "content": DRAFTING_PROMPT}],
+        "temperature": 0,
+        "max_completion_tokens": DRAFTING_MAX_COMPLETION_TOKENS,
+    }))
+    .expect("drafting payload");
+    // The engine refuses host names other than its own address (its DNS rebinding protection).
+    let mut request = format!(
+        "POST /v1/chat/completions HTTP/1.1\r\nHost: {address}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    )
+    .into_bytes();
+    request.extend_from_slice(&body);
+    let accepted_before = drafts_accepted(&strata_metrics(address).await);
+    let response = bounded_request(address, &request, DRAFTING_RESPONSE_TIMEOUT).await;
+    assert!(
+        response.starts_with(b"HTTP/1.1 200") || response.starts_with(b"HTTP/1.0 200"),
+        "drafting request failed: {}",
+        router_failure_diagnostics(&response)
+    );
+
+    // The engine accounts a finished request's drafts just after answering, so wait on the counter.
+    let deadline = Instant::now() + DRAFTING_METRICS_TIMEOUT;
+    loop {
+        let last = strata_metrics(address).await;
+        let drafting = last.pointer("/engine/drafting").and_then(Value::as_str);
+        let note = last
+            .pointer("/engine/drafting_note")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        assert!(
+            !note.contains("DFlash 2 not loaded"),
+            "engine dropped the DFlash 2 drafter: {note}"
+        );
+        assert_eq!(
+            drafting,
+            Some("dflash2"),
+            "engine is not drafting with DFlash 2: note={note:?}"
+        );
+        let accepted = drafts_accepted(&last);
+        if accepted > accepted_before {
+            eprintln!(
+                "[nvidia-docker] Model={model_id} operation=drafting phase=after state=accepted drafts_accepted_before={accepted_before} drafts_accepted={accepted} drafts_offered={}",
+                last.pointer("/totals/drafts_offered")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0)
+            );
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "engine accepted no DFlash 2 drafts within {DRAFTING_METRICS_TIMEOUT:?}: totals={}",
+            last.pointer("/totals").unwrap_or(&Value::Null)
+        );
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
+/// The cumulative count of draft tokens the engine accepted, from its metrics.
+fn drafts_accepted(metrics: &Value) -> u64 {
+    metrics
+        .pointer("/totals/drafts_accepted")
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+}
+
+/// Reads the Strata server's JSON metrics: its engine state and the totals of every request.
+async fn strata_metrics(address: std::net::SocketAddr) -> Value {
+    let request = format!(
+        "GET /metrics HTTP/1.1\r\nHost: {address}\r\nAccept: application/json\r\nConnection: close\r\n\r\n"
+    );
+    let request = request.as_bytes();
+    let mut stream = tokio::time::timeout(MODEL_PROBE_CONNECT_TIMEOUT, TcpStream::connect(address))
+        .await
+        .expect("metrics connection timeout")
+        .expect("metrics connection");
+    let response = tokio::time::timeout(MODEL_PROBE_RESPONSE_TIMEOUT, async {
+        stream.write_all(request).await.expect("metrics request");
+        let mut response = Vec::new();
+        let mut chunk = [0; 8192];
+        loop {
+            let read = stream.read(&mut chunk).await.expect("metrics response");
+            if read == 0 {
+                return response;
+            }
+            assert!(
+                response.len() + read <= DRAFTING_METRICS_MAX_RESPONSE_BYTES,
+                "metrics response exceeds {DRAFTING_METRICS_MAX_RESPONSE_BYTES} bytes"
+            );
+            response.extend_from_slice(&chunk[..read]);
+        }
+    })
+    .await
+    .expect("metrics response timeout");
+    assert!(
+        response.starts_with(b"HTTP/1.1 200") || response.starts_with(b"HTTP/1.0 200"),
+        "metrics request failed: {}",
+        router_failure_diagnostics(&response)
+    );
+    http_response_json(&response)
+}
+
+#[test]
+fn many_image_request_holds_distinct_small_red_images_under_the_body_limit() {
+    let request = many_image_chat_request("model");
+    let parts = request
+        .pointer("/messages/0/content")
+        .and_then(Value::as_array)
+        .expect("content parts");
+    assert_eq!(parts.len(), MANY_IMAGE_COUNT + 1);
+    let urls: Vec<&str> = parts[1..]
+        .iter()
+        .map(|part| {
+            part.pointer("/image_url/url")
+                .and_then(Value::as_str)
+                .expect("image url")
+        })
+        .collect();
+    assert_eq!(
+        urls.iter().collect::<std::collections::BTreeSet<_>>().len(),
+        MANY_IMAGE_COUNT
+    );
+    for (index, url) in urls.iter().enumerate() {
+        let (_, encoded) = url.split_once(',').expect("data URL");
+        let picture = image::ImageReader::with_format(
+            Cursor::new(STANDARD.decode(encoded).expect("Base64")),
+            image::ImageFormat::Png,
+        )
+        .decode()
+        .expect("valid PNG")
+        .to_rgb8();
+        assert_eq!(picture.dimensions(), (MANY_IMAGE_SIDE, MANY_IMAGE_SIDE));
+        let shade = u8::try_from(index).expect("byte");
+        assert_eq!(picture.get_pixel(0, 0).0, [255 - shade, 0, shade]);
+    }
+    assert!(serde_json::to_vec(&request).expect("request bytes").len() < ROUTER_BODY_LIMIT_BYTES);
+}
+
 #[test]
 fn image_fixtures_are_canonical_and_valid() {
     assert_image_fixture(
@@ -2267,6 +2578,30 @@ fn bounded_completion_usage(value: Option<&Value>) -> String {
         }
         _ => bounded_completion_value(value),
     }
+}
+
+/// Sends one raw HTTP request and reads the whole response, failing when the connection or the
+/// answer takes longer than `response_timeout`.
+async fn bounded_request(
+    address: std::net::SocketAddr,
+    request: &[u8],
+    response_timeout: Duration,
+) -> Vec<u8> {
+    let mut stream = tokio::time::timeout(MODEL_PROBE_CONNECT_TIMEOUT, TcpStream::connect(address))
+        .await
+        .expect("request connection timeout")
+        .expect("request connection");
+    tokio::time::timeout(response_timeout, async {
+        stream.write_all(request).await.expect("request write");
+        let mut response = Vec::new();
+        stream
+            .read_to_end(&mut response)
+            .await
+            .expect("request response");
+        response
+    })
+    .await
+    .expect("request response timeout")
 }
 
 async fn router_request(address: std::net::SocketAddr, request: &[u8]) -> Vec<u8> {

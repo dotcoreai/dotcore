@@ -87,7 +87,14 @@ option effects itself.
 - Option kinds may fix engine-neutral parameter shapes and constraints across options. Engine
   adapters own their effects.
 - Selectors that overlap without strict nesting are rejected, among one configuration's approved
-  engine artifacts and among its supported hardware classes.
+  engine artifacts and among its supported hardware classes, and among the supported hardware
+  classes of all the configurations one profile names, which never share a class.
+- The configurations one profile names share their engine release, request kinds, input
+  modalities, maximum context, execution capabilities, and option schemas and defaults; only how
+  the engine realizes an option may differ. The profile's defaults over each configuration's
+  engine defaults must be identical, so a configuration may exclude only parameters that neither
+  carries a default. The profile's default binding exists in every one, and a binding they share
+  names the same artifacts.
 - Engine releases that share a parameter schema identity must declare identical parameter
   definitions.
 - A configuration may not approve artifacts from releases of different engines or different
@@ -134,14 +141,20 @@ option effects itself.
 
 ### Model profile
 
-A preset of defaults and parameter visibility overrides for one engine configuration.
+A preset of defaults and parameter visibility overrides for one or more engine configurations of
+one model.
 
 - Supplies defaults, never ongoing deployment authority.
 - Supplies no default for total context or context per request.
-- May override the default and the visibility of its configuration's engine parameters. It may hide total
-  context, context per request and parallel requests, never make them advanced.
+- May override the default and the visibility of its configurations' engine parameters, naming
+  only parameters every one of them keeps. It may hide total context, context per request and
+  parallel requests, never make them advanced.
 - Carries no platform. The hardware class follows from the exact placement, so one profile serves
-  every hardware class its configuration supports.
+  every hardware class its configurations support.
+- Names several configurations when one launch recipe needs a different build or setting per kind
+  of hardware. They are variants of one recipe, and resolution picks one per target
+  ([models](models.md#resolving-a-deployment)). Its defaults are the same on every target; only
+  the configuration picked changes.
 
 ### Engine release
 

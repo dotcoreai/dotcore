@@ -44,7 +44,7 @@ use crate::{
         engine::{EngineIntegrationRegistry, engine_artifact_kinds},
         resolution::{
             ModelLaunchResolutionError, apply_profile_defaults,
-            resolve_local_launch_on_selected_target,
+            resolve_local_launch_on_selected_target, select_profile_configuration,
         },
         selection::{EngineArtifactSelectionError, engine_artifact_kind},
         sizing_scenario::{
@@ -90,11 +90,18 @@ pub(crate) fn evaluate_profile_compatibility(
                 };
                 let evaluation =
                     evaluate_profile(catalog, &registry, &request, checked.target, selected);
+                let configuration_id = match &evaluation {
+                    ProfileEvaluation::Runs(running) => running.configuration_id.clone(),
+                    ProfileEvaluation::Fails(_) => {
+                        picked_configuration_id(catalog, &model_id, profile, selected)
+                    }
+                };
                 response.entries.push(profile_compatibility(
                     &model_id,
                     profile,
                     checked.target,
                     evaluation,
+                    configuration_id,
                 ));
             }
             response.profiles.push(sizing.sizing);
@@ -201,6 +208,9 @@ pub(crate) enum ProfileEvaluation {
 pub(crate) struct RunningProfile {
     pub(crate) advisories: Vec<LocalModelDeploymentAdvisory>,
 
+    /// Profile configuration the launch resolved to.
+    pub(crate) configuration_id: String,
+
     /// Hardware class the launch resolved to.
     pub(crate) hardware_class_id: String,
 
@@ -278,6 +288,7 @@ pub(crate) fn evaluate_profile(
     let fit = target_memory_fit(catalog, sizing, &snapshot, selected, extra_minimums);
     ProfileEvaluation::Runs(RunningProfile {
         advisories,
+        configuration_id: snapshot.configuration_id.clone(),
         hardware_class_id: snapshot
             .hardware_support
             .map(|support| support.hardware_class_id)
@@ -416,17 +427,20 @@ fn target_compatibility(checked: &CheckedTarget<'_>) -> TargetCompatibility {
     }
 }
 
-/// The compatibility read's entry for one profile's evaluation on one target.
+/// The compatibility read's entry for one profile's evaluation on one target, naming the profile
+/// configuration picked there, if any.
 fn profile_compatibility(
     model_id: &CatalogModelId,
     profile: &ModelProfile,
     target: &ExecutionTarget,
     evaluation: ProfileEvaluation,
+    configuration_id: String,
 ) -> ModelProfileCompatibility {
     let mut entry = ModelProfileCompatibility {
         model_id: model_id.0.clone(),
         profile_id: profile.profile_id.clone(),
         target: Some(placement(target)),
+        configuration_id,
         ..Default::default()
     };
     match evaluation {
@@ -464,6 +478,25 @@ fn profile_compatibility(
         }
     }
     entry
+}
+
+/// The configuration of the profile its default binding picks on the target, even when the
+/// profile then can't run there; empty when none matches.
+fn picked_configuration_id(
+    catalog: &Catalog,
+    model_id: &CatalogModelId,
+    profile: &ModelProfile,
+    selected: &SelectedTargetCapabilities,
+) -> String {
+    select_profile_configuration(
+        catalog,
+        model_id,
+        &profile.profile_id,
+        &profile.default_model_artifact_binding_id,
+        selected,
+    )
+    .map(|declarations| declarations.configuration.configuration_id)
+    .unwrap_or_default()
 }
 
 /// Maps a resolution failure of one profile on one target to its status and typed reason.
@@ -586,15 +619,16 @@ fn target_failure(
     }
 }
 
-/// Returns the distinct selectors of the profile's approved engine artifacts whose kind both the
-/// engine and the target's runtime can launch, in catalog order.
+/// Returns the distinct selectors of the approved engine artifacts of the profile's
+/// configurations whose kind both the engine and the target's runtime can launch, in catalog
+/// order.
 fn supported_selectors(
     catalog: &Catalog,
     model_id: &CatalogModelId,
     profile: &ModelProfile,
     target: &ExecutionTarget,
 ) -> Vec<Selector> {
-    let Ok(declarations) = catalog.local_model_declarations(
+    let Ok(variants) = catalog.local_model_declarations(
         model_id,
         &profile.profile_id,
         &profile.default_model_artifact_binding_id,
@@ -602,21 +636,23 @@ fn supported_selectors(
         return Vec::new();
     };
     let runtime_kinds = WorkloadArtifactKind::realizable_by(target);
-    let engine_kinds = engine_artifact_kinds(declarations.engine_kind);
     let mut selectors = Vec::new();
-    for artifact in declarations
-        .approved_engine_artifacts
-        .iter()
-        .map(|approved| &approved.artifact)
-    {
-        if !engine_artifact_kind(artifact)
-            .is_some_and(|kind| runtime_kinds.contains(&kind) && engine_kinds.contains(&kind))
+    for declarations in &variants {
+        let engine_kinds = engine_artifact_kinds(declarations.engine_kind);
+        for artifact in declarations
+            .approved_engine_artifacts
+            .iter()
+            .map(|approved| &approved.artifact)
         {
-            continue;
-        }
-        for selector in &artifact.selectors {
-            if !selectors.contains(selector) {
-                selectors.push(selector.clone());
+            if !engine_artifact_kind(artifact)
+                .is_some_and(|kind| runtime_kinds.contains(&kind) && engine_kinds.contains(&kind))
+            {
+                continue;
+            }
+            for selector in &artifact.selectors {
+                if !selectors.contains(selector) {
+                    selectors.push(selector.clone());
+                }
             }
         }
     }
@@ -873,7 +909,7 @@ mod tests {
                 )
                 .replace(
                     "profiles:\n",
-                    "profiles:\n  - profileId: \"second\"\n    displayName: \"Second\"\n    configurationId: \"fixture-configuration\"\n    defaultModelArtifactBindingId: \"fixture-artifact\"\n    engineParameterDefaults: { values: [{ parameterId: \"prompt-cache-memory-mib\", unsignedInteger: \"2048\" }] }\n",
+                    "profiles:\n  - profileId: \"second\"\n    displayName: \"Second\"\n    configurationIds: [\"fixture-configuration\"]\n    defaultModelArtifactBindingId: \"fixture-artifact\"\n    engineParameterDefaults: { values: [{ parameterId: \"prompt-cache-memory-mib\", unsignedInteger: \"2048\" }] }\n",
                 )
         });
         let now = SystemTime::now();
@@ -911,6 +947,7 @@ mod tests {
                 status: ModelCompatibilityStatus::Runs as i32,
                 reason: None,
                 advisories,
+                configuration_id: "fixture-configuration".to_owned(),
                 hardware_class_id: "fixture-nvidia".to_owned(),
                 // The 64 GB per-device minimum is above both targets' memory.
                 memory_fit: MemoryFit::Exceeds as i32,
@@ -1199,23 +1236,27 @@ mod tests {
             &Default::default(),
         );
 
+        // A configuration is picked when only the launch, not the pick, fails.
         let cannot_run =
-            |profile: &str, target: &ExecutionTarget, reason| ModelProfileCompatibility {
-                model_id: "fixture-model".to_owned(),
-                profile_id: profile.to_owned(),
-                target: Some(placement(target)),
-                status: ModelCompatibilityStatus::CannotRun as i32,
-                reason: Some(reason),
-                advisories: Vec::new(),
-                hardware_class_id: String::new(),
-                memory_fit: MemoryFit::Unspecified as i32,
-                free_memory_fit: MemoryFit::Unspecified as i32,
-                unsupported_reason: SizingScenarioUnsupportedReason::Unspecified as i32,
-                largest_context_tokens_per_request: None,
-                starting_context_tokens_per_request: None,
-                largest_total_context_tokens: None,
-                starting_total_context_tokens: None,
-                starting_total_context_source: StartingTotalContextSource::Unspecified as i32,
+            |profile: &str, target: &ExecutionTarget, configuration_id: &str, reason| {
+                ModelProfileCompatibility {
+                    model_id: "fixture-model".to_owned(),
+                    profile_id: profile.to_owned(),
+                    target: Some(placement(target)),
+                    status: ModelCompatibilityStatus::CannotRun as i32,
+                    reason: Some(reason),
+                    advisories: Vec::new(),
+                    configuration_id: configuration_id.to_owned(),
+                    hardware_class_id: String::new(),
+                    memory_fit: MemoryFit::Unspecified as i32,
+                    free_memory_fit: MemoryFit::Unspecified as i32,
+                    unsupported_reason: SizingScenarioUnsupportedReason::Unspecified as i32,
+                    largest_context_tokens_per_request: None,
+                    starting_context_tokens_per_request: None,
+                    largest_total_context_tokens: None,
+                    starting_total_context_tokens: None,
+                    starting_total_context_source: StartingTotalContextSource::Unspecified as i32,
+                }
             };
         let linux_nvidia = |architecture: &str| Selector {
             platform: Some(oci("linux", architecture)),
@@ -1229,6 +1270,7 @@ mod tests {
                 cannot_run(
                     "fixture-profile",
                     &apple,
+                    "",
                     ModelCompatibilityReason {
                         supported_selectors: vec![linux_nvidia("amd64"), linux_nvidia("arm64")],
                         ..reason(ModelCompatibilityReasonCode::NoMatchingEngineArtifact)
@@ -1237,6 +1279,7 @@ mod tests {
                 cannot_run(
                     "fixture-profile",
                     &old_driver,
+                    "",
                     ModelCompatibilityReason {
                         minimum_nvidia_driver_major_version: 580,
                         observed_nvidia_driver_major_version: 570,
@@ -1246,11 +1289,13 @@ mod tests {
                 cannot_run(
                     "fixture-profile",
                     &native,
+                    "",
                     reason(ModelCompatibilityReasonCode::NoMatchingEngineArtifact)
                 ),
                 cannot_run(
                     "fixture-profile",
                     &two_devices,
+                    "fixture-configuration",
                     ModelCompatibilityReason {
                         accelerator_device_count: 2,
                         required_accelerator_device_count: 1,
@@ -1260,6 +1305,7 @@ mod tests {
                 cannot_run(
                     "fixture-profile",
                     &no_devices,
+                    "fixture-configuration",
                     ModelCompatibilityReason {
                         accelerator_device_count: 0,
                         required_accelerator_device_count: 1,
@@ -1411,6 +1457,121 @@ mod tests {
                     Some(placement(&arm64)),
                     ModelCompatibilityStatus::Runs as i32,
                     None,
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn entries_name_the_profile_configuration_each_target_picks() {
+        let root = catalog_root(|model| {
+            let start = model
+                .find("  - configurationId: \"fixture-configuration\"")
+                .expect("fixture configuration");
+            let end = model.find("profiles:\n").expect("profiles");
+            let arm64 = model[start..end]
+                .replace(
+                    "configurationId: \"fixture-configuration\"",
+                    "configurationId: \"fixture-arm64\"",
+                )
+                .replace(
+                    r#"hardwareClassId: "fixture-nvidia""#,
+                    r#"hardwareClassId: "fixture-nvidia-arm64""#,
+                );
+            format!("{}{arm64}{}", &model[..end], &model[end..]).replace(
+                r#"configurationIds: ["fixture-configuration"]"#,
+                r#"configurationIds: ["fixture-configuration", "fixture-arm64"]"#,
+            )
+        });
+        fs::write(
+            root.path()
+                .join("hardware-classes/fixture-nvidia-arm64.yaml"),
+            "hardwareClassId: \"fixture-nvidia-arm64\"\ndisplayName: \"Fixture NVIDIA arm64\"\nselector:\n  platform: { operatingSystem: \"linux\", architecture: \"arm64\" }\n  accelerators: [\"nvidia\"]\n",
+        )
+        .expect("narrow hardware class");
+        let catalog = load_catalog(&root);
+        let now = SystemTime::now();
+        let amd64 = docker_target("amd64", "node-a", ExecutionPlatform::linux_amd64(), 1);
+        let arm64 = docker_target("arm64", "node-b", ExecutionPlatform::linux_arm64(), 1);
+        let two_devices =
+            docker_target("two-devices", "node-c", ExecutionPlatform::linux_arm64(), 2);
+        let mac = docker_target("mac", "node-d", ExecutionPlatform::linux_arm64(), 1);
+        let mut inventory = observed(
+            &amd64,
+            ExecutionPlatform::linux_amd64(),
+            nvidia(&amd64, "580.173.02", now),
+            now,
+        );
+        for target in [&arm64, &two_devices] {
+            inventory.extend(observed(
+                target,
+                ExecutionPlatform::linux_arm64(),
+                nvidia(target, "580.173.02", now),
+                now,
+            ));
+        }
+        inventory.extend(observed(
+            &mac,
+            ExecutionPlatform::linux_arm64(),
+            NodeAcceleratorObservation::available_at(
+                &mac.site_node_id,
+                NodeAcceleratorFacts::apple(),
+                now,
+            ),
+            now,
+        ));
+
+        let response = evaluate_profile_compatibility(
+            &catalog,
+            &catalog.list_model_releases(),
+            &[
+                amd64.clone(),
+                arm64.clone(),
+                two_devices.clone(),
+                mac.clone(),
+            ],
+            None,
+            Some(&inventory),
+            &Default::default(),
+        );
+
+        // Both configurations run on arm64, where the narrower class wins; a launch failing after
+        // the pick still names it, and a target no configuration matches names none.
+        assert_eq!(
+            response
+                .entries
+                .iter()
+                .map(|entry| (
+                    entry.target.clone(),
+                    entry.status,
+                    entry.configuration_id.as_str(),
+                    entry.hardware_class_id.as_str(),
+                ))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    Some(placement(&amd64)),
+                    ModelCompatibilityStatus::Runs as i32,
+                    "fixture-configuration",
+                    "fixture-nvidia",
+                ),
+                (
+                    Some(placement(&arm64)),
+                    ModelCompatibilityStatus::Runs as i32,
+                    "fixture-arm64",
+                    "fixture-nvidia-arm64",
+                ),
+                (
+                    Some(placement(&two_devices)),
+                    ModelCompatibilityStatus::CannotRun as i32,
+                    "fixture-arm64",
+                    "",
+                ),
+                (
+                    Some(placement(&mac)),
+                    ModelCompatibilityStatus::CannotRun as i32,
+                    "",
+                    "",
                 ),
             ]
         );

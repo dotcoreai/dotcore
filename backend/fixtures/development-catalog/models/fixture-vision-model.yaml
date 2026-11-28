@@ -100,7 +100,7 @@ profiles:
   - profileId: "fixture-profile"
     displayName: "Fixture profile"
     description: "Enables vision on top of the configuration defaults."
-    configurationId: "fixture-configuration"
+    configurationIds: ["fixture-configuration"]
     defaultModelArtifactBindingId: "fixture-artifact"
     engineParameterDefaults:
       values:

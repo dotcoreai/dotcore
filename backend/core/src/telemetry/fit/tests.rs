@@ -1571,7 +1571,7 @@ configurations:
               boolean: false
 profiles:
   - profileId: "balanced"
-    configurationId: "local"
+    configurationIds: ["local"]
     defaultModelArtifactBindingId: "sized"
     engineParameterDefaults:
       values:

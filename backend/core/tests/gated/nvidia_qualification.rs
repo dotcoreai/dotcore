@@ -1090,7 +1090,7 @@ fn execution_platform_from_docker_info(
     )
 }
 
-/// Returns the skip reason for a profile whose engine release approves no NVIDIA artifact for
+/// Returns the skip reason for a profile whose configurations approve no NVIDIA artifact for
 /// `platform`.
 fn unsupported_platform_reason(
     catalog: &Catalog,
@@ -1111,21 +1111,26 @@ fn unsupported_platform_reason(
         })
         .map(|profile| profile.default_model_artifact_binding_id.clone())
         .with_context(|| format!("Catalog has no profile {model_id}/{profile_id}"))?;
-    let declarations = catalog
+    let variants = catalog
         .local_model_declarations(
             &CatalogModelId(model_id.to_owned()),
             profile_id,
             &binding_id,
         )
         .with_context(|| format!("read catalog declarations of {model_id}/{profile_id}"))?;
-    let artifacts = declarations
-        .approved_engine_artifacts
-        .iter()
-        .map(|approved| &approved.artifact);
+    let artifacts = variants.iter().flat_map(|declarations| {
+        declarations
+            .approved_engine_artifacts
+            .iter()
+            .map(|approved| &approved.artifact)
+    });
     Ok((!nvidia_artifact_supports(artifacts, platform)).then(|| {
         format!(
-            "configuration {} approves no NVIDIA artifact for {platform}",
-            declarations.configuration.configuration_id
+            "configurations {:?} approve no NVIDIA artifact for {platform}",
+            variants
+                .iter()
+                .map(|declarations| declarations.configuration.configuration_id.as_str())
+                .collect::<Vec<_>>()
         )
     }))
 }

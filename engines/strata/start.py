@@ -8,8 +8,9 @@ with Strata's server, so the container's init supervises the server directly.
 It serves three engine paths. On Strata's main engine, a single GGUF is read in place and drafts with
 its own MTP head, and a model with a separate draft layer runs from a pack: split GGUF shards are
 packed on first start, keeping their experts in the GGUF, while a ready-made pack is used as it is.
-With an Inkling pack, Strata's Inkling engine reads the pack file in place and drafts with the drafter
-inside it; it places the experts itself, so the main engine's options don't apply.
+With an Inkling model file, a ready-made pack or a GGUF, Strata's Inkling engine reads it in place,
+with the tokenizer built from a separate folder and, when given, the separate DFlash 2 drafter; it
+places the experts itself, so the main engine's options don't apply.
 """
 
 import argparse
@@ -30,14 +31,21 @@ MIB = 1024 * 1024
 FIRST_SHARD = re.compile(r".+-00001-of-\d{5}\.gguf")
 READY_PACK_OPTIONS = ("pack", "dense_gguf", "lookup_table_gguf", "token_embedding_gguf")
 MAIN_ENGINE_OPTIONS = ("draft_layer", "arch", "mtp", "expert_vram_mib", "expert_host_memory_mib", "unified_memory", *READY_PACK_OPTIONS)
+INKLING_OPTIONS = ("tokenizer", "kv", "vision", "dflash")
+INKLING_SUFFIXES = (".strata", ".gguf")
 INKLING_TOKENIZER_FILES = ("tokenizer.json", "chat_template.jinja")
+# The variable upstream's server and engine read the DFlash 2 drafter's path from; without it they
+# look beside the model file, which a Hugging Face snapshot doesn't hold.
+DFLASH_ENVIRONMENT = "STRATA_INK_DFLASH2"
+# KV cache types of the Inkling engine Dotcore offers; the engine's others switch its attention backend.
+INKLING_KV_TYPES = ("fp16", "fp8")
 
 
 def main() -> None:
     args = parse_args()
-    if args.inkling_pack is not None:
-        pack, tokenizer = inkling_pack_files(args)
-        engine_args = inkling_engine_args(args, pack)
+    if args.inkling is not None:
+        model, tokenizer = inkling_files(args)
+        engine_args = inkling_engine_args(args, model)
     elif args.draft_layer is None:
         tokenizer = prepare_tokenizer(
             f"{args.model.name} {args.model.stat().st_size}",
@@ -53,6 +61,11 @@ def main() -> None:
     # An empty key in the environment makes the server refuse to start, and any other value would
     # turn a key on: the deployment is keyless, so none reaches it.
     os.environ.pop("STRATA_API_KEY", None)
+    # The server checks the drafter's file in its own environment before it asks the engine for it.
+    if args.dflash is not None:
+        os.environ[DFLASH_ENVIRONMENT] = str(args.dflash)
+    else:
+        os.environ.pop(DFLASH_ENVIRONMENT, None)
     server = [
         sys.executable,
         str(TERMINAL / "serve" / "server.py"),
@@ -68,8 +81,9 @@ def main() -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Start Strata's server for one model, without an API key.")
-    parser.add_argument("--model", type=Path, required=True, help="the model's GGUF file, or with --draft-layer or --inkling-pack the folder holding the model's files")
-    parser.add_argument("--inkling-pack", help="the Inkling pack file within --model, with tokenizer.json and chat_template.jinja beside it; runs Strata's Inkling engine, which takes none of the main engine's draft layer, pack, --arch, --mtp, --unified-memory or expert options")
+    parser.add_argument("--model", type=Path, required=True, help="the model's GGUF file, or with --draft-layer or --inkling the folder holding the model's files")
+    parser.add_argument("--inkling", help="the Inkling model file within --model, a .strata pack or a .gguf; runs Strata's Inkling engine, which takes none of the main engine's draft layer, pack, --arch, --mtp, --unified-memory or expert options")
+    parser.add_argument("--tokenizer", type=Path, help="with --inkling, the folder holding the model's tokenizer.json and chat_template.jinja")
     parser.add_argument("--draft-layer", type=Path, help="the folder holding the model's separate MTP draft layer; runs the model from a pack")
     parser.add_argument("--pack", help="with --draft-layer, the ready-made pack's folder within --model; without it, the GGUF shards in --model are packed")
     parser.add_argument("--dense-gguf", help="with --pack, the GGUF within --model holding the dense weights")
@@ -77,26 +91,39 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--token-embedding-gguf", help="with --pack, the GGUF within --model holding the token embedding")
     parser.add_argument("--unified-memory", action="store_true", help="with --draft-layer, the GPU shares the host's memory")
     parser.add_argument("--model-name", required=True, help="the model name the API reports")
-    parser.add_argument("--arch", help="the model's architecture, as its GGUF names it; needed without --inkling-pack")
-    parser.add_argument("--mtp", type=int, help=f"tokens drafted per step with the model's MTP layer, 1 to {MAX_MTP}; needed without --inkling-pack")
+    parser.add_argument("--arch", help="the model's architecture, as its GGUF names it; needed without --inkling")
+    parser.add_argument("--mtp", type=int, help=f"tokens drafted per step with the model's MTP layer, 1 to {MAX_MTP}; needed without --inkling")
     parser.add_argument("--context", type=int, required=True, help="tokens of context per request")
     parser.add_argument("--parallel", type=int, default=1, help=f"requests served at once, 1 to {MAX_PARALLEL}")
     parser.add_argument("--expert-vram-mib", type=int, help="MiB of GPU memory for the model's experts; the rest stay in host memory")
     parser.add_argument("--expert-host-memory-mib", type=int, help="with --draft-layer, MiB of host memory pinned for the experts the GPU doesn't hold; the rest are read from the model's files, all of them with 0")
+    parser.add_argument("--kv", choices=INKLING_KV_TYPES, help=f"with --inkling, the KV cache type; {INKLING_KV_TYPES[0]} when unset")
+    parser.add_argument("--vision", type=Path, help="with --inkling, the vision file that lets requests include images")
+    parser.add_argument("--dflash", type=Path, help="with --inkling, the DFlash 2 drafter file; drafting is off without it")
     parser.add_argument("--port", type=int, default=8080, help="the port the server listens on")
     args = parser.parse_args()
 
-    if args.inkling_pack is not None:
+    if args.inkling is not None:
         if not args.model.is_dir():
             parser.error(f"--model {args.model} is not a folder")
         # Unset options are None, and --unified-memory is False; an option given as 0 still counts.
         if any(getattr(args, option) is not None and getattr(args, option) is not False for option in MAIN_ENGINE_OPTIONS):
-            parser.error("--inkling-pack runs Strata's Inkling engine, which takes no --draft-layer, --pack or its GGUF options, --arch, --mtp, --unified-memory or expert options")
-        pack = Path(args.inkling_pack)
-        if pack.is_absolute() or ".." in pack.parts or pack.suffix != ".strata":
-            parser.error(f"--inkling-pack {args.inkling_pack} is not a .strata file within --model")
+            parser.error("--inkling runs Strata's Inkling engine, which takes no --draft-layer, --pack or its GGUF options, --arch, --mtp, --unified-memory or expert options")
+        model = Path(args.inkling)
+        if model.is_absolute() or ".." in model.parts or model.suffix not in INKLING_SUFFIXES:
+            parser.error(f"--inkling {args.inkling} is not a .strata or .gguf file within --model")
+        if args.tokenizer is None:
+            parser.error("--inkling needs --tokenizer")
+        if not args.tokenizer.is_dir():
+            parser.error(f"--tokenizer {args.tokenizer} is not a folder")
+        for option in ("vision", "dflash"):
+            path = getattr(args, option)
+            if path is not None and not path.is_file():
+                parser.error(f"--{option} {path} is not a file")
+    elif any(getattr(args, option) is not None for option in INKLING_OPTIONS):
+        parser.error("--tokenizer, --kv, --vision and --dflash need --inkling")
     elif args.arch is None or args.mtp is None:
-        parser.error("--arch and --mtp are needed without --inkling-pack")
+        parser.error("--arch and --mtp are needed without --inkling")
     elif args.draft_layer is None:
         if not args.model.is_file():
             parser.error(f"--model {args.model} is not a file")
@@ -163,17 +190,19 @@ def gguf_engine_args(args: argparse.Namespace) -> list[str]:
     return engine_args
 
 
-def inkling_pack_files(args: argparse.Namespace) -> tuple[Path, Path]:
-    """Returns the Inkling pack and its tokenizer folder, built from the tokenizer files beside the pack.
+def inkling_files(args: argparse.Namespace) -> tuple[Path, Path]:
+    """Returns the Inkling model file and its tokenizer folder, built from the given tokenizer files.
 
     The tokenizer comes from the Hugging Face tokenizer and chat template files rather than from the
-    pack's own section, which needs a zstd module the image's Python lacks.
+    model file: a pack's own section needs a zstd module the image's Python lacks.
     """
-    pack = args.model / args.inkling_pack
-    for path in (pack, *(pack.with_name(name) for name in INKLING_TOKENIZER_FILES)):
+    model = args.model / args.inkling
+    if not model.is_file():
+        fail(f"the Inkling model has no {model}")
+    tokenizer_json, template = (args.tokenizer / name for name in INKLING_TOKENIZER_FILES)
+    for path in (tokenizer_json, template):
         if not path.is_file():
-            fail(f"the Inkling pack has no {path}")
-    tokenizer_json, template = (pack.with_name(name) for name in INKLING_TOKENIZER_FILES)
+            fail(f"the Inkling tokenizer has no {path}")
     source = " ".join(f"{path.name} {path.stat().st_size}" for path in (tokenizer_json, template))
     tokenizer = prepare_tokenizer(source, [
         TERMINAL / "tools" / "inkling_tokenizer.py",
@@ -181,17 +210,20 @@ def inkling_pack_files(args: argparse.Namespace) -> tuple[Path, Path]:
         "--template", template,
         "--out", DATA / "tokenizer" / "tokenizer",
     ])
-    return pack, tokenizer
+    return model, tokenizer
 
 
-def inkling_engine_args(args: argparse.Namespace, pack: Path) -> list[str]:
-    """Returns the engine arguments of the Inkling path, which reads the pack in place.
+def inkling_engine_args(args: argparse.Namespace, model: Path) -> list[str]:
+    """Returns the engine arguments of the Inkling path, which reads the pack or GGUF in place.
 
-    The server adds the parallel requests and the pack's drafter itself. The cache stays FP16, which
-    the engine's automatic choice also picks below 16 parallel requests on a large GPU, and stays in
-    GPU memory: Dotcore sizes GPU memory only and relies on the engine lowering its context at start.
+    The server adds the parallel requests and the drafter itself. The cache takes the chosen type,
+    FP16 when unset, which the engine's automatic choice also picks below 16 parallel requests on a
+    large GPU. It stays in GPU memory: Dotcore sizes GPU memory only and relies on the engine
+    lowering its context at start. The vision file, when given, lets requests include images.
     """
-    return ["--native", str(pack), "--max-context", str(args.context), "--kv", "fp16", "--kv-offload", "off"]
+    kv = args.kv or INKLING_KV_TYPES[0]
+    vision = ["--vision", str(args.vision)] if args.vision is not None else []
+    return ["--native", str(model), "--max-context", str(args.context), "--kv", kv, "--kv-offload", "off", *vision]
 
 
 def ready_pack_files(args: argparse.Namespace) -> tuple[Path, list[str]]:
@@ -314,7 +346,7 @@ def draft_layer_folder(draft_layer: Path) -> Path:
 
 def write_config(args: argparse.Namespace, engine_args: list[str], tokenizer: Path) -> Path:
     """Writes Strata's run configuration for this launch and returns its path."""
-    inkling = args.inkling_pack is not None
+    inkling = args.inkling is not None
     config = {
         "exe": "component:strata-inkling" if inkling else "component:strata-engine",
         "args": engine_args,
@@ -325,9 +357,9 @@ def write_config(args: argparse.Namespace, engine_args: list[str], tokenizer: Pa
         "log": str(DATA / "strata-engine.log"),
         "parallel": args.parallel,
     }
-    # The server may otherwise pick another drafter by the model's name.
+    # The server may otherwise pick another drafter by the model's name, or measure whether to draft.
     if inkling:
-        config["drafting"] = "dspark"
+        config["drafting"] = "dflash2" if args.dflash is not None else "off"
         # A failed start allocation would otherwise be retried with a smaller prefill chunk, hiding an
         # undersized estimate behind slower prefill.
         config["env"] = {"STRATA_INK_OOM_RETRY": "0"}

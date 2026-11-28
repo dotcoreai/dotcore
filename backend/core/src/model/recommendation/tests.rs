@@ -1262,7 +1262,7 @@ configurations:
 profiles:
   - profileId: "{profile}"
     displayName: "{profile}"
-    configurationId: "llama"
+    configurationIds: ["llama"]
     defaultModelArtifactBindingId: "weights"
     engineParameterDefaults:
       values: [{{ parameterId: "prompt-cache-memory-mib", unsignedInteger: "0" }}]

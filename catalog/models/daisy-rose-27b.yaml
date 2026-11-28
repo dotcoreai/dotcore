@@ -214,7 +214,7 @@ profiles:
   - profileId: "nvfp4"
     displayName: "RadixArk NVFP4"
     description: "Runs DaisyRose 27B through vLLM, with image input as an option."
-    configurationId: "vllm-nvidia-cuda"
+    configurationIds: ["vllm-nvidia-cuda"]
     defaultModelArtifactBindingId: "nvfp4"
     engineParameterDefaults:
       values:

@@ -94,14 +94,14 @@ configurations:
               string: "f16"
 profiles:
   - profileId: "q3-iq3-s"
-    configurationId: "llama-cpp"
+    configurationIds: ["llama-cpp"]
     defaultModelArtifactBindingId: "q3-iq3-s"
     engineParameterDefaults:
       values:
         - parameterId: "prompt-cache-memory-mib"
           unsignedInteger: "2048"
   - profileId: "q4-k-m"
-    configurationId: "llama-cpp"
+    configurationIds: ["llama-cpp"]
     defaultModelArtifactBindingId: "q4-k-m"
     engineParameterDefaults:
       values:

@@ -15,12 +15,14 @@ import { EngineParametersForm } from "@/features/models/runtime/engine-parameter
 import type { MemoryParameterSizes } from "@/features/models/runtime/memory-parameter-sizes";
 import { SizeField } from "@/features/models/runtime/size-field";
 import type { SizeLargestFit, SizeRange } from "@/features/models/runtime/size-input";
-import type { Model, ModelProfile } from "@/gen/dotcore/catalog/v1/model_pb";
+import type { Model, ModelEngineConfiguration } from "@/gen/dotcore/catalog/v1/model_pb";
 import type { ParameterDefinition, ParameterGroup } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import type { FieldErrors } from "@/lib/form-validation";
 import { formatCompactCount } from "@/lib/format";
 
 interface ModelDeployContextStepProps {
+  /** The configuration the selected profile launches with on the chosen target. */
+  configuration?: ModelEngineConfiguration;
   /** The largest values that fit the selected target, offered as each context field's last chip. */
   contextFits: ContextValues<SizeLargestFit>;
   /** The largest values that fit the selected target, in each context field's help. */
@@ -51,7 +53,6 @@ interface ModelDeployContextStepProps {
     revealedErrors: FieldErrors;
     shown: readonly ParameterDefinition[];
   };
-  profile?: ModelProfile;
   /** Whether the total context follows the context per request and parallel requests. */
   totalFollows: boolean;
 }
@@ -69,6 +70,7 @@ export interface ContextValues<T> {
  * exposes its engine parameter.
  */
 export function ModelDeployContextStep({
+  configuration,
   contextFits,
   contextHints,
   disabled,
@@ -83,12 +85,8 @@ export function ModelDeployContextStep({
   onParameterBlur,
   onParameterChange,
   parameters,
-  profile,
   totalFollows,
 }: ModelDeployContextStepProps) {
-  const configuration = model.configurations.find(
-    (candidate) => candidate.configurationId === profile?.configurationId,
-  );
   const { contextPerRequest, parallelRequests, totalContext } =
     runtimeParameterGroups(exposedParameters).context;
   const maximum = maximumContext(model, configuration);

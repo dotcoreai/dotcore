@@ -126,7 +126,7 @@ fn repository_catalog_profiles_resolve_their_declared_defaults() {
                 };
 
                 // A profile must not resolve on a platform its approved artifacts do not declare.
-                if !configuration_platforms(&releases, model, &profile.configuration_id)
+                if !configuration_platforms(&releases, model, &profile.configuration_ids)
                     .contains(&platform)
                 {
                     assert!(
@@ -176,7 +176,7 @@ fn repository_catalog_profiles_resolve_their_declared_defaults() {
 
                 resolved_configuration_ids.insert(local.configuration_id.clone());
                 assert_eq!(local.model_id, model.model_id);
-                assert_eq!(local.configuration_id, profile.configuration_id);
+                assert!(profile.configuration_ids.contains(&local.configuration_id));
                 assert_eq!(local.profile_id, profile.profile_id);
                 assert_eq!(
                     local
@@ -223,8 +223,12 @@ fn repository_catalog_profiles_resolve_their_declared_defaults() {
                     .configurations
                     .iter()
                     .filter(|configuration| {
-                        configuration_platforms(&releases, model, &configuration.configuration_id)
-                            .contains(&platform)
+                        configuration_platforms(
+                            &releases,
+                            model,
+                            std::slice::from_ref(&configuration.configuration_id),
+                        )
+                        .contains(&platform)
                     })
                     .map(|configuration| configuration.configuration_id.clone())
                     .collect(),
@@ -235,8 +239,11 @@ fn repository_catalog_profiles_resolve_their_declared_defaults() {
 
     for model in &models {
         for configuration in &model.configurations {
-            let platforms =
-                configuration_platforms(&releases, model, &configuration.configuration_id);
+            let platforms = configuration_platforms(
+                &releases,
+                model,
+                std::slice::from_ref(&configuration.configuration_id),
+            );
             let linux = platforms
                 .iter()
                 .filter(|platform| platform.is_linux())
@@ -277,7 +284,11 @@ fn repository_catalog_profiles_resolve_their_declared_defaults() {
                         .is_some_and(|found| found.engine_kind == entry.engine_kind)
                 })
                 .flat_map(|configuration| {
-                    configuration_platforms(&releases, model, &configuration.configuration_id)
+                    configuration_platforms(
+                        &releases,
+                        model,
+                        std::slice::from_ref(&configuration.configuration_id),
+                    )
                 })
                 .filter(|platform| platform.is_linux())
                 .collect::<BTreeSet<_>>();
@@ -584,7 +595,11 @@ fn repository_multi_release_profiles_resolve_per_platform_and_hardware_class() {
             for profile in catalog
                 .profiles_for_model(&model_id)
                 .into_iter()
-                .filter(|profile| profile.configuration_id == configuration.configuration_id)
+                .filter(|profile| {
+                    profile
+                        .configuration_ids
+                        .contains(&configuration.configuration_id)
+                })
             {
                 profile_count += 1;
                 let (binding_id, defaults) = catalog
@@ -2258,7 +2273,7 @@ fn catalog_rejects_invalid_parameters_and_unsupported_bindings() {
         .and_then(|resolution| resolution.into_snapshot())
         .expect_err("unsupported binding")
         .to_string(),
-        "could not resolve catalog model: Invalid catalog: selected model artifact binding is not supported by the profile configuration"
+        "could not resolve catalog model: Invalid catalog: selected model artifact binding is not supported by any profile configuration"
     );
 }
 
@@ -2674,7 +2689,11 @@ fn lowest_total_context(catalog: &Catalog, model: &Model, profile_id: &str) -> (
     let release_id = model
         .configurations
         .iter()
-        .find(|configuration| configuration.configuration_id == profile.configuration_id)
+        .find(|configuration| {
+            profile
+                .configuration_ids
+                .contains(&configuration.configuration_id)
+        })
         .and_then(|configuration| configuration.engine_artifacts.first())
         .map(|artifact| artifact.engine_release_id.clone())
         .expect("the profile's engine release");
@@ -3076,22 +3095,19 @@ fn macos_native_target_capabilities() -> (ExecutionTarget, TargetCapabilityInven
     (target, inventory)
 }
 
-/// Returns the platforms a model configuration's approved artifacts declare in the artifact kind
-/// and accelerator the platform's production runtime launches: OCI with NVIDIA on Linux and Nix
-/// with Apple on darwin.
+/// Returns the platforms the approved artifacts of a profile's configurations declare in the
+/// artifact kind and accelerator the platform's production runtime launches: OCI with NVIDIA on
+/// Linux and Nix with Apple on darwin.
 fn configuration_platforms(
     releases: &[EngineRelease],
     model: &Model,
-    configuration_id: &str,
+    configuration_ids: &[String],
 ) -> BTreeSet<ExecutionPlatform> {
-    let configuration = model
+    model
         .configurations
         .iter()
-        .find(|configuration| configuration.configuration_id == configuration_id)
-        .expect("profile configuration");
-    configuration
-        .engine_artifacts
-        .iter()
+        .filter(|configuration| configuration_ids.contains(&configuration.configuration_id))
+        .flat_map(|configuration| &configuration.engine_artifacts)
         .filter_map(|reference| {
             releases
                 .iter()
@@ -3470,7 +3486,7 @@ fn synthetic_two_release_model() -> Model {
     }];
     let mut profile = model.profiles[0].clone();
     profile.profile_id = "metal".to_owned();
-    profile.configuration_id = "metal".to_owned();
+    profile.configuration_ids = vec!["metal".to_owned()];
     model.configurations.push(configuration);
     model.profiles.push(profile);
     model
@@ -3617,7 +3633,7 @@ configurations:
       imageInputCapacity: {}
 profiles:
   - profileId: "balanced"
-    configurationId: "local"
+    configurationIds: ["local"]
     defaultModelArtifactBindingId: "default"
     engineParameterDefaults:
       values:

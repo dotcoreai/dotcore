@@ -48,6 +48,11 @@ export const defaultMemoryBasis: MemoryBasis = "free";
 export interface CompatibilityVerdict {
   /** Non-blocking advisories of a profile that runs. */
   advisories: readonly LocalModelDeploymentAdvisory[];
+  /**
+   * The profile's variant picked for the target, even when it then can't run; absent when none
+   * matches.
+   */
+  configurationId?: string;
   /** The hardware class the target's facts select for a profile that runs. */
   hardwareClassId?: string;
   /** The advisory memory fit of a profile that runs, against what is free now. */
@@ -355,6 +360,7 @@ function verdict(
   target: TargetIdentity,
   entry: {
     advisories: readonly LocalModelDeploymentAdvisory[];
+    configurationId?: string;
     hardwareClassId?: string;
     freeMemoryFit?: ProtoMemoryFit;
     memoryFit?: ProtoMemoryFit;
@@ -380,6 +386,7 @@ function verdict(
         : memoryFits[value];
   return {
     advisories: entry.advisories,
+    configurationId: entry.configurationId || undefined,
     freeMemoryFit: fit(entry.freeMemoryFit),
     hardwareClassId: entry.hardwareClassId || undefined,
     memoryFit: fit(entry.memoryFit),

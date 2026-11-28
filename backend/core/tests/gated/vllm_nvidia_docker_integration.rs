@@ -26,7 +26,10 @@ use dotcore::model::resolution::resolve_local_launch;
 use dotcore_catalog::{Catalog, CatalogModelId};
 use dotcore_domain::{ExecutionPlatform, SitePaths, nix::DotcoreSources};
 use dotcore_proto::dotcore::{
-    catalog::v1::ModelInputModality,
+    catalog::v1::{
+        ModelInputModality, ModelOptionParameterValue, ModelOptionValues,
+        model_option_parameter_value,
+    },
     deployment::v1::accelerator_memory_observation,
     inference::v1::FallbackGroupSelection,
     model::v1::{
@@ -58,6 +61,7 @@ use tokio::{
 use tonic::{Request, transport::Channel};
 
 use crate::{
+    nvidia_docker_integration::{BLUE_PNG, MANY_IMAGE_COUNT, many_image_chat_request},
     nvidia_qualification::{self, EnginePin, GpuObservation, GpuWorkload, QualificationSite},
     support,
 };
@@ -80,6 +84,11 @@ const LABEL_CORRELATION: &str = "com.dotcore.workload.correlation";
 const LABEL_SITE: &str = "com.dotcore.site";
 const LABEL_SCHEMA: &str = "com.dotcore.runtime.schema";
 const NVIDIA_GPU_MINIMUM_FREE_BYTES: u64 = 4_000_000_000;
+const INKLING_MODEL_ID: &str = "inkling-2-mini";
+const INKLING_PROFILE_ID: &str = "nvfp4";
+const INKLING_ROUTE_NAME: &str = "inkling-route";
+/// Inkling's default profile with vision holds about 30 GB of an RTX 5090.
+const INKLING_MINIMUM_FREE_BYTES: u64 = 30_000_000_000;
 const DEPLOYMENT_TIMEOUT: Duration = Duration::from_secs(4 * 60);
 const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 const QUALIFICATION_TIMEOUT: Duration = Duration::from_secs(9 * 60);
@@ -165,6 +174,47 @@ async fn hw_gb10_vllm_loads_at_the_largest_fit() -> anyhow::Result<()> {
     .await;
     let cleanup = site.cleanup().await;
     primary.and(cleanup)
+}
+
+/// Launches Inkling 2 Mini's default vLLM profile with vision on and checks that images change the
+/// answer: a red and a blue image each get their own color name through the router.
+#[tokio::test]
+#[ignore = "hardware: just backend::test-nvidia-5090"]
+async fn hw_nvidia5090_vllm_inkling_reads_images_through_the_router() -> anyhow::Result<()> {
+    dotcore::logging::initialize();
+
+    let site = QualificationSite::new("ninfer-nvidia-site").await?;
+    if let Some(reason) = site.unsupported_platform_reason(INKLING_MODEL_ID, INKLING_PROFILE_ID)? {
+        eprintln!("[vllm-nvidia] skipped: {reason}");
+        return site.cleanup().await;
+    }
+    let primary = async {
+        nvidia_qualification::ensure_free_gpu_memory("vllm-nvidia", INKLING_MINIMUM_FREE_BYTES)?;
+        let backend = support::RunningBackend::start_at(
+            site.configuration.clone(),
+            "127.0.0.1".parse().expect("loopback bind address"),
+            site.dotcore_sources.clone(),
+        )
+        .await;
+        let result = qualify_inkling_images(&backend, &site).await;
+        backend.stop().await;
+        result
+    }
+    .await;
+    let cleanup = match tokio::time::timeout(CLEANUP_TIMEOUT, site.cleanup()).await {
+        Ok(result) => result,
+        Err(_) => Err(anyhow!(
+            "vLLM Inkling cleanup exceeded its one-minute deadline"
+        )),
+    };
+    match (primary, cleanup) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) => Err(error),
+        (Ok(()), Err(error)) => Err(error.context("vLLM Inkling cleanup failed")),
+        (Err(error), Err(cleanup)) => {
+            Err(error.context(format!("cleanup also failed: {cleanup:#}")))
+        }
+    }
 }
 
 /// Qualifies the text and multimodal profiles in turn on a GPU with enough free memory within the
@@ -255,6 +305,97 @@ async fn hardware_case(
     );
     case.engine_pin = Some(pin);
     Ok(case)
+}
+
+/// Deploys Inkling with the vision option on, waits for Ready, asks for the color of a red and a
+/// blue image and then of a request with the per-request cap of small images through the router,
+/// and removes the deployment.
+async fn qualify_inkling_images(
+    backend: &support::RunningBackend,
+    site: &QualificationSite,
+) -> anyhow::Result<()> {
+    let (model_artifact_binding_id, engine_parameter_values) = site
+        .catalog
+        .local_defaults_for(
+            &CatalogModelId(INKLING_MODEL_ID.to_owned()),
+            INKLING_PROFILE_ID,
+        )
+        .context("the master catalog has no Inkling vLLM profile")?;
+    let local = CreateLocalModelDeploymentRequest {
+        model_id: INKLING_MODEL_ID.to_owned(),
+        profile_id: INKLING_PROFILE_ID.to_owned(),
+        placement: Some(support::exact_placement(
+            QUALIFICATION_NODE_ID,
+            EXECUTION_TARGET_ID,
+        )),
+        configuration: Some(LocalModelDeploymentConfiguration {
+            model_artifact_binding_id,
+            engine_parameter_values: Some(engine_parameter_values),
+            custom_argument_tokens: Vec::new(),
+            option_overrides: vec![ModelOptionValues {
+                option_id: "vision".to_owned(),
+                values: vec![ModelOptionParameterValue {
+                    parameter_id: "enabled".to_owned(),
+                    value: Some(model_option_parameter_value::Value::Boolean(true)),
+                }],
+            }],
+        }),
+    };
+    let mut service = backend.model_client();
+    let deployment = service
+        .create_model_deployment(Request::new(CreateModelDeploymentRequest {
+            source: Some(
+                dotcore_proto::dotcore::model::v1::create_model_deployment_request::Source::Local(
+                    local,
+                ),
+            ),
+            exposure: Some(ModelDeploymentExposure {
+                kind: Some(model_deployment_exposure::Kind::Direct(
+                    DirectRouteExposure {
+                        route_name: INKLING_ROUTE_NAME.to_owned(),
+                    },
+                )),
+            }),
+            model_deployment_name: None,
+        }))
+        .await
+        .context("create Inkling vLLM deployment")?
+        .into_inner()
+        .deployment
+        .context("create Inkling vLLM deployment returned no deployment")?;
+    let deployment_id = deployment.model_deployment_id;
+
+    let outcome = async {
+        wait_for_preparation(&mut service, &site.configuration, &deployment_id).await?;
+        wait_for_ready_with_diagnostics(
+            &mut service,
+            &site.configuration,
+            &deployment_id,
+            "Inkling readiness",
+            None,
+        )
+        .await?;
+        let address = backend.inference_address();
+        wait_for_route(backend, address, INKLING_ROUTE_NAME).await?;
+        assert_image_input(address, INKLING_ROUTE_NAME, RED_JPEG, "red").await?;
+        assert_image_input(address, INKLING_ROUTE_NAME, BLUE_PNG, "blue").await?;
+        assert_many_images(address, INKLING_ROUTE_NAME).await
+    }
+    .await;
+
+    let removal = async {
+        remove(&mut service, &deployment_id).await?;
+        wait_for_absence(&mut service, &deployment_id).await
+    }
+    .await;
+    match (outcome, removal) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) => Err(error),
+        (Ok(()), Err(error)) => Err(error.context("remove Inkling vLLM deployment")),
+        (Err(error), Err(removal)) => {
+            Err(error.context(format!("removal also failed: {removal:#}")))
+        }
+    }
 }
 
 async fn qualify_profile(
@@ -449,7 +590,7 @@ async fn assert_startup_telemetry(
 async fn exercise_text_router(backend: &support::RunningBackend) -> anyhow::Result<()> {
     let address = backend.inference_address();
 
-    wait_for_route(backend, address).await?;
+    wait_for_route(backend, address, ROUTE_NAME).await?;
     assert_tool_round_trip(address).await?;
     assert_nonstreaming_chat(address).await?;
     assert_streaming_chat(address).await?;
@@ -460,9 +601,9 @@ async fn exercise_text_router(backend: &support::RunningBackend) -> anyhow::Resu
 async fn exercise_multimodal_router(backend: &support::RunningBackend) -> anyhow::Result<()> {
     let address = backend.inference_address();
 
-    wait_for_route(backend, address).await?;
+    wait_for_route(backend, address, ROUTE_NAME).await?;
     assert_nonstreaming_chat(address).await?;
-    assert_image_input(address).await?;
+    assert_image_input(address, ROUTE_NAME, RED_JPEG, "red").await?;
     Ok(())
 }
 
@@ -660,15 +801,22 @@ async fn assert_tool_round_trip(address: std::net::SocketAddr) -> anyhow::Result
     Ok(())
 }
 
-async fn assert_image_input(address: std::net::SocketAddr) -> anyhow::Result<()> {
+/// Asks for the dominant color of `image` and checks the answer names `color`, so the engine must
+/// have read the image.
+async fn assert_image_input(
+    address: std::net::SocketAddr,
+    route_name: &str,
+    image: &str,
+    color: &str,
+) -> anyhow::Result<()> {
     let response = post_json(
         address,
         "/v1/chat/completions",
         serde_json::json!({
-            "model": ROUTE_NAME,
+            "model": route_name,
             "messages": [{"role":"user","content":[
                 {"type":"text","text":"Identify the dominant color. Reply with one color word."},
-                {"type":"image_url","image_url":{"url":RED_JPEG,"detail":"auto"}}
+                {"type":"image_url","image_url":{"url":image,"detail":"auto"}}
             ]}],
             "temperature": 0,
             "max_completion_tokens": 512
@@ -681,8 +829,27 @@ async fn assert_image_input(address: std::net::SocketAddr) -> anyhow::Result<()>
     )
     .with_context(|| format!("multimodal response: {response}"))?;
     anyhow::ensure!(
-        content.to_ascii_lowercase().contains("red"),
+        content.to_ascii_lowercase().contains(color),
         "multimodal response did not identify the fixture content: {content:?}"
+    );
+    Ok(())
+}
+
+/// Sends one conversation with `MANY_IMAGE_COUNT` small images and checks the answer names their
+/// shared color, so the engine accepted the whole count and read the images.
+async fn assert_many_images(address: std::net::SocketAddr, route_name: &str) -> anyhow::Result<()> {
+    let request = many_image_chat_request(route_name);
+    let response = post_json(address, "/v1/chat/completions", request)
+        .await
+        .with_context(|| format!("many-image request with {MANY_IMAGE_COUNT} images"))?;
+    let content = nonempty_string(
+        response.pointer("/choices/0/message/content"),
+        "many-image final content",
+    )
+    .with_context(|| format!("many-image response: {response}"))?;
+    anyhow::ensure!(
+        content.to_ascii_lowercase().contains("red"),
+        "many-image response did not identify the shared color: {content:?}"
     );
     Ok(())
 }
@@ -1380,6 +1547,7 @@ async fn wait_for_absence(service: &mut ModelClient, deployment_id: &str) -> any
 async fn wait_for_route(
     backend: &support::RunningBackend,
     address: std::net::SocketAddr,
+    route_name: &str,
 ) -> anyhow::Result<()> {
     tokio::time::timeout(DEPLOYMENT_TIMEOUT, async {
         loop {
@@ -1393,8 +1561,8 @@ async fn wait_for_route(
             )
             .await
                 && response
-                    .windows(ROUTE_NAME.len())
-                    .any(|part| part == ROUTE_NAME.as_bytes())
+                    .windows(route_name.len())
+                    .any(|part| part == route_name.as_bytes())
             {
                 return Ok(());
             }

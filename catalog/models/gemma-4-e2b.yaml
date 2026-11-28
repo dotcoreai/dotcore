@@ -227,7 +227,7 @@ profiles:
   - profileId: "fast-start"
     displayName: "Unsloth Q4_K_M"
     description: "Balances model quality and startup speed with Q4 weights."
-    configurationId: "llama-cpp"
+    configurationIds: ["llama-cpp"]
     defaultModelArtifactBindingId: "q4-k-m"
     engineParameterDefaults:
       values:
@@ -241,7 +241,7 @@ profiles:
   - profileId: "higher-precision"
     displayName: "Unsloth Q8_0"
     description: "Prioritizes model precision with Q8 weights."
-    configurationId: "llama-cpp"
+    configurationIds: ["llama-cpp"]
     defaultModelArtifactBindingId: "q8-0"
     engineParameterDefaults:
       values:

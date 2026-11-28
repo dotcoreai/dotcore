@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file dotcore/engine/strata/v1/model.proto.
  */
 export const file_dotcore_engine_strata_v1_model: GenFile = /*@__PURE__*/
-  fileDesc("CiRkb3Rjb3JlL2VuZ2luZS9zdHJhdGEvdjEvbW9kZWwucHJvdG8SGGRvdGNvcmUuZW5naW5lLnN0cmF0YS52MSJmChhTdHJhdGFNb2RlbENvbmZpZ3VyYXRpb24SSgoOZml4ZWRfc2V0dGluZ3MYASABKAsyMi5kb3Rjb3JlLmVuZ2luZS5zdHJhdGEudjEuU3RyYXRhRml4ZWRNb2RlbFNldHRpbmdzImYKGFN0cmF0YVJlc29sdmVkTW9kZWxTdGF0ZRJKCg5maXhlZF9zZXR0aW5ncxgBIAEoCzIyLmRvdGNvcmUuZW5naW5lLnN0cmF0YS52MS5TdHJhdGFGaXhlZE1vZGVsU2V0dGluZ3MisQEKGFN0cmF0YUZpeGVkTW9kZWxTZXR0aW5ncxJBCgttYWluX2VuZ2luZRgBIAEoCzIqLmRvdGNvcmUuZW5naW5lLnN0cmF0YS52MS5TdHJhdGFNYWluRW5naW5lSAASQwoMaW5rbGluZ19wYWNrGAIgASgLMisuZG90Y29yZS5lbmdpbmUuc3RyYXRhLnYxLlN0cmF0YUlua2xpbmdQYWNrSABCDQoLZW5naW5lX3BhdGgi6QIKEFN0cmF0YU1haW5FbmdpbmUSJAocZXhwZXJ0X3ZyYW1fbWliX3BhcmFtZXRlcl9pZBgBIAEoCRIrCiNleHBlcnRfaG9zdF9tZW1vcnlfbWliX3BhcmFtZXRlcl9pZBgCIAEoCRIUCgxhcmNoaXRlY3R1cmUYAyABKAkSGAoQbXRwX2RyYWZ0X3Rva2VucxgEIAEoDRJBCgtzaW5nbGVfZ2d1ZhgFIAEoCzIqLmRvdGNvcmUuZW5naW5lLnN0cmF0YS52MS5TdHJhdGFTaW5nbGVHZ3VmSAASPwoKc3BsaXRfZ2d1ZhgGIAEoCzIpLmRvdGNvcmUuZW5naW5lLnN0cmF0YS52MS5TdHJhdGFTcGxpdEdndWZIABI/CgpyZWFkeV9wYWNrGAcgASgLMikuZG90Y29yZS5lbmdpbmUuc3RyYXRhLnYxLlN0cmF0YVJlYWR5UGFja0gAQg0KC21vZGVsX2ZpbGVzIhMKEVN0cmF0YUlua2xpbmdQYWNrIhIKEFN0cmF0YVNpbmdsZUdndWYiPAoPU3RyYXRhU3BsaXRHZ3VmEikKIWRyYWZ0X2xheWVyX2F1eGlsaWFyeV9hcnRpZmFjdF9pZBgBIAEoCSKrAQoPU3RyYXRhUmVhZHlQYWNrEikKIWRyYWZ0X2xheWVyX2F1eGlsaWFyeV9hcnRpZmFjdF9pZBgBIAEoCRIRCglwYWNrX3BhdGgYAiABKAkSFwoPZGVuc2VfZ2d1Zl9wYXRoGAMgASgJEh4KFmxvb2t1cF90YWJsZV9nZ3VmX3BhdGgYBCABKAkSIQoZdG9rZW5fZW1iZWRkaW5nX2dndWZfcGF0aBgFIAEoCWIGcHJvdG8z");
+  fileDesc("CiRkb3Rjb3JlL2VuZ2luZS9zdHJhdGEvdjEvbW9kZWwucHJvdG8SGGRvdGNvcmUuZW5naW5lLnN0cmF0YS52MSK2AQoYU3RyYXRhTW9kZWxDb25maWd1cmF0aW9uEkoKDmZpeGVkX3NldHRpbmdzGAEgASgLMjIuZG90Y29yZS5lbmdpbmUuc3RyYXRhLnYxLlN0cmF0YUZpeGVkTW9kZWxTZXR0aW5ncxJOChNvcHRpb25fcmVhbGl6YXRpb25zGAIgAygLMjEuZG90Y29yZS5lbmdpbmUuc3RyYXRhLnYxLlN0cmF0YU9wdGlvblJlYWxpemF0aW9uIrYBChhTdHJhdGFSZXNvbHZlZE1vZGVsU3RhdGUSSgoOZml4ZWRfc2V0dGluZ3MYASABKAsyMi5kb3Rjb3JlLmVuZ2luZS5zdHJhdGEudjEuU3RyYXRhRml4ZWRNb2RlbFNldHRpbmdzEk4KE29wdGlvbl9yZWFsaXphdGlvbnMYAiADKAsyMS5kb3Rjb3JlLmVuZ2luZS5zdHJhdGEudjEuU3RyYXRhT3B0aW9uUmVhbGl6YXRpb24isgIKF1N0cmF0YU9wdGlvblJlYWxpemF0aW9uEhEKCW9wdGlvbl9pZBgBIAEoCRJJCgZ2aXNpb24YAiABKAsyNy5kb3Rjb3JlLmVuZ2luZS5zdHJhdGEudjEuU3RyYXRhVmlzaW9uT3B0aW9uUmVhbGl6YXRpb25IABJfChJrdl9jYWNoZV9wcmVjaXNpb24YAyABKAsyQS5kb3Rjb3JlLmVuZ2luZS5zdHJhdGEudjEuU3RyYXRhS3ZDYWNoZVByZWNpc2lvbk9wdGlvblJlYWxpemF0aW9uSAASSQoGZGZsYXNoGAQgASgLMjcuZG90Y29yZS5lbmdpbmUuc3RyYXRhLnYxLlN0cmF0YURmbGFzaE9wdGlvblJlYWxpemF0aW9uSABCDQoLcmVhbGl6YXRpb24iXAodU3RyYXRhVmlzaW9uT3B0aW9uUmVhbGl6YXRpb24SHAoUZW5hYmxlZF9wYXJhbWV0ZXJfaWQYASABKAkSHQoVYXV4aWxpYXJ5X2FydGlmYWN0X2lkGAIgASgJIikKJ1N0cmF0YUt2Q2FjaGVQcmVjaXNpb25PcHRpb25SZWFsaXphdGlvbiI+Ch1TdHJhdGFEZmxhc2hPcHRpb25SZWFsaXphdGlvbhIdChVhdXhpbGlhcnlfYXJ0aWZhY3RfaWQYASABKAkitQEKGFN0cmF0YUZpeGVkTW9kZWxTZXR0aW5ncxJBCgttYWluX2VuZ2luZRgBIAEoCzIqLmRvdGNvcmUuZW5naW5lLnN0cmF0YS52MS5TdHJhdGFNYWluRW5naW5lSAASRwoOaW5rbGluZ19lbmdpbmUYAiABKAsyLS5kb3Rjb3JlLmVuZ2luZS5zdHJhdGEudjEuU3RyYXRhSW5rbGluZ0VuZ2luZUgAQg0KC2VuZ2luZV9wYXRoIukCChBTdHJhdGFNYWluRW5naW5lEiQKHGV4cGVydF92cmFtX21pYl9wYXJhbWV0ZXJfaWQYASABKAkSKwojZXhwZXJ0X2hvc3RfbWVtb3J5X21pYl9wYXJhbWV0ZXJfaWQYAiABKAkSFAoMYXJjaGl0ZWN0dXJlGAMgASgJEhgKEG10cF9kcmFmdF90b2tlbnMYBCABKA0SQQoLc2luZ2xlX2dndWYYBSABKAsyKi5kb3Rjb3JlLmVuZ2luZS5zdHJhdGEudjEuU3RyYXRhU2luZ2xlR2d1ZkgAEj8KCnNwbGl0X2dndWYYBiABKAsyKS5kb3Rjb3JlLmVuZ2luZS5zdHJhdGEudjEuU3RyYXRhU3BsaXRHZ3VmSAASPwoKcmVhZHlfcGFjaxgHIAEoCzIpLmRvdGNvcmUuZW5naW5lLnN0cmF0YS52MS5TdHJhdGFSZWFkeVBhY2tIAEINCgttb2RlbF9maWxlcyI+ChNTdHJhdGFJbmtsaW5nRW5naW5lEicKH3Rva2VuaXplcl9hdXhpbGlhcnlfYXJ0aWZhY3RfaWQYASABKAkiEgoQU3RyYXRhU2luZ2xlR2d1ZiI8Cg9TdHJhdGFTcGxpdEdndWYSKQohZHJhZnRfbGF5ZXJfYXV4aWxpYXJ5X2FydGlmYWN0X2lkGAEgASgJIqsBCg9TdHJhdGFSZWFkeVBhY2sSKQohZHJhZnRfbGF5ZXJfYXV4aWxpYXJ5X2FydGlmYWN0X2lkGAEgASgJEhEKCXBhY2tfcGF0aBgCIAEoCRIXCg9kZW5zZV9nZ3VmX3BhdGgYAyABKAkSHgoWbG9va3VwX3RhYmxlX2dndWZfcGF0aBgEIAEoCRIhChl0b2tlbl9lbWJlZGRpbmdfZ2d1Zl9wYXRoGAUgASgJYgZwcm90bzM");
 
 /**
  * Engine-owned Strata configuration embedded in one catalog model
@@ -25,6 +25,13 @@ export type StrataModelConfiguration = Message<"dotcore.engine.strata.v1.StrataM
    * @generated from field: dotcore.engine.strata.v1.StrataFixedModelSettings fixed_settings = 1;
    */
   fixedSettings?: StrataFixedModelSettings;
+
+  /**
+   * Option realizations keyed by generic model option identity.
+   *
+   * @generated from field: repeated dotcore.engine.strata.v1.StrataOptionRealization option_realizations = 2;
+   */
+  optionRealizations: StrataOptionRealization[];
 };
 
 /**
@@ -46,6 +53,13 @@ export type StrataResolvedModelState = Message<"dotcore.engine.strata.v1.StrataR
    * @generated from field: dotcore.engine.strata.v1.StrataFixedModelSettings fixed_settings = 1;
    */
   fixedSettings?: StrataFixedModelSettings;
+
+  /**
+   * Selected realization evidence keyed by generic model option identity.
+   *
+   * @generated from field: repeated dotcore.engine.strata.v1.StrataOptionRealization option_realizations = 2;
+   */
+  optionRealizations: StrataOptionRealization[];
 };
 
 /**
@@ -54,6 +68,123 @@ export type StrataResolvedModelState = Message<"dotcore.engine.strata.v1.StrataR
  */
 export const StrataResolvedModelStateSchema: GenMessage<StrataResolvedModelState> = /*@__PURE__*/
   messageDesc(file_dotcore_engine_strata_v1_model, 1);
+
+/**
+ * Maps one generic model option to its Strata realization. Only Strata's Inkling engine realizes
+ * options.
+ *
+ * @generated from message dotcore.engine.strata.v1.StrataOptionRealization
+ */
+export type StrataOptionRealization = Message<"dotcore.engine.strata.v1.StrataOptionRealization"> & {
+  /**
+   * Stable model-local option identifier.
+   *
+   * @generated from field: string option_id = 1;
+   */
+  optionId: string;
+
+  /**
+   * @generated from oneof dotcore.engine.strata.v1.StrataOptionRealization.realization
+   */
+  realization: {
+    /**
+     * Strata realization of a vision option.
+     *
+     * @generated from field: dotcore.engine.strata.v1.StrataVisionOptionRealization vision = 2;
+     */
+    value: StrataVisionOptionRealization;
+    case: "vision";
+  } | {
+    /**
+     * Strata realization of a KV cache precision option.
+     *
+     * @generated from field: dotcore.engine.strata.v1.StrataKvCachePrecisionOptionRealization kv_cache_precision = 3;
+     */
+    value: StrataKvCachePrecisionOptionRealization;
+    case: "kvCachePrecision";
+  } | {
+    /**
+     * Strata realization of a DFlash speculative-decoding option.
+     *
+     * @generated from field: dotcore.engine.strata.v1.StrataDflashOptionRealization dflash = 4;
+     */
+    value: StrataDflashOptionRealization;
+    case: "dflash";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message dotcore.engine.strata.v1.StrataOptionRealization.
+ * Use `create(StrataOptionRealizationSchema)` to create a new message.
+ */
+export const StrataOptionRealizationSchema: GenMessage<StrataOptionRealization> = /*@__PURE__*/
+  messageDesc(file_dotcore_engine_strata_v1_model, 2);
+
+/**
+ * Realizes one vision option for Strata's Inkling engine by loading a separate vision file.
+ *
+ * @generated from message dotcore.engine.strata.v1.StrataVisionOptionRealization
+ */
+export type StrataVisionOptionRealization = Message<"dotcore.engine.strata.v1.StrataVisionOptionRealization"> & {
+  /**
+   * Boolean parameter controlling whether the vision file is loaded.
+   *
+   * @generated from field: string enabled_parameter_id = 1;
+   */
+  enabledParameterId: string;
+
+  /**
+   * Model-local auxiliary artifact holding the vision file.
+   *
+   * @generated from field: string auxiliary_artifact_id = 2;
+   */
+  auxiliaryArtifactId: string;
+};
+
+/**
+ * Describes the message dotcore.engine.strata.v1.StrataVisionOptionRealization.
+ * Use `create(StrataVisionOptionRealizationSchema)` to create a new message.
+ */
+export const StrataVisionOptionRealizationSchema: GenMessage<StrataVisionOptionRealization> = /*@__PURE__*/
+  messageDesc(file_dotcore_engine_strata_v1_model, 3);
+
+/**
+ * Realizes one KV cache precision option for Strata's Inkling engine by passing its precision as
+ * the engine's KV cache type.
+ *
+ * @generated from message dotcore.engine.strata.v1.StrataKvCachePrecisionOptionRealization
+ */
+export type StrataKvCachePrecisionOptionRealization = Message<"dotcore.engine.strata.v1.StrataKvCachePrecisionOptionRealization"> & {
+};
+
+/**
+ * Describes the message dotcore.engine.strata.v1.StrataKvCachePrecisionOptionRealization.
+ * Use `create(StrataKvCachePrecisionOptionRealizationSchema)` to create a new message.
+ */
+export const StrataKvCachePrecisionOptionRealizationSchema: GenMessage<StrataKvCachePrecisionOptionRealization> = /*@__PURE__*/
+  messageDesc(file_dotcore_engine_strata_v1_model, 4);
+
+/**
+ * Realizes one DFlash speculative-decoding option for Strata's Inkling engine by loading a
+ * separate drafter file while the option's switch is on.
+ *
+ * @generated from message dotcore.engine.strata.v1.StrataDflashOptionRealization
+ */
+export type StrataDflashOptionRealization = Message<"dotcore.engine.strata.v1.StrataDflashOptionRealization"> & {
+  /**
+   * Model-local auxiliary artifact holding the drafter file.
+   *
+   * @generated from field: string auxiliary_artifact_id = 1;
+   */
+  auxiliaryArtifactId: string;
+};
+
+/**
+ * Describes the message dotcore.engine.strata.v1.StrataDflashOptionRealization.
+ * Use `create(StrataDflashOptionRealizationSchema)` to create a new message.
+ */
+export const StrataDflashOptionRealizationSchema: GenMessage<StrataDflashOptionRealization> = /*@__PURE__*/
+  messageDesc(file_dotcore_engine_strata_v1_model, 5);
 
 /**
  * Fixed Strata launch inputs. Editable values use generic engine parameter
@@ -77,12 +208,12 @@ export type StrataFixedModelSettings = Message<"dotcore.engine.strata.v1.StrataF
     case: "mainEngine";
   } | {
     /**
-     * Strata's Inkling engine, for a ready-made Inkling pack file.
+     * Strata's Inkling engine, for one native Inkling model file: a ready-made pack or a GGUF.
      *
-     * @generated from field: dotcore.engine.strata.v1.StrataInklingPack inkling_pack = 2;
+     * @generated from field: dotcore.engine.strata.v1.StrataInklingEngine inkling_engine = 2;
      */
-    value: StrataInklingPack;
-    case: "inklingPack";
+    value: StrataInklingEngine;
+    case: "inklingEngine";
   } | { case: undefined; value?: undefined };
 };
 
@@ -91,7 +222,7 @@ export type StrataFixedModelSettings = Message<"dotcore.engine.strata.v1.StrataF
  * Use `create(StrataFixedModelSettingsSchema)` to create a new message.
  */
 export const StrataFixedModelSettingsSchema: GenMessage<StrataFixedModelSettings> = /*@__PURE__*/
-  messageDesc(file_dotcore_engine_strata_v1_model, 2);
+  messageDesc(file_dotcore_engine_strata_v1_model, 6);
 
 /**
  * Settings of a model Strata's main engine runs, drafting with the model's MTP layer.
@@ -164,22 +295,29 @@ export type StrataMainEngine = Message<"dotcore.engine.strata.v1.StrataMainEngin
  * Use `create(StrataMainEngineSchema)` to create a new message.
  */
 export const StrataMainEngineSchema: GenMessage<StrataMainEngine> = /*@__PURE__*/
-  messageDesc(file_dotcore_engine_strata_v1_model, 3);
+  messageDesc(file_dotcore_engine_strata_v1_model, 7);
 
 /**
- * A model artifact snapshot holding exactly one Inkling pack file with the tokenizer files beside it; the pack carries its own drafter.
+ * Settings of a model Strata's Inkling engine runs from one native model file, a ready-made pack
+ * or a GGUF, which each bound model artifact holds.
  *
- * @generated from message dotcore.engine.strata.v1.StrataInklingPack
+ * @generated from message dotcore.engine.strata.v1.StrataInklingEngine
  */
-export type StrataInklingPack = Message<"dotcore.engine.strata.v1.StrataInklingPack"> & {
+export type StrataInklingEngine = Message<"dotcore.engine.strata.v1.StrataInklingEngine"> & {
+  /**
+   * Model-local auxiliary artifact holding the tokenizer and chat template every binding uses.
+   *
+   * @generated from field: string tokenizer_auxiliary_artifact_id = 1;
+   */
+  tokenizerAuxiliaryArtifactId: string;
 };
 
 /**
- * Describes the message dotcore.engine.strata.v1.StrataInklingPack.
- * Use `create(StrataInklingPackSchema)` to create a new message.
+ * Describes the message dotcore.engine.strata.v1.StrataInklingEngine.
+ * Use `create(StrataInklingEngineSchema)` to create a new message.
  */
-export const StrataInklingPackSchema: GenMessage<StrataInklingPack> = /*@__PURE__*/
-  messageDesc(file_dotcore_engine_strata_v1_model, 4);
+export const StrataInklingEngineSchema: GenMessage<StrataInklingEngine> = /*@__PURE__*/
+  messageDesc(file_dotcore_engine_strata_v1_model, 8);
 
 /**
  * A model artifact that is one GGUF file holding the whole model and its MTP head.
@@ -194,7 +332,7 @@ export type StrataSingleGguf = Message<"dotcore.engine.strata.v1.StrataSingleGgu
  * Use `create(StrataSingleGgufSchema)` to create a new message.
  */
 export const StrataSingleGgufSchema: GenMessage<StrataSingleGguf> = /*@__PURE__*/
-  messageDesc(file_dotcore_engine_strata_v1_model, 5);
+  messageDesc(file_dotcore_engine_strata_v1_model, 9);
 
 /**
  * A model artifact that is one complete set of split GGUF shards in one folder.
@@ -215,7 +353,7 @@ export type StrataSplitGguf = Message<"dotcore.engine.strata.v1.StrataSplitGguf"
  * Use `create(StrataSplitGgufSchema)` to create a new message.
  */
 export const StrataSplitGgufSchema: GenMessage<StrataSplitGguf> = /*@__PURE__*/
-  messageDesc(file_dotcore_engine_strata_v1_model, 6);
+  messageDesc(file_dotcore_engine_strata_v1_model, 10);
 
 /**
  * A model artifact holding a ready-made Strata pack and the GGUF files it reads beside it.
@@ -264,5 +402,5 @@ export type StrataReadyPack = Message<"dotcore.engine.strata.v1.StrataReadyPack"
  * Use `create(StrataReadyPackSchema)` to create a new message.
  */
 export const StrataReadyPackSchema: GenMessage<StrataReadyPack> = /*@__PURE__*/
-  messageDesc(file_dotcore_engine_strata_v1_model, 7);
+  messageDesc(file_dotcore_engine_strata_v1_model, 11);
 

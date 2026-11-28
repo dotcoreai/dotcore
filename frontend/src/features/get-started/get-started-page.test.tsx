@@ -1595,9 +1595,9 @@ const qwen = create(ModelSchema, {
   displayName: "Qwen3.8 27B",
   modelId: "qwen-27b",
   profiles: [
-    { configurationId: "ninfer", displayName: "NVFP4", profileId: "nvfp4" },
-    { configurationId: "llama", displayName: "Unsloth Q4_K_XL", profileId: "q4" },
-    { configurationId: "llama", displayName: "Unsloth Q5_K_XL", profileId: "q5" },
+    { configurationIds: ["ninfer"], displayName: "NVFP4", profileId: "nvfp4" },
+    { configurationIds: ["llama"], displayName: "Unsloth Q4_K_XL", profileId: "q4" },
+    { configurationIds: ["llama"], displayName: "Unsloth Q5_K_XL", profileId: "q5" },
   ],
 });
 

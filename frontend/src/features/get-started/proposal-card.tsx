@@ -23,6 +23,7 @@ import {
   projectModelDeploymentStatus,
 } from "@/domain/model-projection";
 import { placementMachine, placementMachineName } from "@/domain/placement";
+import { profileConfiguration } from "@/domain/profile-configuration";
 import { engineKindKey, engineKindLabel } from "@/features/models/profiles/model-row";
 import type { Model } from "@/gen/dotcore/catalog/v1/model_pb";
 import {
@@ -374,9 +375,7 @@ function modelNames(
 ): { engine?: string; model: string; profile: string } {
   const model = models.find((candidate) => candidate.modelId === proposal.modelId);
   const profile = model?.profiles.find((candidate) => candidate.profileId === proposal.profileId);
-  const configuration = model?.configurations.find(
-    (candidate) => candidate.configurationId === profile?.configurationId,
-  );
+  const configuration = model && profileConfiguration(model, profile);
   const engineKind = configuration?.engineConfiguration?.engineKind;
   const engineKey = engineKind === undefined ? undefined : engineKindKey(engineKind);
   const engine = engineKey && engineKindLabel(engineKey);

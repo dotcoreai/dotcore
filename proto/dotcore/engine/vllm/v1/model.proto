@@ -33,7 +33,7 @@ message VllmFixedModelSettings {
   // Model-local auxiliary artifact containing the chat template.
   string chat_template_auxiliary_artifact_id = 4;
 
-  // KV-cache element type.
+  // KV-cache element type, or unspecified when a KV cache precision option sets it.
   VllmKvCacheDataType kv_cache_data_type = 5;
 
   // Generic engine parameter containing the GPU KV-cache byte budget.
@@ -102,6 +102,9 @@ message VllmOptionRealization {
 
     // vLLM realization of a DSpark speculative-decoding option.
     VllmDsparkOptionRealization dspark = 4;
+
+    // vLLM realization of a KV cache precision option.
+    VllmKvCachePrecisionOptionRealization kv_cache_precision = 5;
   }
 }
 
@@ -143,6 +146,10 @@ message VllmDsparkOptionRealization {
   // Required path of the drafter weights inside the model snapshot.
   string drafter_path = 2;
 }
+
+// Realizes one KV cache precision option for vLLM by passing its precision as the KV-cache element
+// type; a configuration with this realization leaves the fixed element type unset.
+message VllmKvCachePrecisionOptionRealization {}
 
 // KV-cache element types accepted by a vLLM configuration.
 enum VllmKvCacheDataType {

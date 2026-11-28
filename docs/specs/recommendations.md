@@ -58,15 +58,17 @@ case proposes a model, an app or both.
 - Only the master catalog declares lists and claims use cases for apps. Site and development
   catalogs can't add or replace them.
 - Lists name only local models.
-- An entry may require more memory than its configuration does, so a small and a large machine of
+- An entry's configurations are those of its profile related to its class: supporting the class,
+  a wider class containing it, or a narrower class nested in it.
+- An entry may require more memory than its configurations do, so a small and a large machine of
   the same class get different models.
-- An entry may set its own context per request, within its configuration's minimum and maximum
+- An entry may set its own context per request, within its configurations' minimum and maximum
   context. Without one, it starts as a new deployment's does
   ([models](models.md#resolving-a-deployment)).
 - Validation rejects an entry that names an unknown model, profile, hardware class or use case; an
-  entry whose configuration supports neither its class, a wider class containing it, nor a narrower
-  class nested in it; an entry that doesn't accept the requests its use case sends; and an entry
-  minimum lower than its configuration's. It reports every problem, not only the first.
+  entry with no configuration related to its class; an entry that doesn't accept the requests its
+  use case sends; and an entry minimum lower than every one of its configurations'. It reports
+  every problem, not only the first.
 - The classes that declare lists are disjoint or strictly nested, so a target's list is never
   ambiguous.
 

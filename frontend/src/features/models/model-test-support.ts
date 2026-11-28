@@ -45,7 +45,7 @@ export const model = create(ModelSchema, {
       profileId: "default",
       displayName: "Fast start",
       description: "Balances quality and startup speed.",
-      configurationId: "cuda",
+      configurationIds: ["cuda"],
       defaultModelArtifactBindingId: "q4-binding",
       engineParameterDefaults: {
         values: [
@@ -57,7 +57,7 @@ export const model = create(ModelSchema, {
       profileId: "large",
       displayName: "Large context",
       description: "Provides a larger context window.",
-      configurationId: "cuda",
+      configurationIds: ["cuda"],
       defaultModelArtifactBindingId: "q8-binding",
       engineParameterDefaults: {
         values: [
@@ -160,7 +160,7 @@ export const multiParameterModel = create(ModelSchema, {
       profileId: "text",
       displayName: "NVFP4 text",
       description: "Runs the model through vLLM for text inference.",
-      configurationId: "vllm-cuda",
+      configurationIds: ["vllm-cuda"],
       defaultModelArtifactBindingId: "nvfp4-binding",
       engineParameterDefaults: {
         values: [
@@ -242,7 +242,7 @@ export const kvOffloadModel = create(ModelSchema, {
       profileId: "nvfp4-text",
       displayName: "NVFP4 text",
       description: "Runs the model through vLLM for text inference.",
-      configurationId: "vllm-kv-cuda",
+      configurationIds: ["vllm-kv-cuda"],
       defaultModelArtifactBindingId: "nvfp4-binding",
       engineParameterDefaults: {
         values: [

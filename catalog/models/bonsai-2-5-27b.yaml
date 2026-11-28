@@ -220,7 +220,7 @@ profiles:
   - profileId: "q2"
     displayName: "Q2_0"
     description: "Runs the ternary weights at 2 bits per weight."
-    configurationId: "llama-cpp"
+    configurationIds: ["llama-cpp"]
     defaultModelArtifactBindingId: "q2"
     engineParameterDefaults:
       values:

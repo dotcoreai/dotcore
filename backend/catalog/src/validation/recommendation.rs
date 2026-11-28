@@ -120,57 +120,105 @@ fn validate_entry(
         errors.push(anyhow::anyhow!("{label} references an unknown model"));
         return;
     };
-    let Some(configuration) = model
+    let Some(profile) = model
         .profiles
         .iter()
         .find(|profile| profile.profile_id == entry.profile_id)
-        .and_then(|profile| {
-            model
-                .configurations
-                .iter()
-                .find(|configuration| configuration.configuration_id == profile.configuration_id)
-        })
     else {
         errors.push(anyhow::anyhow!("{label} references an unknown profile"));
         return;
     };
+    // A recommendation runs the profile's defaults, so only configurations holding its default
+    // binding can serve it.
+    let variants = profile
+        .configuration_ids
+        .iter()
+        .filter_map(|configuration_id| {
+            model
+                .configurations
+                .iter()
+                .find(|configuration| &configuration.configuration_id == configuration_id)
+        })
+        .filter(|configuration| {
+            configuration
+                .artifact_bindings
+                .iter()
+                .any(|binding| binding.binding_id == profile.default_model_artifact_binding_id)
+        })
+        .collect::<Vec<_>>();
+    if variants.is_empty() {
+        errors.push(anyhow::anyhow!(
+            "{label} references a profile without a configuration holding its default binding"
+        ));
+        return;
+    }
 
-    let related_support = related_hardware_support(configuration, hardware_class, hardware_classes);
-    if related_support.is_empty() {
+    let related = variants
+        .iter()
+        .map(|configuration| {
+            (
+                *configuration,
+                related_hardware_support(configuration, hardware_class, hardware_classes),
+            )
+        })
+        .filter(|(_, support)| !support.is_empty())
+        .collect::<Vec<_>>();
+    if related.is_empty() {
         errors.push(anyhow::anyhow!(
             "{label} runs a configuration that supports neither this hardware class, a class containing it, nor a class nested in it"
         ));
     }
 
-    if !configuration
-        .request_kinds
-        .contains(&(InferenceRequestKind::Chat as i32))
-    {
+    if variants.iter().any(|configuration| {
+        !configuration
+            .request_kinds
+            .contains(&(InferenceRequestKind::Chat as i32))
+    }) {
         errors.push(anyhow::anyhow!(
             "{label} runs a configuration that doesn't accept {} requests",
             InferenceRequestKind::Chat.as_str_name()
         ));
     }
 
-    if let Some(context_tokens) = entry.context_tokens_per_request {
-        let maximum = maximum_context_tokens(model, configuration);
-        if let Some(minimum) = context_per_request_minimum(configuration, engines)
-            && context_tokens < minimum
-        {
-            errors.push(anyhow::anyhow!(
-                "{label} sets context per request {context_tokens} tokens, below the minimum of {minimum} tokens its engine release accepts"
-            ));
-        } else if context_tokens > u64::from(maximum) {
-            errors.push(anyhow::anyhow!(
-                "{label} sets context per request {context_tokens} tokens, above its configuration's maximum context of {maximum} tokens"
-            ));
-        }
+    if let Some(context_tokens) = entry.context_tokens_per_request
+        && let Some(problem) = related.iter().find_map(|(configuration, _)| {
+            context_problem(model, configuration, engines, context_tokens)
+        })
+    {
+        errors.push(anyhow::anyhow!("{label} {problem}"));
     }
 
+    let related_support = related
+        .iter()
+        .flat_map(|(_, support)| support.iter().copied())
+        .collect::<Vec<_>>();
     if let Some(requirements) = entry.hardware_requirements.as_ref()
         && !related_support.is_empty()
     {
         validate_entry_minimums(requirements, &related_support, label, errors);
+    }
+}
+
+/// Why a context per request doesn't fit the configuration's context limits; none when it does.
+fn context_problem(
+    model: &Model,
+    configuration: &ModelEngineConfiguration,
+    engines: &BTreeMap<String, EngineRelease>,
+    context_tokens: u64,
+) -> Option<String> {
+    let maximum = maximum_context_tokens(model, configuration);
+    if let Some(minimum) = context_per_request_minimum(configuration, engines)
+        && context_tokens < minimum
+    {
+        Some(format!(
+            "sets context per request {context_tokens} tokens, below the minimum of {minimum} tokens its engine release accepts"
+        ))
+    } else if context_tokens > u64::from(maximum) {
+        Some(format!(
+            "sets context per request {context_tokens} tokens, above its configuration's maximum context of {maximum} tokens"
+        ))
+    } else {
+        None
     }
 }
 

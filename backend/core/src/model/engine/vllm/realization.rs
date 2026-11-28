@@ -5,13 +5,14 @@
 //! the input capabilities. Image input is dropped from the modalities when vision is disabled, and an
 //! MTP or DSpark option must carry a resolved speculative-token count, where 0 is off; a separate
 //! MTP draft checkpoint is selected only while the count is above 0. A DSpark option selects no
-//! artifact: vLLM loads the drafter from the model's weights, so the bound snapshot must hold it.
+//! artifact: vLLM loads the drafter from the model's weights, so the bound snapshot must hold it. A
+//! KV cache precision option must carry a resolved precision.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use dotcore_catalog::options::{
-    SPECULATIVE_ENABLED_PARAMETER_ID, SPECULATIVE_TOKEN_COUNT_PARAMETER_ID, boolean_value,
-    unsigned_value,
+    KV_CACHE_PRECISION_PARAMETER_ID, SPECULATIVE_ENABLED_PARAMETER_ID,
+    SPECULATIVE_TOKEN_COUNT_PARAMETER_ID, boolean_value, string_value, unsigned_value,
 };
 use dotcore_proto::dotcore::{
     catalog::v1::{
@@ -100,6 +101,11 @@ pub(crate) fn realize_model(
                 boolean_value(values, SPECULATIVE_ENABLED_PARAMETER_ID)
                     .ok_or_else(|| anyhow::anyhow!("DSpark option has no resolved switch"))?;
             }
+            Some(Realization::KvCachePrecision(_)) => {
+                string_value(values, KV_CACHE_PRECISION_PARAMETER_ID).ok_or_else(|| {
+                    anyhow::anyhow!("KV cache precision option has no resolved precision")
+                })?;
+            }
             None => anyhow::bail!("option {:?} has no vLLM realization", realization.option_id),
         }
     }
@@ -127,7 +133,9 @@ pub(crate) fn selectable_auxiliary_artifact_sets(
         payload.option_realizations.iter().find_map(|realization| {
             match realization.realization.as_ref()? {
                 Realization::Mtp(mtp) => speculative_draft::vllm(mtp.draft.as_ref())?.artifact_id(),
-                Realization::Vision(_) | Realization::Dspark(_) => None,
+                Realization::Vision(_)
+                | Realization::Dspark(_)
+                | Realization::KvCachePrecision(_) => None,
             }
         })
     });

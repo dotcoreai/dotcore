@@ -415,7 +415,7 @@ profiles:
   - profileId: "q3-xl"
     displayName: "Unsloth Q3_K_XL"
     description: "Uses the smaller Q3 weights."
-    configurationId: "llama-cpp"
+    configurationIds: ["llama-cpp"]
     defaultModelArtifactBindingId: "q3-xl"
     engineParameterDefaults:
       values:
@@ -429,7 +429,7 @@ profiles:
   - profileId: "q4-xl"
     displayName: "Unsloth Q4_K_XL"
     description: "Uses the balanced Q4 weights."
-    configurationId: "llama-cpp"
+    configurationIds: ["llama-cpp"]
     defaultModelArtifactBindingId: "q4-xl"
     engineParameterDefaults:
       values:
@@ -443,7 +443,7 @@ profiles:
   - profileId: "q5-xl"
     displayName: "Unsloth Q5_K_XL"
     description: "Uses the higher-precision Q5 weights."
-    configurationId: "llama-cpp"
+    configurationIds: ["llama-cpp"]
     defaultModelArtifactBindingId: "q5-xl"
     engineParameterDefaults:
       values:
@@ -457,7 +457,7 @@ profiles:
   - profileId: "nvfp4"
     displayName: "Unsloth NVFP4"
     description: "Runs Gemma 4 26B A4B through vLLM for Linux NVIDIA inference."
-    configurationId: "vllm-nvidia-cuda"
+    configurationIds: ["vllm-nvidia-cuda"]
     defaultModelArtifactBindingId: "nvfp4"
     engineParameterDefaults:
       values:

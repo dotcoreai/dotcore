@@ -389,6 +389,9 @@ message ModelProfileCompatibility {
   // Hardware class the target's facts select for the profile; empty unless the profile runs.
   string hardware_class_id = 7;
 
+  // Configuration of the profile picked for the target, even when it then can't run; empty when none matches.
+  string configuration_id = 16;
+
   // Advisory fit of the scenario, or of the profile defaults without one, against the target's total memory, ignoring other deployments; unspecified unless the profile runs and the scenario is supported.
   dotcore.deployment.v1.MemoryFit memory_fit = 8;
 

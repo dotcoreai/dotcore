@@ -87,7 +87,7 @@ pub fn sizing_not_linear_in_total_context(catalog: &Catalog) -> Vec<String> {
         for profile in model
             .profiles
             .iter()
-            .filter(|profile| profile.configuration_id == key.configuration_id)
+            .filter(|profile| profile.configuration_ids.contains(&key.configuration_id))
         {
             for (choice, options) in option_variants(model, configuration, profile) {
                 let options = match options {
@@ -260,7 +260,7 @@ pub fn memory_estimates_decreasing(catalog: &Catalog) -> Vec<String> {
             for profile in model
                 .profiles
                 .iter()
-                .filter(|profile| profile.configuration_id == key.configuration_id)
+                .filter(|profile| profile.configuration_ids.contains(&key.configuration_id))
             {
                 for (choice, options) in option_variants(model, configuration, profile) {
                     let label = format!(
@@ -417,7 +417,7 @@ pub fn add_fast_sizing_profile(root: &std::path::Path) {
     model.push_str(&format!(
         r#"
   - profileId: "fast"
-    configurationId: "local"
+    configurationIds: ["local"]
     defaultModelArtifactBindingId: "second"
     engineParameterDefaults:
       values:
@@ -573,6 +573,61 @@ pub fn approve_sizing_apple_artifact(root: &std::path::Path) {
     .expect("sizing model fixture with the apple artifact");
 }
 
+/// Makes the sizing fixture model's `balanced` profile name two configurations, the shape of one
+/// profile across two hosts: `local`, and `unified`, a copy of it that runs a linux/arm64 NVIDIA
+/// artifact the helper adds to the engine, on an `nvidia-unified` class nested in `nvidia`.
+pub fn add_unified_sizing_variant(root: &std::path::Path) {
+    let engine_path = root.join("engines/fixture.yaml");
+    let engine = fs::read_to_string(&engine_path).expect("sizing engine fixture");
+    let arm64 = r#"  - artifactId: "linux-arm64"
+    oci:
+      repository:
+        registry:
+          host: "example.invalid"
+        name: "fixture/engine"
+      digest:
+        algorithm: "sha256"
+        encoded: "4444444444444444444444444444444444444444444444444444444444444444"
+    selectors:
+      - platform: { operatingSystem: "linux", architecture: "arm64" }
+        accelerators: ["nvidia"]
+        minimumNvidiaDriverMajorVersion: 580
+"#;
+    fs::write(
+        &engine_path,
+        engine.replacen("artifacts:\n", &format!("artifacts:\n{arm64}"), 1),
+    )
+    .expect("sizing engine fixture with an arm64 artifact");
+    fs::write(
+        root.join("hardware-classes/nvidia-unified.yaml"),
+        "hardwareClassId: \"nvidia-unified\"\ndisplayName: \"NVIDIA unified\"\nselector:\n  accelerators: [\"nvidia\"]\n  memoryArchitecture: \"ACCELERATOR_MEMORY_ARCHITECTURE_UNIFIED\"\n",
+    )
+    .expect("unified hardware class fixture");
+
+    let model_path = root.join("models/fixture.yaml");
+    let model = fs::read_to_string(&model_path).expect("sizing model fixture");
+    let start = model
+        .find("  - configurationId: \"local\"\n")
+        .expect("local configuration");
+    let end = model.find("profiles:\n").expect("profiles");
+    let unified = model[start..end]
+        .replace("configurationId: \"local\"", "configurationId: \"unified\"")
+        .replace(
+            "engineArtifactId: \"linux-amd64\"",
+            "engineArtifactId: \"linux-arm64\"",
+        )
+        .replace(
+            "hardwareClassId: \"nvidia\"",
+            "hardwareClassId: \"nvidia-unified\"",
+        );
+    let model = format!("{}{unified}{}", &model[..end], &model[end..]).replacen(
+        "    configurationIds: [\"local\"]\n",
+        "    configurationIds: [\"local\", \"unified\"]\n",
+        1,
+    );
+    fs::write(&model_path, model).expect("sizing model fixture with a unified variant");
+}
+
 /// Support entry sizing that lists both fixture bindings without binding constants.
 pub const UNPARAMETERIZED_BINDING_SIZING: &str = r#"        bindingSizing:
           - bindingId: "sized"
@@ -636,7 +691,7 @@ configurations:
       supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
 profiles:
   - profileId: "balanced"
-    configurationId: "local"
+    configurationIds: ["local"]
     defaultModelArtifactBindingId: "sized"
     engineParameterDefaults:
 {profile_defaults}"#

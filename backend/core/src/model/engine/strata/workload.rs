@@ -1,10 +1,11 @@
 //! Materializes a resolved Strata model launch into the OCI workload the runtime runs.
 //!
 //! The workload runs the retained engine image identity with the command materialized from the
-//! portable launch plan, the model's files and any draft layer mounted read-only, one NVIDIA
-//! accelerator, isolated IPC, and the HTTP service port 8080. The deployment's data folder comes from the engine release's storage,
-//! which the engine registry adds. Strata runs only on Linux with NVIDIA, so other engine platforms
-//! are rejected.
+//! portable launch plan, the model's files and every auxiliary file the plan binds (a draft layer,
+//! a tokenizer, a vision file, a drafter) mounted read-only, one NVIDIA accelerator, isolated IPC,
+//! and the HTTP service port 8080. The deployment's data folder comes from the engine release's
+//! storage, which the engine registry adds. Strata runs only on Linux with NVIDIA, so other engine
+//! platforms are rejected.
 
 use std::collections::BTreeMap;
 
@@ -23,7 +24,10 @@ use dotcore_runtime::{
 
 use super::{
     SERVICE_PORT,
-    plan::{DRAFT_LAYER_BINDING_ID, MODEL_BINDING_ID, PLAN_FORMAT_VERSION},
+    plan::{
+        DFLASH_BINDING_ID, DRAFT_LAYER_BINDING_ID, MODEL_BINDING_ID, PLAN_FORMAT_VERSION,
+        TOKENIZER_BINDING_ID, VISION_BINDING_ID,
+    },
 };
 use crate::model::resolved::ResolvedModelLaunch;
 
@@ -36,6 +40,12 @@ pub(super) const CONTAINER_MODEL_PATH: &str = "/opt/dotcore/models/model.gguf";
 pub(super) const CONTAINER_MODEL_FOLDER: &str = "/opt/dotcore/models/model";
 /// Container path at which the Strata start wrapper reads the draft layer binding.
 pub(super) const CONTAINER_DRAFT_LAYER_FOLDER: &str = "/opt/dotcore/models/draft-layer";
+/// Container path at which the Strata start wrapper reads the tokenizer binding.
+const CONTAINER_TOKENIZER_FOLDER: &str = "/opt/dotcore/models/tokenizer";
+/// Container path at which the Strata start wrapper reads the vision file binding.
+pub(super) const CONTAINER_VISION_PATH: &str = "/opt/dotcore/models/vision.strata";
+/// Container path at which the Strata start wrapper reads the drafter file binding.
+const CONTAINER_DFLASH_PATH: &str = "/opt/dotcore/models/dflash.safetensors";
 const SERVICE_PORT_NAME: &str = "http";
 
 /// Builds the literal container workload spec by materializing the stored portable plan.
@@ -136,6 +146,9 @@ fn materialize_plan(
             MODEL_BINDING_ID if model_folder => CONTAINER_MODEL_FOLDER,
             MODEL_BINDING_ID => CONTAINER_MODEL_PATH,
             DRAFT_LAYER_BINDING_ID => CONTAINER_DRAFT_LAYER_FOLDER,
+            TOKENIZER_BINDING_ID => CONTAINER_TOKENIZER_FOLDER,
+            VISION_BINDING_ID => CONTAINER_VISION_PATH,
+            DFLASH_BINDING_ID => CONTAINER_DFLASH_PATH,
             _ => return Err(StrataWorkloadError::InvalidPlan),
         };
         if !binding.read_only || binding.artifact.is_none() {
@@ -337,6 +350,82 @@ mod tests {
             workload(&model, &target(&["GPU-0"]), &prepared_model_only()).expect_err("no draft"),
             StrataWorkloadError::MissingPreparedArtifact
         );
+    }
+
+    #[test]
+    fn every_inkling_launch_mounts_its_files_where_the_wrapper_reads_them() {
+        for binding_id in ["fixture-inkling-pack", "fixture-inkling-gguf"] {
+            for (vision, dflash) in [(false, false), (true, false), (false, true), (true, true)] {
+                let case = format!("{binding_id}, vision {vision}, DFlash {dflash}");
+                let launch = ResolvedModelLaunch::from_snapshot(
+                    &crate::test_support::strata::inkling_model_snapshot(
+                        binding_id, vision, dflash,
+                    ),
+                )
+                .expect("resolved Strata launch");
+                let mut files = vec![
+                    ("model", "/cache/inkling", "/opt/dotcore/models/model"),
+                    (
+                        "tokenizer",
+                        "/cache/tokenizer",
+                        "/opt/dotcore/models/tokenizer",
+                    ),
+                ];
+                if vision {
+                    files.push((
+                        "vision",
+                        "/cache/vision.strata",
+                        "/opt/dotcore/models/vision.strata",
+                    ));
+                }
+                if dflash {
+                    files.push((
+                        "dflash",
+                        "/cache/dflash.safetensors",
+                        "/opt/dotcore/models/dflash.safetensors",
+                    ));
+                }
+                let prepared = PreparedModelArtifacts {
+                    artifacts: files
+                        .iter()
+                        .map(|(name, source, _)| ((*name).to_owned(), PathBuf::from(source)))
+                        .collect(),
+                };
+
+                let spec = workload(&launch, &target(&["GPU-0"]), &prepared).expect(&case);
+
+                let mut expected_mounts = files
+                    .iter()
+                    .map(|(name, source, destination)| WorkloadArtifactBinding {
+                        name: (*name).to_owned(),
+                        source: PathBuf::from(source),
+                        destination: (*destination).to_owned(),
+                        read_only: true,
+                    })
+                    .collect::<Vec<_>>();
+                expected_mounts.sort_by(|left, right| left.name.cmp(&right.name));
+                assert_eq!(spec.artifacts, expected_mounts, "{case}");
+                for (flag, _, destination) in &files {
+                    let pair = [
+                        WorkloadValue::literal(format!("--{flag}")),
+                        WorkloadValue::literal(*destination),
+                    ];
+                    assert!(
+                        spec.arguments.windows(2).any(|window| window == pair),
+                        "{case}: {pair:?} in {:?}",
+                        spec.arguments
+                    );
+                }
+                for (flag, on) in [("--vision", vision), ("--dflash", dflash)] {
+                    assert_eq!(
+                        spec.arguments.contains(&WorkloadValue::literal(flag)),
+                        on,
+                        "{case}: {flag}"
+                    );
+                }
+                assert!(spec.environment.is_empty(), "{case}");
+            }
+        }
     }
 
     #[test]

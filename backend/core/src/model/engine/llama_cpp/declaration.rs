@@ -2,12 +2,9 @@
 
 use std::collections::BTreeSet;
 
-use dotcore_catalog::{
-    options::KV_CACHE_PRECISION_PARAMETER_ID,
-    shared_parameters::{
-        CONTEXT_PER_REQUEST_PARAMETER_ID, ContextRule, PARALLEL_REQUESTS_PARAMETER_ID,
-        SharedContextRule, TOTAL_CONTEXT_PARAMETER_ID, maximum_context_tokens,
-    },
+use dotcore_catalog::shared_parameters::{
+    CONTEXT_PER_REQUEST_PARAMETER_ID, ContextRule, PARALLEL_REQUESTS_PARAMETER_ID,
+    SharedContextRule, TOTAL_CONTEXT_PARAMETER_ID, maximum_context_tokens,
 };
 use dotcore_domain::Accelerator;
 use dotcore_proto::dotcore::{
@@ -34,7 +31,7 @@ use super::plan::{
     speculative_type,
 };
 use crate::model::engine::{
-    declaration::classes_outside_vendors,
+    declaration::{classes_outside_vendors, offered_kv_cache_precisions},
     speculative_draft::{self, SpeculativeDraft},
     split_gguf::split_gguf_entry,
     unsigned_parameter_value,
@@ -539,20 +536,7 @@ fn validate_kv_cache_precisions(
     }
 
     for option_id in option_ids {
-        let precisions = configuration
-            .options
-            .iter()
-            .find(|option| option.option_id == option_id)
-            .and_then(|option| {
-                option
-                    .parameters
-                    .iter()
-                    .find(|parameter| parameter.parameter_id == KV_CACHE_PRECISION_PARAMETER_ID)
-            })
-            .and_then(|parameter| match parameter.parameter_type.as_ref() {
-                Some(ModelOptionParameterType::StringEnum(schema)) => Some(&schema.values),
-                _ => None,
-            });
+        let precisions = offered_kv_cache_precisions(configuration, option_id);
         // The catalog reports a missing option or a precision parameter of the wrong shape.
         let Some(precisions) = precisions else {
             continue;

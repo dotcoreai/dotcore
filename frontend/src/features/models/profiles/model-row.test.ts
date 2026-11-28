@@ -12,7 +12,11 @@ import {
 } from "@/features/models/deployed/models-section-test-support";
 import { HardwareClassSchema } from "@/gen/dotcore/catalog/v1/hardware_class_pb";
 import { InferenceRequestKind } from "@/gen/dotcore/catalog/v1/model_capabilities_pb";
-import { ModelConfigurationOptionSchema, ModelSchema } from "@/gen/dotcore/catalog/v1/model_pb";
+import {
+  ModelConfigurationOptionSchema,
+  ModelEngineConfigurationSchema,
+  ModelSchema,
+} from "@/gen/dotcore/catalog/v1/model_pb";
 import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
 
 import {
@@ -190,6 +194,73 @@ describe("projectModelRows", () => {
       ["cpu", true],
       ["orphan", false],
     ]);
+  });
+
+  it("unions the accelerator requirements of a profile's variants and describes it by the first", () => {
+    const variants = clone(ModelSchema, models[0]);
+    const first = variants.configurations.find(
+      (configuration) => configuration.configurationId === "cuda-llama",
+    )!;
+    const second = clone(ModelEngineConfigurationSchema, first);
+    second.configurationId = "host-llama";
+    second.hardwareSupport = clone(
+      ModelEngineConfigurationSchema,
+      variants.configurations.find(
+        (configuration) => configuration.configurationId === "cpu-llama",
+      )!,
+    ).hardwareSupport;
+    variants.configurations.push(second);
+    variants.profiles
+      .find((profile) => profile.profileId === "fast")!
+      .configurationIds.push("host-llama");
+    const host = create(HardwareClassSchema, {
+      displayName: "Host",
+      hardwareClassId: "host",
+      selector: { accelerators: ["apple"] },
+    });
+
+    const [row] = projectModelRows({
+      deployments: [],
+      engineReleases,
+      estimates: new Map(),
+      hardwareClasses: [...hardwareClasses, host],
+      models: [variants],
+    });
+    const fast = row.profiles.find((profile) => profile.profileId === "fast")!;
+
+    expect(fast.configurationId).toBe("cuda-llama");
+    expect(fast.acceleratorRequirements.map((requirement) => requirement.hardwareClassId)).toEqual([
+      "nvidia",
+      "host",
+    ]);
+  });
+
+  it("shows the largest system memory across a CPU-only profile's variants", () => {
+    const model = clone(ModelSchema, models[0]);
+    const small = model.configurations.find(
+      (configuration) => configuration.configurationId === "cpu-llama",
+    )!;
+    const large = clone(ModelEngineConfigurationSchema, small);
+    large.configurationId = "cpu-llama-large";
+    large.hardwareSupport[0].hardwareRequirements!.minimumSystemMemoryBytes = 32_000_000_000n;
+    model.configurations.push(large);
+    model.profiles
+      .find((profile) => profile.profileId === "cpu")!
+      .configurationIds.push("cpu-llama-large");
+
+    const [row] = projectModelRows({
+      deployments: [],
+      engineReleases,
+      estimates: new Map(),
+      hardwareClasses,
+      models: [model],
+    });
+
+    expect(row.profiles.find((profile) => profile.profileId === "cpu")!.memory).toEqual({
+      kind: "system-ram",
+      max: 32_000_000_000,
+      min: 32_000_000_000,
+    });
   });
 
   it("carries every accelerator vendor of a multi-vendor hardware class", () => {

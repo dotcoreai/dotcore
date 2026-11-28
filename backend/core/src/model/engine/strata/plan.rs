@@ -6,19 +6,25 @@
 //! main engine it adds the draft layer and a ready-made pack's file roles when the model has them,
 //! the configuration's architecture and MTP draft depth, the expert memory budgets, and whether the
 //! pack path runs on unified memory; for the Inkling engine it names the model artifact's single
-//! pack file instead. The
-//! wrapper takes no other arguments, so custom arguments are refused. It also checks that a
-//! retained plan exactly matches the plan its resolved state would produce.
+//! native model file and the tokenizer instead, with the resolved KV cache precision and, while
+//! their options are on, the vision file and the drafter file. The wrapper takes no other
+//! arguments, so custom arguments are refused. It also checks that a retained plan exactly matches
+//! the plan its resolved state would produce, that the selected auxiliary artifacts are the bound
+//! ones in the plan's order, and that image input is offered exactly while a vision file loads.
 
-use dotcore_catalog::shared_parameters::{
-    CONTEXT_PER_REQUEST_PARAMETER_ID, PARALLEL_REQUESTS_PARAMETER_ID,
+use dotcore_catalog::{
+    options::{
+        KV_CACHE_PRECISION_PARAMETER_ID, SPECULATIVE_ENABLED_PARAMETER_ID, boolean_value,
+        string_value,
+    },
+    shared_parameters::{CONTEXT_PER_REQUEST_PARAMETER_ID, PARALLEL_REQUESTS_PARAMETER_ID},
 };
 use dotcore_proto::dotcore::{
     catalog::v1::parameter_value::Value as EngineParameterValueKind,
     engine::{
         strata::v1::{
             StrataMainEngine, StrataResolvedModelState, strata_fixed_model_settings::EnginePath,
-            strata_main_engine::ModelFiles,
+            strata_main_engine::ModelFiles, strata_option_realization::Realization,
         },
         v1::{EngineKind, resolved_engine_model_state::State},
     },
@@ -31,11 +37,17 @@ use dotcore_proto::dotcore::{
     observation::v1::AcceleratorMemoryArchitecture,
 };
 
-use super::{SERVICE_PORT, draft_layer_artifact_id, inkling_pack_path, valid_fixed_settings};
+use super::{SERVICE_PORT, draft_layer_artifact_id, inkling_model_path, valid_fixed_settings};
 
-pub(super) const PLAN_FORMAT_VERSION: u32 = 3;
+pub(super) const PLAN_FORMAT_VERSION: u32 = 4;
 pub(super) const MODEL_BINDING_ID: &str = "model";
 pub(super) const DRAFT_LAYER_BINDING_ID: &str = "draft-layer";
+pub(super) const TOKENIZER_BINDING_ID: &str = "tokenizer";
+pub(super) const VISION_BINDING_ID: &str = "vision";
+pub(super) const DFLASH_BINDING_ID: &str = "dflash";
+/// KV cache precisions a KV cache precision option may offer, as Strata's Inkling engine names its
+/// KV cache types. The engine also takes others that switch it to another attention backend.
+pub(super) const KV_CACHE_PRECISIONS: [&str; 2] = ["fp16", "fp8"];
 /// The image's init, run explicitly because the runtime replaces the image's entrypoint with the
 /// workload's executable; it reaps the engine process and forwards stop signals to the server.
 const INIT_BINARY: &str = "/usr/bin/tini";
@@ -57,6 +69,9 @@ pub(crate) fn translate(
         .model_artifact
         .as_ref()
         .ok_or(StrataPlanError::NoModelArtifact)?;
+    if snapshot.resolved_options.len() != state.option_realizations.len() {
+        return Err(StrataPlanError::InvalidResolvedState);
+    }
     // The wrapper parses with argparse, where any token could name or abbreviate an option the
     // plan sets, and it takes no other arguments.
     if let Some(token) = snapshot.custom_argument_tokens.first() {
@@ -79,21 +94,19 @@ pub(crate) fn translate(
     }];
     match fixed.engine_path.as_ref() {
         Some(EnginePath::MainEngine(main)) => {
+            // Only the Inkling engine realizes options.
+            if !state.option_realizations.is_empty() {
+                return Err(StrataPlanError::InvalidResolvedState);
+            }
             let draft_layer = draft_layer_artifact_id(fixed);
             if let Some(artifact_id) = draft_layer {
-                if !snapshot
-                    .auxiliary_artifacts
-                    .iter()
-                    .any(|artifact| artifact.auxiliary_artifact_id == artifact_id)
-                {
-                    return Err(StrataPlanError::DraftLayerNotResolved);
-                }
+                artifact_bindings.push(auxiliary_binding(
+                    snapshot,
+                    DRAFT_LAYER_BINDING_ID,
+                    artifact_id,
+                    StrataPlanError::DraftLayerNotResolved,
+                )?);
                 arguments.extend([literal("--draft-layer"), binding(DRAFT_LAYER_BINDING_ID)]);
-                artifact_bindings.push(PortableModelArtifactBinding {
-                    binding_id: DRAFT_LAYER_BINDING_ID.to_owned(),
-                    artifact: Some(BoundArtifact::AuxiliaryArtifactId(artifact_id.to_owned())),
-                    read_only: true,
-                });
             }
             arguments.extend(main_engine_arguments(
                 snapshot,
@@ -101,15 +114,44 @@ pub(crate) fn translate(
                 draft_layer.is_some(),
             )?);
         }
-        Some(EnginePath::InklingPack(_)) => {
-            let pack_path = inkling_pack_path(
+        Some(EnginePath::InklingEngine(inkling)) => {
+            let model_path = inkling_model_path(
                 model
                     .source
                     .as_ref()
                     .and_then(|source| source.content.as_ref()),
             )
-            .ok_or(StrataPlanError::NoInklingPack)?;
-            arguments.extend(inkling_pack_arguments(snapshot, pack_path)?);
+            .ok_or(StrataPlanError::NoInklingModel)?;
+            artifact_bindings.push(auxiliary_binding(
+                snapshot,
+                TOKENIZER_BINDING_ID,
+                &inkling.tokenizer_auxiliary_artifact_id,
+                StrataPlanError::TokenizerNotResolved,
+            )?);
+            arguments.extend(inkling_arguments(snapshot, model_path)?);
+            let options = inkling_options(snapshot, state)?;
+            if let Some(precision) = options.kv_cache_precision {
+                arguments.extend(literals(["--kv", precision]));
+            }
+            // Option files follow the realization's order, vision first, then the drafter.
+            if let Some(artifact_id) = options.vision {
+                artifact_bindings.push(auxiliary_binding(
+                    snapshot,
+                    VISION_BINDING_ID,
+                    artifact_id,
+                    StrataPlanError::VisionNotResolved,
+                )?);
+                arguments.extend([literal("--vision"), binding(VISION_BINDING_ID)]);
+            }
+            if let Some(artifact_id) = options.drafter {
+                artifact_bindings.push(auxiliary_binding(
+                    snapshot,
+                    DFLASH_BINDING_ID,
+                    artifact_id,
+                    StrataPlanError::DrafterNotResolved,
+                )?);
+                arguments.extend([literal("--dflash"), binding(DFLASH_BINDING_ID)]);
+            }
         }
         None => return Err(StrataPlanError::InvalidResolvedState),
     }
@@ -134,11 +176,21 @@ pub(crate) fn validate_snapshot(
             return Err(StrataPlanError::NewerRetainedPlanFormat { found });
         }
     }
-    if !snapshot.resolved_options.is_empty() {
+    let expected = translate(snapshot)?;
+    // Image input is offered exactly while the plan loads a vision file.
+    let vision_bound = expected
+        .artifact_bindings
+        .iter()
+        .any(|binding| binding.binding_id == VISION_BINDING_ID);
+    let image_capable = snapshot
+        .input_capabilities
+        .as_ref()
+        .and_then(|capabilities| capabilities.image_input_capacity.as_ref())
+        .is_some();
+    if vision_bound != image_capable {
         return Err(StrataPlanError::InvalidResolvedState);
     }
-    let expected = translate(snapshot)?;
-    // The selected auxiliary artifacts are exactly the ones the plan binds.
+    // The selected auxiliary artifacts are exactly the ones the plan binds, in its order.
     let selected = snapshot
         .auxiliary_artifacts
         .iter()
@@ -230,23 +282,98 @@ fn main_engine_arguments(
     Ok(arguments)
 }
 
-/// The Inkling engine's arguments after its model files: the pack file within the model artifact,
-/// the served name, the context per request and the parallel requests.
-fn inkling_pack_arguments(
+/// The Inkling engine's arguments after its model files: the native model file within the model
+/// artifact, the tokenizer, the served name, the context per request and the parallel requests.
+fn inkling_arguments(
     snapshot: &ResolvedLocalModelDeploymentSnapshot,
-    pack_path: &str,
+    model_path: &str,
 ) -> Result<Vec<PortableModelLaunchArgumentToken>, StrataPlanError> {
     let (context_per_request, parallel_requests) = context_and_parallel_requests(snapshot)?;
-    Ok(literals([
-        "--inkling-pack",
-        pack_path,
+    let mut arguments = literals(["--inkling", model_path]);
+    arguments.extend([literal("--tokenizer"), binding(TOKENIZER_BINDING_ID)]);
+    arguments.extend(literals([
         "--model-name",
         &snapshot.model_id,
         "--context",
         &context_per_request.to_string(),
         "--parallel",
         &parallel_requests.to_string(),
-    ]))
+    ]));
+    Ok(arguments)
+}
+
+/// Options of Strata's Inkling engine as resolved for one deployment.
+struct InklingOptions<'a> {
+    /// KV cache precision to launch with, or none to keep the wrapper's default.
+    kv_cache_precision: Option<&'a str>,
+    /// Vision file to load, or none while vision is off.
+    vision: Option<&'a str>,
+    /// Drafter file to draft with, or none while drafting is off.
+    drafter: Option<&'a str>,
+}
+
+/// Reads each realized option's resolved values: the KV cache precision, which must be one Strata
+/// launches, the vision file while the vision option is on, and the drafter file while the DFlash
+/// switch is on.
+fn inkling_options<'a>(
+    snapshot: &'a ResolvedLocalModelDeploymentSnapshot,
+    state: &'a StrataResolvedModelState,
+) -> Result<InklingOptions<'a>, StrataPlanError> {
+    let mut options = InklingOptions {
+        kv_cache_precision: None,
+        vision: None,
+        drafter: None,
+    };
+    for realization in &state.option_realizations {
+        let values = snapshot
+            .resolved_options
+            .iter()
+            .filter_map(|option| option.values.as_ref())
+            .find(|values| values.option_id == realization.option_id)
+            .ok_or(StrataPlanError::InvalidResolvedState)?;
+        match realization.realization.as_ref() {
+            Some(Realization::Vision(vision)) => {
+                let enabled = boolean_value(values, &vision.enabled_parameter_id)
+                    .ok_or(StrataPlanError::InvalidResolvedState)?;
+                options.vision = enabled.then_some(vision.auxiliary_artifact_id.as_str());
+            }
+            Some(Realization::KvCachePrecision(_)) => {
+                let precision = string_value(values, KV_CACHE_PRECISION_PARAMETER_ID)
+                    .filter(|precision| KV_CACHE_PRECISIONS.contains(precision))
+                    .ok_or(StrataPlanError::InvalidResolvedState)?;
+                options.kv_cache_precision = Some(precision);
+            }
+            Some(Realization::Dflash(dflash)) => {
+                let enabled = boolean_value(values, SPECULATIVE_ENABLED_PARAMETER_ID)
+                    .ok_or(StrataPlanError::InvalidResolvedState)?;
+                options.drafter = enabled.then_some(dflash.auxiliary_artifact_id.as_str());
+            }
+            None => return Err(StrataPlanError::InvalidResolvedState),
+        }
+    }
+    Ok(options)
+}
+
+/// A read-only binding of a resolved auxiliary artifact, or `missing` when the snapshot didn't
+/// resolve it.
+fn auxiliary_binding(
+    snapshot: &ResolvedLocalModelDeploymentSnapshot,
+    binding_id: &str,
+    artifact_id: &str,
+    missing: StrataPlanError,
+) -> Result<PortableModelArtifactBinding, StrataPlanError> {
+    if !snapshot
+        .auxiliary_artifacts
+        .iter()
+        .any(|artifact| artifact.auxiliary_artifact_id == artifact_id)
+    {
+        return Err(missing);
+    }
+    Ok(PortableModelArtifactBinding {
+        binding_id: binding_id.to_owned(),
+        artifact: Some(BoundArtifact::AuxiliaryArtifactId(artifact_id.to_owned())),
+        read_only: true,
+    })
 }
 
 fn context_and_parallel_requests(
@@ -351,8 +478,17 @@ pub(crate) enum StrataPlanError {
     #[error("Strata launch plan has no resolved draft layer artifact")]
     DraftLayerNotResolved,
 
-    #[error("Strata launch plan's model artifact holds no single Inkling pack file")]
-    NoInklingPack,
+    #[error("Strata launch plan has no resolved tokenizer artifact")]
+    TokenizerNotResolved,
+
+    #[error("Strata launch plan has no resolved vision file artifact")]
+    VisionNotResolved,
+
+    #[error("Strata launch plan has no resolved drafter file artifact")]
+    DrafterNotResolved,
+
+    #[error("Strata launch plan's model artifact holds no single Inkling model file")]
+    NoInklingModel,
 
     #[error("Strata launch plan has no selected target memory architecture")]
     NoMemoryArchitecture,
@@ -374,6 +510,7 @@ mod tests {
         catalog::v1::{
             HuggingFaceSnapshotFile, ModelEngineConfiguration,
             hugging_face_artifact_source::Content as HuggingFaceContent,
+            model_option_parameter_value::Value as OptionValue,
         },
         engine::{
             strata::v1::{StrataFixedModelSettings, StrataReadyPack, StrataSplitGguf},
@@ -384,9 +521,10 @@ mod tests {
 
     use super::*;
     use crate::test_support::strata::{
-        DRAFT_LAYER_ARTIFACT_ID, EXPERT_HOST_MEMORY_MIB_PARAMETER_ID, EXPERT_VRAM_MIB_PARAMETER_ID,
-        configuration, inkling_pack_configuration, local_model_snapshot_with, parameter_values,
-        ready_pack_configuration, refresh_launch_plan, split_gguf_configuration,
+        DFLASH_ARTIFACT_ID, DRAFT_LAYER_ARTIFACT_ID, EXPERT_HOST_MEMORY_MIB_PARAMETER_ID,
+        EXPERT_VRAM_MIB_PARAMETER_ID, INKLING_TOKENIZER_ARTIFACT_ID, VISION_ARTIFACT_ID,
+        configuration, inkling_configuration, inkling_model_snapshot, local_model_snapshot_with,
+        parameter_values, ready_pack_configuration, refresh_launch_plan, split_gguf_configuration,
     };
 
     #[test]
@@ -419,7 +557,7 @@ mod tests {
                 "8080",
             ]
         );
-        assert_eq!(plan.format_version, 3);
+        assert_eq!(plan.format_version, 4);
         assert_eq!(
             plan.artifact_bindings,
             [PortableModelArtifactBinding {
@@ -615,8 +753,8 @@ mod tests {
     }
 
     #[test]
-    fn inkling_pack_launches_the_inkling_path_with_its_pack_file() {
-        let mut local = local_with("inkling-2-mini", &inkling_pack_configuration());
+    fn inkling_pack_launches_the_inkling_path_with_its_pack_file_and_tokenizer() {
+        let mut local = local_with("inkling-2-mini", &inkling_configuration());
         local.engine_parameter_values = Some(parameter_values([
             (TOTAL_CONTEXT_PARAMETER_ID, 65_536),
             (CONTEXT_PER_REQUEST_PARAMETER_ID, 32_768),
@@ -640,8 +778,10 @@ mod tests {
                 "/usr/local/bin/dotcore-strata-start",
                 "--model",
                 "<model>",
-                "--inkling-pack",
+                "--inkling",
                 "SQ-10.strata",
+                "--tokenizer",
+                "<tokenizer>",
                 "--model-name",
                 "inkling-2-mini",
                 "--context",
@@ -654,31 +794,174 @@ mod tests {
         );
         assert_eq!(
             plan.artifact_bindings,
-            [PortableModelArtifactBinding {
-                binding_id: "model".to_owned(),
-                artifact: Some(BoundArtifact::ModelArtifactId(
-                    "fixture-inkling-pack".to_owned()
-                )),
-                read_only: true,
-            }]
+            [
+                PortableModelArtifactBinding {
+                    binding_id: "model".to_owned(),
+                    artifact: Some(BoundArtifact::ModelArtifactId(
+                        "fixture-inkling-pack".to_owned()
+                    )),
+                    read_only: true,
+                },
+                PortableModelArtifactBinding {
+                    binding_id: "tokenizer".to_owned(),
+                    artifact: Some(BoundArtifact::AuxiliaryArtifactId(
+                        INKLING_TOKENIZER_ARTIFACT_ID.to_owned()
+                    )),
+                    read_only: true,
+                },
+            ]
         );
         validate_snapshot(&local).expect("canonical Inkling pack plan");
     }
 
     #[test]
-    fn an_inkling_artifact_without_a_single_plain_pack_file_cannot_launch() {
-        for files in [
-            vec!["tokenizer.json", "chat_template.jinja"],
-            vec![
-                "SQ-10.strata",
-                "SQ-15.strata",
-                "tokenizer.json",
-                "chat_template.jinja",
-            ],
-            vec![".strata", "tokenizer.json", "chat_template.jinja"],
-            vec!["--port=1.strata", "tokenizer.json", "chat_template.jinja"],
+    fn inkling_gguf_launches_like_a_pack_with_its_gguf_file() {
+        let local = |binding_id| match inkling_model_snapshot(binding_id, true, true).source {
+            Some(Source::Local(local)) => local,
+            _ => panic!("local Strata snapshot"),
+        };
+        let gguf = local("fixture-inkling-gguf");
+        let pack = local("fixture-inkling-pack");
+        validate_snapshot(&gguf).expect("canonical Inkling GGUF plan");
+
+        let gguf_plan = gguf.desired_launch_plan.as_ref().expect("plan");
+        let pack_plan = pack.desired_launch_plan.as_ref().expect("plan");
+        let gguf_argv = argv(gguf_plan);
+        assert_eq!(gguf_argv[5..7], ["--inkling", "IQ3_S/Inkling-IQ3_S.gguf"]);
+        assert_eq!(gguf_argv[7..], argv(pack_plan)[7..]);
+        assert_eq!(
+            gguf_plan.artifact_bindings[1..],
+            pack_plan.artifact_bindings[1..]
+        );
+    }
+
+    #[test]
+    fn inkling_options_pass_the_kv_cache_type_the_vision_file_and_the_drafter() {
+        let launch = |vision: bool, dflash: bool, precision: &str| {
+            let Some(Source::Local(mut local)) =
+                inkling_model_snapshot("fixture-inkling-pack", vision, dflash).source
+            else {
+                panic!("local Strata snapshot");
+            };
+            let Some(OptionValue::String(value)) = local
+                .resolved_options
+                .iter_mut()
+                .filter_map(|option| option.values.as_mut())
+                .find(|values| values.option_id == "kv-cache")
+                .and_then(|values| values.values[0].value.as_mut())
+            else {
+                panic!("KV cache precision value");
+            };
+            *value = precision.to_owned();
+            refresh_launch_plan(&mut local);
+            validate_snapshot(&local).expect("canonical Inkling options plan");
+            let plan = local.desired_launch_plan.expect("plan");
+            let bindings = plan
+                .artifact_bindings
+                .iter()
+                .map(|binding| binding.binding_id.clone())
+                .collect::<Vec<_>>();
+            (argv(&plan)[15..].to_vec(), bindings)
+        };
+
+        assert_eq!(
+            launch(false, false, "fp8"),
+            (
+                strings(&["--kv", "fp8", "--port", "8080"]),
+                strings(&["model", "tokenizer"])
+            )
+        );
+        assert_eq!(
+            launch(true, false, "fp16"),
+            (
+                strings(&["--kv", "fp16", "--vision", "<vision>", "--port", "8080"]),
+                strings(&["model", "tokenizer", "vision"])
+            )
+        );
+        assert_eq!(
+            launch(false, true, "fp16"),
+            (
+                strings(&["--kv", "fp16", "--dflash", "<dflash>", "--port", "8080"]),
+                strings(&["model", "tokenizer", "dflash"])
+            )
+        );
+        assert_eq!(
+            launch(true, true, "fp16"),
+            (
+                strings(&[
+                    "--kv", "fp16", "--vision", "<vision>", "--dflash", "<dflash>", "--port",
+                    "8080"
+                ]),
+                strings(&["model", "tokenizer", "vision", "dflash"])
+            )
+        );
+    }
+
+    #[test]
+    fn snapshot_validation_requires_the_auxiliary_artifacts_in_the_plan_order() {
+        let Some(Source::Local(mut swapped)) =
+            inkling_model_snapshot("fixture-inkling-pack", true, true).source
+        else {
+            panic!("local Strata snapshot");
+        };
+        validate_snapshot(&swapped).expect("canonical Inkling plan");
+        assert_eq!(
+            swapped
+                .auxiliary_artifacts
+                .iter()
+                .map(|artifact| artifact.auxiliary_artifact_id.as_str())
+                .collect::<Vec<_>>(),
+            [
+                INKLING_TOKENIZER_ARTIFACT_ID,
+                VISION_ARTIFACT_ID,
+                DFLASH_ARTIFACT_ID
+            ]
+        );
+
+        swapped.auxiliary_artifacts.swap(1, 2);
+
+        assert!(matches!(
+            validate_snapshot(&swapped),
+            Err(StrataPlanError::InvalidResolvedState)
+        ));
+    }
+
+    #[test]
+    fn inkling_files_must_be_resolved() {
+        for (index, expected) in [
+            (0, "Strata launch plan has no resolved tokenizer artifact"),
+            (1, "Strata launch plan has no resolved vision file artifact"),
+            (
+                2,
+                "Strata launch plan has no resolved drafter file artifact",
+            ),
         ] {
-            let mut local = local_with("inkling-2-mini", &inkling_pack_configuration());
+            let Some(Source::Local(mut local)) =
+                inkling_model_snapshot("fixture-inkling-pack", true, true).source
+            else {
+                panic!("local Strata snapshot");
+            };
+            local.auxiliary_artifacts.remove(index);
+
+            assert_eq!(
+                translate(&local).expect_err("unresolved file").to_string(),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn an_inkling_artifact_without_a_single_plain_model_file_cannot_launch() {
+        for files in [
+            vec!["config.json"],
+            vec!["SQ-10.strata", "SQ-15.strata"],
+            vec!["SQ-10.strata", "IQ3_S.gguf"],
+            vec![".strata"],
+            vec![".gguf"],
+            vec!["--port=1.strata"],
+            vec!["../IQ3_S.gguf"],
+        ] {
+            let mut local = local_with("inkling-2-mini", &inkling_configuration());
             let Some(HuggingFaceContent::Snapshot(snapshot)) = local
                 .model_artifact
                 .as_mut()
@@ -697,7 +980,7 @@ mod tests {
 
             assert_eq!(
                 translate(&local).expect_err("no single pack").to_string(),
-                "Strata launch plan's model artifact holds no single Inkling pack file",
+                "Strata launch plan's model artifact holds no single Inkling model file",
                 "{files:?}"
             );
         }
@@ -915,12 +1198,12 @@ mod tests {
         for (format_version, expected) in [
             (
                 PLAN_FORMAT_VERSION - 1,
-                "Strata deployment was created with launch plan format 2, which this Dotcore \
+                "Strata deployment was created with launch plan format 3, which this Dotcore \
                  version no longer supports; delete and recreate the deployment",
             ),
             (
                 PLAN_FORMAT_VERSION + 1,
-                "Strata deployment was created with launch plan format 4 by a newer Dotcore \
+                "Strata deployment was created with launch plan format 5 by a newer Dotcore \
                  version; upgrade Dotcore, or delete and recreate the deployment with this version",
             ),
         ] {
@@ -976,10 +1259,10 @@ mod tests {
 
     /// Renders the plan with the single-file model binding at its container path and other
     /// bindings as `<binding>`. Only a single GGUF binds one file: a plan with a draft layer or an
-    /// Inkling pack binds a folder.
+    /// Inkling model binds a folder.
     fn argv(plan: &PortableModelLaunchPlan) -> Vec<String> {
         let folder =
-            plan.artifact_bindings.len() > 1 || plan.arguments.contains(&literal("--inkling-pack"));
+            plan.artifact_bindings.len() > 1 || plan.arguments.contains(&literal("--inkling"));
         plan.arguments
             .iter()
             .map(|argument| match argument.value.as_ref() {
@@ -991,5 +1274,9 @@ mod tests {
                 other => panic!("unexpected argument {other:?}"),
             })
             .collect()
+    }
+
+    fn strings(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_owned()).collect()
     }
 }

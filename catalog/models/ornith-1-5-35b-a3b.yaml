@@ -655,7 +655,7 @@ profiles:
   - profileId: "fp8"
     displayName: "Ornith FP8"
     description: "Runs Ornith 1.5 35B A3B through vLLM on NVIDIA GPUs with more than 32 GB of memory."
-    configurationId: "vllm-nvidia-cuda-fp8"
+    configurationIds: ["vllm-nvidia-cuda-fp8"]
     defaultModelArtifactBindingId: "fp8"
     engineParameterDefaults:
       values:
@@ -673,7 +673,7 @@ profiles:
   - profileId: "nvfp4"
     displayName: "Ornith NVFP4"
     description: "Runs Ornith 1.5 35B A3B through vLLM for Linux NVIDIA inference."
-    configurationId: "vllm-nvidia-cuda-nvfp4"
+    configurationIds: ["vllm-nvidia-cuda-nvfp4"]
     defaultModelArtifactBindingId: "nvfp4"
     engineParameterDefaults:
       values:
@@ -691,7 +691,7 @@ profiles:
   - profileId: "q4-k-m"
     displayName: "Ornith Q4_K_M"
     description: "Uses the balanced Q4 weights through llama.cpp."
-    configurationId: "llama-cpp"
+    configurationIds: ["llama-cpp"]
     defaultModelArtifactBindingId: "q4-k-m"
     engineParameterDefaults:
       values:
@@ -705,7 +705,7 @@ profiles:
   - profileId: "q5-k-m"
     displayName: "Ornith Q5_K_M"
     description: "Uses the higher-precision Q5 weights through llama.cpp."
-    configurationId: "llama-cpp"
+    configurationIds: ["llama-cpp"]
     defaultModelArtifactBindingId: "q5-k-m"
     engineParameterDefaults:
       values:
@@ -719,7 +719,7 @@ profiles:
   - profileId: "q6-k"
     displayName: "Ornith Q6_K"
     description: "Uses the near-lossless Q6 weights through llama.cpp."
-    configurationId: "llama-cpp"
+    configurationIds: ["llama-cpp"]
     defaultModelArtifactBindingId: "q6-k"
     engineParameterDefaults:
       values:
@@ -733,7 +733,7 @@ profiles:
   - profileId: "q8-0"
     displayName: "Ornith Q8_0"
     description: "Uses the highest-precision Q8 weights through llama.cpp on devices with more than 32 GB of memory."
-    configurationId: "llama-cpp"
+    configurationIds: ["llama-cpp"]
     defaultModelArtifactBindingId: "q8-0"
     engineParameterDefaults:
       values:

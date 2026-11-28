@@ -5,8 +5,9 @@
 //! on the GPU in host memory, through an OpenAI-compatible HTTP server started by Dotcore's keyless
 //! start wrapper. Its main engine runs a single GGUF read in place, split GGUF shards Strata packs
 //! on first start, or a ready-made pack, the last two with a separate draft layer; its Inkling
-//! engine runs a ready-made Inkling pack that carries its own drafter. Callers reach it only through
-//! its engine definition.
+//! engine runs one native Inkling model file, a ready-made pack or a GGUF, with a separate tokenizer
+//! and, while drafting is on, a separate drafter. Callers reach it only through its engine
+//! definition.
 
 mod binding;
 mod declaration;
@@ -28,8 +29,8 @@ use dotcore_proto::dotcore::{
     },
     engine::{
         strata::v1::{
-            StrataFixedModelSettings, StrataMainEngine, strata_fixed_model_settings::EnginePath,
-            strata_main_engine::ModelFiles,
+            StrataFixedModelSettings, StrataInklingEngine, StrataMainEngine,
+            strata_fixed_model_settings::EnginePath, strata_main_engine::ModelFiles,
         },
         v1::{EngineKind, ResolvedEngineModelState},
     },
@@ -59,8 +60,8 @@ const SERVICE_PORT: u16 = 8080;
 /// Largest MTP draft depth Strata's start wrapper accepts.
 const MAXIMUM_MTP_DRAFT_TOKENS: u32 = 8;
 
-/// File extension of an Inkling pack, the file Strata's Inkling engine reads.
-const INKLING_PACK_EXTENSION: &str = ".strata";
+/// File extensions of the native model files Strata's Inkling engine reads: a pack and a GGUF.
+const INKLING_MODEL_EXTENSIONS: [&str; 2] = [".strata", ".gguf"];
 
 /// Inference request kinds Strata serves: chat only.
 const REQUEST_KINDS: &[InferenceRequestKind] = &[InferenceRequestKind::Chat];
@@ -128,6 +129,13 @@ impl EngineDefinition for Strata {
         realization::realize_model(model, configuration, binding, option_values)
     }
 
+    fn selectable_auxiliary_artifact_sets(
+        &self,
+        configuration: &ModelEngineConfiguration,
+    ) -> Vec<std::collections::BTreeSet<String>> {
+        realization::selectable_auxiliary_artifact_sets(configuration)
+    }
+
     fn validate_snapshot(
         &self,
         snapshot: &ResolvedLocalModelDeploymentSnapshot,
@@ -190,20 +198,38 @@ impl EngineDefinition for Strata {
 /// Whether fixed settings name an engine path the wrapper accepts: for the main engine, an
 /// architecture it accepts, an MTP draft depth within its range, and model files it can locate (a
 /// draft layer for the pack path, plain relative paths for a ready-made pack). The Inkling engine
-/// takes its pack file from the bound model artifact, so its settings are always valid.
+/// takes its model file from the bound model artifact, so its settings only need a tokenizer.
 fn valid_fixed_settings(fixed: &StrataFixedModelSettings) -> bool {
     match fixed.engine_path.as_ref() {
         Some(EnginePath::MainEngine(main)) => valid_main_engine(main),
-        Some(EnginePath::InklingPack(_)) => true,
+        Some(EnginePath::InklingEngine(inkling)) => {
+            !inkling.tokenizer_auxiliary_artifact_id.is_empty()
+        }
         None => false,
     }
+}
+
+/// The model-local auxiliary artifact every binding selects: the draft layer on the main engine's
+/// pack path, the tokenizer on the Inkling engine.
+fn bound_auxiliary_artifact_id(fixed: &StrataFixedModelSettings) -> Option<&str> {
+    draft_layer_artifact_id(fixed).or_else(|| {
+        inkling_engine(fixed).map(|inkling| inkling.tokenizer_auxiliary_artifact_id.as_str())
+    })
 }
 
 /// The main engine settings of fixed settings, when the main engine runs the model.
 fn main_engine(fixed: &StrataFixedModelSettings) -> Option<&StrataMainEngine> {
     match fixed.engine_path.as_ref()? {
         EnginePath::MainEngine(main) => Some(main),
-        EnginePath::InklingPack(_) => None,
+        EnginePath::InklingEngine(_) => None,
+    }
+}
+
+/// The Inkling engine settings of fixed settings, when the Inkling engine runs the model.
+fn inkling_engine(fixed: &StrataFixedModelSettings) -> Option<&StrataInklingEngine> {
+    match fixed.engine_path.as_ref()? {
+        EnginePath::InklingEngine(inkling) => Some(inkling),
+        EnginePath::MainEngine(_) => None,
     }
 }
 
@@ -242,23 +268,22 @@ fn valid_main_engine(main: &StrataMainEngine) -> bool {
         && (1..=MAXIMUM_MTP_DRAFT_TOKENS).contains(&main.mtp_draft_tokens)
 }
 
-/// The Inkling pack file within a model artifact: its only `.strata` file at a plain relative path.
-/// None when the artifact isn't a snapshot or holds no such file, or several.
-fn inkling_pack_path(content: Option<&HuggingFaceContent>) -> Option<&str> {
+/// The native Inkling model file within a model artifact: its only `.strata` or `.gguf` file, at a
+/// plain relative path. None when the artifact isn't a snapshot or holds no such file, or several.
+fn inkling_model_path(content: Option<&HuggingFaceContent>) -> Option<&str> {
     let Some(HuggingFaceContent::Snapshot(snapshot)) = content else {
         return None;
     };
-    let mut packs = snapshot
-        .files
-        .iter()
-        .map(|file| file.path.as_str())
-        .filter(|path| path.ends_with(INKLING_PACK_EXTENSION));
-    let pack = packs.next()?;
-    let name = pack.rsplit('/').next().unwrap_or_default();
-    (packs.next().is_none()
-        && plain_relative_path(pack)
-        && name.len() > INKLING_PACK_EXTENSION.len())
-    .then_some(pack)
+    let mut models = snapshot.files.iter().filter_map(|file| {
+        let extension = INKLING_MODEL_EXTENSIONS
+            .into_iter()
+            .find(|extension| file.path.ends_with(extension))?;
+        Some((file.path.as_str(), extension))
+    });
+    let (model, extension) = models.next()?;
+    let name = model.rsplit('/').next().unwrap_or_default();
+    (models.next().is_none() && plain_relative_path(model) && name.len() > extension.len())
+        .then_some(model)
 }
 
 /// Whether `path` names a file or folder below an artifact's root without leaving it. The wrapper

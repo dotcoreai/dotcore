@@ -80,7 +80,7 @@ describe("local deployment configuration", () => {
     const model = create(ModelSchema, {
       ...runtimeSchemaModel,
       configurations: runtimeSchemaModel.configurations.map((configuration) =>
-        configuration.configurationId === profile.configurationId
+        configuration.configurationId === profile.configurationIds[0]
           ? { ...configuration, excludedEngineParameterIds: ["kv-offloading-size-gib"] }
           : configuration,
       ),

@@ -3169,7 +3169,7 @@ profiles:
   - profileId: "fixture-profile"
     displayName: "Fixture profile"
     description: "Launches the development-source Nix fixture engine."
-    configurationId: "fixture-configuration"
+    configurationIds: ["fixture-configuration"]
     defaultModelArtifactBindingId: "fixture-artifact"
     engineParameterDefaults:
       values:

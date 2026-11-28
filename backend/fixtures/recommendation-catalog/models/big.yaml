@@ -35,7 +35,7 @@ configurations:
 profiles:
   - profileId: "q4"
     displayName: "Fixture Q4"
-    configurationId: "llama"
+    configurationIds: ["llama"]
     defaultModelArtifactBindingId: "weights"
     engineParameterDefaults:
       values: [{ parameterId: "prompt-cache-memory-mib", unsignedInteger: "0" }]

@@ -342,7 +342,7 @@ export const runtimeSchemaModel = create(ModelSchema, {
     {
       profileId: "q4-xl",
       displayName: "Q4_K_XL",
-      configurationId: "nvidia-cuda",
+      configurationIds: ["nvidia-cuda"],
       defaultModelArtifactBindingId: "q4-xl",
       engineParameterDefaults: {
         values: [unsignedValue("prompt-cache-memory-mib", 8192n)],
@@ -351,7 +351,7 @@ export const runtimeSchemaModel = create(ModelSchema, {
     {
       profileId: "q4-xl-no-mtp",
       displayName: "Q4_K_XL without MTP",
-      configurationId: "nvidia-cuda",
+      configurationIds: ["nvidia-cuda"],
       defaultModelArtifactBindingId: "q4-xl",
       engineParameterDefaults: {
         values: [unsignedValue("prompt-cache-memory-mib", 8192n)],
@@ -362,7 +362,7 @@ export const runtimeSchemaModel = create(ModelSchema, {
       profileId: "nvfp4-text",
       displayName: "NVFP4 text",
       description: "Runs Qwen3.8 27B through vLLM for text inference.",
-      configurationId: "vllm-nvidia-cuda",
+      configurationIds: ["vllm-nvidia-cuda"],
       defaultModelArtifactBindingId: "nvfp4",
       engineParameterDefaults: {
         values: [
@@ -376,7 +376,7 @@ export const runtimeSchemaModel = create(ModelSchema, {
       profileId: "ninfer-nvfp4",
       displayName: "NVFP4 ninfer",
       description: "Runs Qwen3.8 27B through ninfer on an RTX 5090 for text and image inference.",
-      configurationId: "ninfer-nvidia-gb202",
+      configurationIds: ["ninfer-nvidia-gb202"],
       defaultModelArtifactBindingId: "ninfer-nvfp4",
       engineParameterDefaults: {
         values: [unsignedValue("parallel-requests", 4n), unsignedValue("host-context-mib", 20480n)],
@@ -562,7 +562,7 @@ export function modelWithStrata(
     create(ModelProfileSchema, {
       profileId: "strata",
       displayName: "Strata",
-      configurationId: "strata-nvidia-cuda",
+      configurationIds: ["strata-nvidia-cuda"],
       defaultModelArtifactBindingId: "strata-q4",
       ...profile,
     }),
