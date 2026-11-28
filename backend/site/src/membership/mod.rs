@@ -22,7 +22,7 @@ pub use list::{ListedNode, ListedTarget, NodeListError, SiteNodeListing, list_si
 pub use live_removal::{
     MachineRemoval, MachineRemovalError, MachineRemovalOutcome, NodeConnectivity,
 };
-pub use management::MembershipManagementService;
+pub use management::{MembershipManagementService, removal_plan};
 pub use offline::{OfflineSite, OfflineSiteError};
 pub use recorder::MembershipRecorder;
 pub use removal::{

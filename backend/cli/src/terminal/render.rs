@@ -151,14 +151,19 @@ impl Symbols {
         if self.unicode { "› " } else { "> " }
     }
 
-    /// The shade of the color at `index` in a grid, told apart without colors.
-    fn shade(self, index: usize) -> &'static str {
+    /// The shade at `index`, such as a grid color's or a bar fill's, told apart without colors.
+    pub(super) fn shade(self, index: usize) -> &'static str {
         let shades = if self.unicode {
             ["█", "▓", "░"]
         } else {
             ["#", "+", "."]
         };
         shades[index % shades.len()]
+    }
+
+    /// The mark of a line drawn across a bar.
+    pub(super) fn marker(self) -> &'static str {
+        if self.unicode { "│" } else { "|" }
     }
 }
 
@@ -192,12 +197,23 @@ impl Message {
                 lines: next_lines(steps, symbols),
             },
             Self::ColorGrid { colors, rows } => spaced(grid_lines(colors, rows, symbols)),
+            Self::Bars(chart) => spaced(chart.lines(symbols)),
         }
     }
 
     /// Renders the message as unstyled lines with Unicode marks, without separating blank lines.
     pub fn plain_lines(&self) -> Vec<String> {
         self.render(Symbols::UNICODE)
+            .lines
+            .iter()
+            .map(plain_text)
+            .collect()
+    }
+
+    /// Renders the message as unstyled lines with the ASCII marks of terminals without Unicode.
+    #[cfg(test)]
+    pub(crate) fn ascii_lines(&self) -> Vec<String> {
+        self.render(Symbols::ASCII)
             .lines
             .iter()
             .map(plain_text)
@@ -402,7 +418,7 @@ fn grid_lines(
     lines
 }
 
-fn text_width(text: &str) -> usize {
+pub(super) fn text_width(text: &str) -> usize {
     Span::raw(text).width()
 }
 

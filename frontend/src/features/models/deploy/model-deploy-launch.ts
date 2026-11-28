@@ -72,6 +72,11 @@ export interface ContextStart {
   /** The context per request, when lowered because one request at the asked size doesn't fit. */
   contextTokensPerRequest?: number;
   totalContextTokens?: number;
+  /**
+   * While the current context's read is pending, the largest total context the last read fit on
+   * the target; a following total stays under it until the read gives the starting values.
+   */
+  totalCeilingTokens?: number;
 }
 
 export type ModelDeployStep = (typeof MODEL_DEPLOY_STEPS)[number];
@@ -81,21 +86,31 @@ export type ModelDeployField = string;
 
 /**
  * Every step in flow order. Capabilities shows only when the profile has a basic option to ask, and
- * Performance & memory and Engine only in advanced mode.
+ * Performance & memory and Command only in advanced mode.
  */
 export const MODEL_DEPLOY_STEPS = [
   "Model & machine",
   "Capabilities",
   "Context",
   "Performance & memory",
-  "Engine",
+  "Command",
   "Review & deploy",
 ] as const;
+
+/** The step bar's short names, which keep its labels on one line. */
+export const MODEL_DEPLOY_STEP_LABELS: Readonly<Record<ModelDeployStep, string>> = {
+  Capabilities: "Capabilities",
+  Command: "Command",
+  Context: "Context",
+  "Model & machine": "Model",
+  "Performance & memory": "Performance",
+  "Review & deploy": "Review",
+};
 
 /** The steps that show only in advanced mode. */
 export const MODEL_DEPLOY_ADVANCED_STEPS: readonly ModelDeployStep[] = [
   "Performance & memory",
-  "Engine",
+  "Command",
 ];
 
 /** Keys a launch rejection among the Context step's errors. */
@@ -148,9 +163,12 @@ export function useLaunchEngineValues(
         tokenInput(start?.totalContextTokens) ??
         tokenInput(scenario?.totalContextTokens) ??
         inputs.get(TOTAL_CONTEXT_PARAMETER_ID) ??
-        product(
-          inputs.get(CONTEXT_PER_REQUEST_PARAMETER_ID),
-          inputs.get(PARALLEL_REQUESTS_PARAMETER_ID),
+        capped(
+          product(
+            inputs.get(CONTEXT_PER_REQUEST_PARAMETER_ID),
+            inputs.get(PARALLEL_REQUESTS_PARAMETER_ID),
+          ),
+          start?.totalCeilingTokens,
         ),
     );
     return { declaredValues: startingValues, engineParameterInputs: inputs };
@@ -310,6 +328,13 @@ function profileSpeculativeChoice(model: Model, profileId: string): SpeculativeC
 
 function tokenInput(value: number | undefined): string | undefined {
   return value === undefined ? undefined : String(value);
+}
+
+// A whole number input lowered to the ceiling, when there is one.
+function capped(input: string | undefined, ceiling: number | undefined): string | undefined {
+  return input !== undefined && ceiling !== undefined && BigInt(input) > BigInt(ceiling)
+    ? String(ceiling)
+    : input;
 }
 
 // The context per request times the parallel requests, while both inputs hold whole numbers.

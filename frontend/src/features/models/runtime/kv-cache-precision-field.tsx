@@ -23,10 +23,10 @@ export function KvCachePrecisionField({
 }: KvCachePrecisionFieldProps) {
   return (
     <Field
-      className="min-w-0 gap-2 rounded-lg border border-border bg-card p-4 text-sm font-semibold"
       controlId="kv-cache-precision"
       help={option.description || undefined}
       label={option.displayName}
+      summary={option.summary || undefined}
     >
       {(control) => (
         <NativeSelect

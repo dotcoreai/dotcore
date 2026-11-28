@@ -84,9 +84,9 @@ pub fn stored<S: CurrentStateStore>(store: &S) -> Result<S::State, StoreError> {
 }
 
 /// Model deployment identity allocator for sites built by tests; every valid site declares one.
-pub fn identity_allocator() -> dotcore_proto::dotcore::site::v1::ModelDeploymentIdentityAllocator {
-    dotcore_proto::dotcore::site::v1::ModelDeploymentIdentityAllocator {
-        namespace: "0123456789abcdef".to_owned(),
+pub fn identity_allocator() -> dotcore_proto::dotcore::site::v1::DeploymentIdentityAllocator {
+    dotcore_proto::dotcore::site::v1::DeploymentIdentityAllocator {
+        suffix_key: "0123456789abcdef".to_owned(),
         next_sequence: 1,
     }
 }

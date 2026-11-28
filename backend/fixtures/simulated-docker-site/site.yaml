@@ -19,6 +19,6 @@ executionTargets:
   platform: { operatingSystem: linux, architecture: amd64 }
   applicationRuntime: { dockerRuntime: {} }
 applicationDeployments: []
-modelDeploymentIdentityAllocator:
-  namespace: 509dc0459d436713
+deploymentIdentityAllocator:
+  suffixKey: 509dc0459d436713
   nextSequence: '1'

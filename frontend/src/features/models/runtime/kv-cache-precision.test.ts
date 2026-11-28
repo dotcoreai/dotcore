@@ -42,6 +42,7 @@ describe("KV cache precision", () => {
       description: "Lower precision fits more context.",
       displayName: "KV cache precision",
       optionId: "kv-cache",
+      summary: "Trades cache precision for context.",
     });
     expect(option(modelWithKvCachePrecision("q8_0"))?.defaultPrecision).toBe("q8_0");
     expect(option(modelWithKvCachePrecision("q8_0"), false)?.defaultPrecision).toBe("f16");

@@ -10,7 +10,7 @@ use dotcore_proto::dotcore::application::v1::{
     ApplicationReadinessState, ApplicationServiceLifecycleState,
 };
 
-use crate::management::Addressable;
+use crate::reference::Referable;
 
 /// The state word of the deployment, for example `Pausing`. A requested teardown reads
 /// `Tearing down`, a requested pause reads `Pausing` until the workloads are paused or
@@ -184,7 +184,7 @@ fn lifecycle_label(state: ApplicationLifecycleState) -> &'static str {
     }
 }
 
-impl Addressable for ApplicationDeployment {
+impl Referable for ApplicationDeployment {
     fn id(&self) -> &str {
         &self.application_deployment_id
     }
@@ -193,8 +193,8 @@ impl Addressable for ApplicationDeployment {
         presentation_name(self)
     }
 
-    fn stored_name(&self) -> &str {
-        &self.application_deployment_name
+    fn aliases(&self) -> Vec<&str> {
+        vec![&self.application_deployment_name]
     }
 }
 

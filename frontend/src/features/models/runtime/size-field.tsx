@@ -34,6 +34,8 @@ interface SizeFieldProps {
   range?: SizeRange;
   /** The range the slider is drawn over, shared with sibling fields so they line up. */
   sliderRange?: SizeRange;
+  /** One line telling a newcomer what the parameter does, shown under the label. */
+  summary?: string;
 }
 
 /**
@@ -56,6 +58,7 @@ export function SizeField({
   parameter,
   range,
   sliderRange,
+  summary,
 }: SizeFieldProps) {
   if (parameter.parameterType.case !== "unsignedInteger") return null;
 
@@ -79,6 +82,7 @@ export function SizeField({
       }
       help={help}
       label={parameter.displayName}
+      summary={summary}
     >
       {(control) => (
         <SizeInput

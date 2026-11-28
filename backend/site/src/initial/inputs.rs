@@ -20,8 +20,8 @@ use dotcore_proto::{
         node::v1::{DeclaredMachine, LoggingConfig, NodeConfiguration},
         observation::v1::AcceleratorFacts,
         site::v1::{
-            ApplicationRuntimeBinding, DockerAcceleratorTransport, DockerApplicationRuntimeAdapter,
-            DockerRuntimeAdapter, ExecutionTarget, ModelDeploymentIdentityAllocator,
+            ApplicationRuntimeBinding, DeploymentIdentityAllocator, DockerAcceleratorTransport,
+            DockerApplicationRuntimeAdapter, DockerRuntimeAdapter, ExecutionTarget,
             ModelRuntimeBinding, NativeRuntimeAdapter, NativeWorkloadLifetime,
             SimulatedApplicationRuntimeAdapter, SimulatedRuntimeAdapter, SimulatedRuntimeScenario,
             Site, SiteManagerRole, SiteNode, application_runtime_binding, execution_target,
@@ -100,8 +100,10 @@ impl InitialSiteInputs {
             inference_routes: Vec::new(),
             hardware_observation: None,
             console_settings: None,
-            model_deployment_identity_allocator: Some(ModelDeploymentIdentityAllocator {
-                namespace: crate::store::model_deployment_identity_namespace(identities.site_id()),
+            deployment_identity_allocator: Some(DeploymentIdentityAllocator {
+                suffix_key: crate::deployment_identity::format_suffix_key(
+                    identities.deployment_suffix_key(),
+                ),
                 next_sequence: 1,
             }),
         };

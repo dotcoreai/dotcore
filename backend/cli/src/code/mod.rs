@@ -105,7 +105,7 @@ impl CodeArgs {
     /// The named route, else the one picked on the terminal.
     fn choose_route<'a>(&self, routes: &'a [String]) -> anyhow::Result<&'a str> {
         match &self.model {
-            Some(name) => Ok(find_route(self.agent, routes, name)?),
+            Some(name) => find_route(self.agent, routes, name),
             // The picker's terminal is dropped at the end of this arm, restoring the terminal
             // mode before the agent takes it over.
             None => pick_route(self.agent, routes, open_terminal().as_mut()),
@@ -142,7 +142,7 @@ pub(crate) enum CodeError {
     #[error("the site has no ready inference route; create one, or wait for its model to be ready")]
     NoRoute,
 
-    #[error("no ready inference route is named {name:?}; ready routes: {}", .ready.join(", "))]
+    #[error("no ready inference route matches {name:?}; ready routes: {}", .ready.join(", "))]
     UnknownRoute {
         agent: CodingAgent,
         name: String,
@@ -201,7 +201,7 @@ mod tests {
         ])
         .expect("code command");
 
-        let Command::Code(code) = cli.command else {
+        let Some(Command::Code(code)) = cli.command else {
             panic!("code command");
         };
         assert_eq!(code.agent, CodingAgent::Opencode);

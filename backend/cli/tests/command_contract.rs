@@ -28,7 +28,7 @@ use dotcore_site::{
 
 use support::{
     command::{detach_from_controlling_terminal, dotc, isolated_dotc},
-    pty::{Session, Stdin, Step, run_in_pty},
+    pty::{Session, Stdin, Step, attach_controlling_terminal, run_in_pty},
 };
 
 #[test]
@@ -39,6 +39,77 @@ fn version_command_runs_successfully() {
         text(&version.stdout).trim(),
         concat!("dotc ", env!("CARGO_PKG_VERSION"))
     );
+}
+
+#[test]
+fn skill_prints_a_valid_agent_skill_listing_every_visible_leaf_command_once() {
+    let output = isolated_dotc()
+        .arg("--skill")
+        .output()
+        .expect("run dotc skill");
+    assert!(output.status.success());
+    assert_eq!(text(&output.stderr), "");
+    let skill = text(&output.stdout);
+
+    let (frontmatter, body) = skill
+        .strip_prefix("---\n")
+        .and_then(|rest| rest.split_once("\n---\n"))
+        .expect("frontmatter");
+    let frontmatter: serde_json::Value = serde_yaml_ng::from_str(frontmatter).expect("YAML");
+    let name = frontmatter["name"].as_str().expect("name");
+    assert_eq!(name, "dotc");
+    assert!(name.len() <= 64 && name.chars().all(|c| c.is_ascii_lowercase() || c == '-'));
+    let description = frontmatter["description"].as_str().expect("description");
+    assert!(
+        !description.is_empty() && description.len() <= 1024,
+        "{description}"
+    );
+    assert!(
+        frontmatter["compatibility"]
+            .as_str()
+            .expect("compatibility")
+            .len()
+            <= 500
+    );
+    assert_eq!(
+        frontmatter["metadata"]["version"],
+        serde_json::json!(env!("CARGO_PKG_VERSION"))
+    );
+    assert!(body.lines().count() < 500);
+
+    let mut leaves = Vec::new();
+    collect_visible_leaves(&command_tree(), "dotc", &mut leaves);
+    assert!(leaves.len() > 30, "{leaves:?}");
+    for leaf in &leaves {
+        let lines = body
+            .lines()
+            .filter(|line| {
+                line.strip_prefix(leaf.as_str())
+                    .is_some_and(|rest| rest.is_empty() || rest.starts_with([' ']))
+                    && line.contains(" # ")
+            })
+            .count();
+        assert_eq!(lines, 1, "{leaf}");
+    }
+    assert!(body.contains("\nRun `dotc <command> --help` for flags.\n"));
+}
+
+#[test]
+fn skill_is_exclusive_with_commands_and_other_arguments() {
+    for arguments in [
+        &["--skill", "model", "list"][..],
+        &["--skill", "--yaml"][..],
+        &["--yaml", "--skill"][..],
+    ] {
+        let output = isolated_dotc().args(arguments).output().expect("run dotc");
+        assert_eq!(output.status.code(), Some(2), "{arguments:?}");
+        assert_eq!(text(&output.stdout), "", "{arguments:?}");
+        assert!(
+            text(&output.stderr).contains("--skill cannot be combined with other arguments"),
+            "{arguments:?}: {}",
+            text(&output.stderr)
+        );
+    }
 }
 
 #[test]
@@ -59,7 +130,6 @@ fn config_show_reports_explicit_xdg_and_home_paths_without_mutation() {
                 "cacheDir": fixture.root.join("explicit-cache"),
                 "modelArtifactCacheDir": fixture.root.join("explicit-cache/model-artifacts/v1"),
                 "workloadCacheDir": fixture.root.join("explicit-cache/workload-cache/v2"),
-                "nodeHost": serde_json::Value::Null,
             }),
         ),
         (
@@ -71,11 +141,9 @@ fn config_show_reports_explicit_xdg_and_home_paths_without_mutation() {
             serde_json::json!({
                 "role": "manager",
                 "siteDir": fixture.root.join("xdg-state/dotcore/site"),
-                "masterCatalogDir": serde_json::Value::Null,
                 "cacheDir": fixture.root.join("xdg-cache/dotcore"),
                 "modelArtifactCacheDir": fixture.root.join("xdg-cache/dotcore/model-artifacts/v1"),
                 "workloadCacheDir": fixture.root.join("xdg-cache/dotcore/workload-cache/v2"),
-                "nodeHost": serde_json::Value::Null,
             }),
         ),
         (
@@ -83,11 +151,9 @@ fn config_show_reports_explicit_xdg_and_home_paths_without_mutation() {
             serde_json::json!({
                 "role": "manager",
                 "siteDir": fixture.root.join("home/.local/state/dotcore/site"),
-                "masterCatalogDir": serde_json::Value::Null,
                 "cacheDir": fixture.root.join("home/.cache/dotcore"),
                 "modelArtifactCacheDir": fixture.root.join("home/.cache/dotcore/model-artifacts/v1"),
                 "workloadCacheDir": fixture.root.join("home/.cache/dotcore/workload-cache/v2"),
-                "nodeHost": serde_json::Value::Null,
             }),
         ),
     ];
@@ -95,7 +161,7 @@ fn config_show_reports_explicit_xdg_and_home_paths_without_mutation() {
     for (environment, expected) in cases {
         let mut command = dotc();
         command
-            .args(["config", "show", "--format", "json"])
+            .args(["--yaml", "config", "show"])
             .clear_test_environment();
         for (name, value) in environment {
             command.env(name, value);
@@ -103,11 +169,7 @@ fn config_show_reports_explicit_xdg_and_home_paths_without_mutation() {
         let output = command.output().expect("run config show");
         assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
         assert!(output.stderr.is_empty());
-        assert_eq!(
-            serde_json::from_slice::<serde_json::Value>(&output.stdout)
-                .expect("configuration JSON"),
-            expected
-        );
+        assert_eq!(support::yaml_documents(&text(&output.stdout)), [expected]);
     }
 
     assert_eq!(
@@ -116,6 +178,35 @@ fn config_show_reports_explicit_xdg_and_home_paths_without_mutation() {
             .count(),
         0,
         "configuration inspection must not create resolved paths"
+    );
+}
+
+#[test]
+fn config_show_prints_labeled_values_for_a_person() {
+    let fixture = TemporarySite::new();
+
+    let output = dotc()
+        .args(["config", "show", "--site-dir"])
+        .arg(fixture.site_path())
+        .args(["--cache-dir"])
+        .arg(fixture.root.join("cache"))
+        .clear_test_environment()
+        .env("HOME", fixture.root.join("home"))
+        .output()
+        .expect("run config show");
+
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert!(output.stderr.is_empty());
+    let cache = fixture.root.join("cache");
+    assert_eq!(
+        text(&output.stdout),
+        format!(
+            "  role                         manager\n  site folder                  {}\n  cache folder                 {}\n  model artifact cache folder  {}\n  workload cache folder        {}\n  node host                    127.0.0.2\n",
+            fixture.site_path().display(),
+            cache.display(),
+            cache.join("model-artifacts/v1").display(),
+            cache.join("workload-cache/v2").display(),
+        )
     );
 }
 
@@ -136,19 +227,19 @@ fn config_show_reports_the_node_role_from_the_folder_contents() {
             std::fs::write(site.join(file), "").expect("create folder file");
         }
         let output = dotc()
-            .args(["config", "show", "--format", "json"])
+            .args(["--yaml", "config", "show"])
             .clear_test_environment()
             .env("DOTCORE_SITE_DIR", &site)
             .env("HOME", fixture.root.join("home"))
             .output()
             .expect("run config show");
         assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
-        let json = serde_json::from_slice::<serde_json::Value>(&output.stdout)
-            .expect("configuration JSON");
-        assert_eq!(json["role"], expected, "role of the {name} folder");
-        assert_eq!(
-            json["nodeHost"],
-            serde_json::Value::Null,
+        let [document] = &support::yaml_documents(&text(&output.stdout))[..] else {
+            panic!("one configuration document");
+        };
+        assert_eq!(document["role"], expected, "role of the {name} folder");
+        assert!(
+            document.get("nodeHost").is_none(),
             "node host of the {name} folder"
         );
     }
@@ -159,7 +250,7 @@ fn config_show_reports_the_node_host_a_manager_site_records() {
     let fixture = TemporarySite::new();
 
     let output = dotc()
-        .args(["config", "show", "--format", "json", "--site-dir"])
+        .args(["--yaml", "config", "show", "--site-dir"])
         .arg(fixture.site_path())
         .clear_test_environment()
         .env("HOME", fixture.root.join("home"))
@@ -167,16 +258,17 @@ fn config_show_reports_the_node_host_a_manager_site_records() {
         .expect("run config show");
 
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
-    let json =
-        serde_json::from_slice::<serde_json::Value>(&output.stdout).expect("configuration JSON");
-    assert_eq!(json["role"], "manager");
-    assert_eq!(json["nodeHost"], "127.0.0.2");
+    let [document] = &support::yaml_documents(&text(&output.stdout))[..] else {
+        panic!("one configuration document");
+    };
+    assert_eq!(document["role"], "manager");
+    assert_eq!(document["nodeHost"], "127.0.0.2");
 }
 
 #[test]
 fn config_show_rejects_invalid_xdg_inputs_with_actionable_diagnostics() {
     let output = dotc()
-        .args(["config", "show", "--format", "json"])
+        .args(["--yaml", "config", "show"])
         .clear_test_environment()
         .env("XDG_STATE_HOME", "relative-state")
         .env("XDG_CACHE_HOME", "/cache")
@@ -203,7 +295,6 @@ fn config_show_applies_the_root_paths_before_or_after_the_command_and_over_the_e
         "cacheDir": root.join("k"),
         "modelArtifactCacheDir": root.join("k/model-artifacts/v1"),
         "workloadCacheDir": root.join("k/workload-cache/v2"),
-        "nodeHost": serde_json::Value::Null,
     });
     let flags = [
         ("--site-dir", root.join("s")),
@@ -226,7 +317,7 @@ fn config_show_applies_the_root_paths_before_or_after_the_command_and_over_the_e
                 command.arg(flag).arg(value);
             }
         }
-        command.args(["config", "show", "--format", "json"]);
+        command.args(["--yaml", "config", "show"]);
         if !before {
             for (flag, value) in &flags {
                 command.arg(format!("{flag}={}", value.display()));
@@ -235,19 +326,19 @@ fn config_show_applies_the_root_paths_before_or_after_the_command_and_over_the_e
         let output = command.output().expect("run config show");
         assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
         assert!(output.stderr.is_empty());
-        serde_json::from_slice::<serde_json::Value>(&output.stdout).expect("configuration JSON")
+        support::yaml_documents(&text(&output.stdout))
     };
 
-    assert_eq!(run(true, false), expected);
-    assert_eq!(run(false, false), expected);
+    assert_eq!(run(true, false), std::slice::from_ref(&expected));
+    assert_eq!(run(false, false), std::slice::from_ref(&expected));
     assert_eq!(
         run(true, true),
-        expected,
+        std::slice::from_ref(&expected),
         "flags before the command beat the environment"
     );
     assert_eq!(
         run(false, true),
-        expected,
+        [expected],
         "flags after the command beat the environment"
     );
 }
@@ -296,7 +387,7 @@ fn root_path_flags_and_variables_with_unusable_values_fail_with_the_absolute_pat
     for (flag, value, variable, message) in cases {
         let expected = format!("Invalid site path: {message}\n");
         let by_flag = dotc()
-            .args(["config", "show", "--format", "json", flag, value])
+            .args(["--yaml", "config", "show", flag, value])
             .clear_test_environment()
             .env("HOME", "/home/user")
             .output()
@@ -306,7 +397,7 @@ fn root_path_flags_and_variables_with_unusable_values_fail_with_the_absolute_pat
         assert_eq!(text(&by_flag.stderr), expected, "{flag} {value:?}");
 
         let by_variable = dotc()
-            .args(["config", "show", "--format", "json"])
+            .args(["--yaml", "config", "show"])
             .clear_test_environment()
             .env("HOME", "/home/user")
             .env(variable, value)
@@ -460,7 +551,9 @@ fn site_delete_without_a_site_dir_targets_the_default_site_directory() {
     assert_eq!(
         text(&output.stdout),
         format!(
-            "Site deleted\nDOTCORE_SITE_DIR={}\n",
+            "✔ Site deleted
+  directory  {}
+",
             default_site.display()
         )
     );
@@ -974,7 +1067,7 @@ fn site_reset_replaces_broken_retained_state_offline_and_repeats_exactly() {
         .expect("unknown retained state");
 
     let expected = format!(
-        "Site reset\nDOTCORE_SITE_DIR={}\nDOTCORE_SITE_ID=reset-site\nDOTCORE_NODE_ID=reset-node\nDOTCORE_NODE_HOST=127.0.0.1\nDOTCORE_INFERENCE=simulated\nDOTCORE_APPLICATIONS=simulated\n",
+        "✔ Site reset\n  directory     {}\n  site id       reset-site\n  node id       reset-node\n  node host     127.0.0.1\n  inference     simulated\n  applications  simulated\n",
         site_dir.display()
     );
     let docker = FakeDockerDaemon::start();
@@ -1001,7 +1094,12 @@ fn site_reset_replaces_broken_retained_state_offline_and_repeats_exactly() {
         assert!(validation.stderr.is_empty());
         assert_eq!(
             text(&validation.stdout),
-            format!("Site valid\nDOTCORE_SITE_DIR={}\n", site_dir.display())
+            format!(
+                "✔ Site valid
+  directory  {}
+",
+                site_dir.display()
+            )
         );
     }
     docker.assert_empty_site_reset_requests(&["retained-site", "reset-site"]);
@@ -1029,6 +1127,18 @@ fn site_reset_replaces_obsolete_manager_identity_and_invalidates_worker_trust() 
         .output()
         .expect("reset obsolete site trust offline");
     assert_eq!(reset.status.code(), Some(0), "{}", text(&reset.stderr));
+    assert!(
+        text(&reset.stderr).contains(
+            "Notice: site trust was rotated; 1 previously joined node(s) can no longer connect and must join again\n"
+        ),
+        "{}",
+        text(&reset.stderr)
+    );
+    assert!(
+        !text(&reset.stderr).contains("dotc node add"),
+        "{}",
+        text(&reset.stderr)
+    );
     assert_generated_simulated_bundle(site_dir, "reset-site", "reset-node");
     assert_ne!(
         std::fs::read(trust.join("site-ca.der")).unwrap(),
@@ -1129,7 +1239,7 @@ fn site_reset_of_a_simulated_site_skips_unreachable_docker_with_a_notice() {
     assert_eq!(
         text(&output.stdout),
         format!(
-            "Site reset\nDOTCORE_SITE_DIR={}\nDOTCORE_SITE_ID=reset-site\nDOTCORE_NODE_ID=reset-node\nDOTCORE_NODE_HOST=127.0.0.1\nDOTCORE_INFERENCE=simulated\nDOTCORE_APPLICATIONS=simulated\n",
+            "✔ Site reset\n  directory     {}\n  site id       reset-site\n  node id       reset-node\n  node host     127.0.0.1\n  inference     simulated\n  applications  simulated\n",
             site_dir.display()
         )
     );
@@ -1382,7 +1492,7 @@ fn site_init_replace_force_is_the_same_operation_as_site_reset() {
     assert_eq!(
         text(&output.stdout),
         format!(
-            "Site reset\nDOTCORE_SITE_DIR={}\nDOTCORE_SITE_ID=reset-site\nDOTCORE_NODE_ID=reset-node\nDOTCORE_NODE_HOST=127.0.0.1\nDOTCORE_INFERENCE=simulated\nDOTCORE_APPLICATIONS=simulated\n",
+            "✔ Site reset\n  directory     {}\n  site id       reset-site\n  node id       reset-node\n  node host     127.0.0.1\n  inference     simulated\n  applications  simulated\n",
             site_dir.display()
         )
     );
@@ -1519,7 +1629,7 @@ fn guided_presentation_uses_the_controlling_terminal_and_keeps_process_streams_e
         assert_eq!(run.stderr(), "");
         let expected_stdout = if writes {
             format!(
-                "Site initialized\nDOTCORE_SITE_DIR={}\nDOTCORE_SITE_ID=site-test\nDOTCORE_NODE_ID=node-test\nDOTCORE_NODE_HOST=127.0.0.1\nDOTCORE_INFERENCE=simulated\nDOTCORE_APPLICATIONS=simulated\n",
+                "✔ Site initialized\n  directory     {}\n  site id       site-test\n  node id       node-test\n  node host     127.0.0.1\n  inference     simulated\n  applications  simulated\n",
                 site_dir.display()
             )
         } else {
@@ -1572,11 +1682,11 @@ fn rich_guided_golden_path_is_driven_by_arrow_keys_and_keeps_process_streams_exa
     assert_eq!(run.code(), Some(0), "screen:\n{}", run.screen());
     assert_eq!(run.stderr(), "");
     let stdout = run.stdout();
-    let host = record(&stdout, "DOTCORE_NODE_HOST=");
+    let host = fact(&stdout, "node host");
     assert_eq!(
         stdout,
         format!(
-            "Site initialized\nDOTCORE_SITE_DIR={}\nDOTCORE_SITE_ID=site-test\nDOTCORE_NODE_ID=node-test\nDOTCORE_NODE_HOST={host}\nDOTCORE_INFERENCE=simulated\nDOTCORE_APPLICATIONS=simulated\n",
+            "✔ Site initialized\n  directory     {}\n  site id       site-test\n  node id       node-test\n  node host     {host}\n  inference     simulated\n  applications  simulated\n",
             site_dir.display()
         )
     );
@@ -1640,7 +1750,7 @@ fn rich_guided_cancel_exits_130_without_output_or_site() {
         ),
         (
             "Esc at the inference selector",
-            &["--host", "127.0.0.1", "--display-name", "Test node"],
+            &["--host", "127.0.0.1", "--name", "Test node"],
             vec![Step::Wait("? Inference"), Step::Send(KEY_ESC)],
         ),
         (
@@ -1648,7 +1758,7 @@ fn rich_guided_cancel_exits_130_without_output_or_site() {
             &[
                 "--host",
                 "127.0.0.1",
-                "--display-name",
+                "--name",
                 "Test node",
                 "--inference",
                 "simulated",
@@ -1660,7 +1770,7 @@ fn rich_guided_cancel_exits_130_without_output_or_site() {
             &[
                 "--host",
                 "127.0.0.1",
-                "--display-name",
+                "--name",
                 "Test node",
                 "--inference",
                 "simulated",
@@ -1709,7 +1819,7 @@ fn rich_guided_another_address_is_entered_by_keystrokes_after_a_rejected_wildcar
     let command = rich_guided_init(
         &site_dir,
         &[
-            "--display-name",
+            "--name",
             "Test node",
             "--inference",
             "simulated",
@@ -1724,7 +1834,7 @@ fn rich_guided_another_address_is_entered_by_keystrokes_after_a_rejected_wildcar
 
     assert_eq!(run.code(), Some(0), "screen:\n{}", run.screen());
     assert_eq!(run.stderr(), "");
-    assert!(run.stdout().starts_with("Site initialized\n"));
+    assert!(run.stdout().starts_with("✔ Site initialized\n"));
     let site = std::fs::read_to_string(site_dir.join("site.yaml")).expect("Site input");
     assert!(site.contains("host: 192.0.2.44\n"), "{site}");
 }
@@ -1739,7 +1849,7 @@ fn rich_guided_colors_follow_no_color_and_reach_only_the_terminal() {
             &[
                 "--host",
                 "127.0.0.1",
-                "--display-name",
+                "--name",
                 "Test node",
                 "--inference",
                 "simulated",
@@ -1764,7 +1874,7 @@ fn rich_guided_colors_follow_no_color_and_reach_only_the_terminal() {
         assert_eq!(
             run.stdout(),
             format!(
-                "Site initialized\nDOTCORE_SITE_DIR={}\nDOTCORE_SITE_ID=site-test\nDOTCORE_NODE_ID=node-test\nDOTCORE_NODE_HOST=127.0.0.1\nDOTCORE_INFERENCE=simulated\nDOTCORE_APPLICATIONS=simulated\n",
+                "✔ Site initialized\n  directory     {}\n  site id       site-test\n  node id       node-test\n  node host     127.0.0.1\n  inference     simulated\n  applications  simulated\n",
                 site_dir.display()
             ),
             "NO_COLOR set: {no_color}"
@@ -1786,7 +1896,7 @@ fn rich_guided_leaves_the_terminal_restored_and_inline() {
     let all_flags = [
         "--host",
         "127.0.0.1",
-        "--display-name",
+        "--name",
         "Test node",
         "--inference",
         "simulated",
@@ -1830,7 +1940,7 @@ fn rich_guided_falls_back_to_line_prompts_when_the_terminal_never_answers_the_cu
     let command = rich_guided_init(
         &site_dir,
         &[
-            "--display-name",
+            "--name",
             "Test node",
             "--inference",
             "simulated",
@@ -1849,11 +1959,11 @@ fn rich_guided_falls_back_to_line_prompts_when_the_terminal_never_answers_the_cu
     assert_eq!(run.code(), Some(0), "session:\n{}", run.session());
     assert_eq!(run.stderr(), "");
     let stdout = run.stdout();
-    let host = record(&stdout, "DOTCORE_NODE_HOST=");
+    let host = fact(&stdout, "node host");
     assert_eq!(
         stdout,
         format!(
-            "Site initialized\nDOTCORE_SITE_DIR={}\nDOTCORE_SITE_ID=site-test\nDOTCORE_NODE_ID=node-test\nDOTCORE_NODE_HOST={host}\nDOTCORE_INFERENCE=simulated\nDOTCORE_APPLICATIONS=simulated\n",
+            "✔ Site initialized\n  directory     {}\n  site id       site-test\n  node id       node-test\n  node host     {host}\n  inference     simulated\n  applications  simulated\n",
             site_dir.display()
         )
     );
@@ -1948,7 +2058,7 @@ fn site_init_noninteractive_uses_the_home_fallback() {
     assert_eq!(text(&output.stderr), LOOPBACK_FLAG_STDERR);
     assert!(site_dir.join("site.yaml").is_file());
     assert!(site_dir.join("node.yaml").is_file());
-    assert!(text(&output.stdout).contains(&format!("DOTCORE_SITE_DIR={}\n", site_dir.display())));
+    assert!(text(&output.stdout).contains(&format!("  directory     {}\n", site_dir.display())));
 }
 
 #[test]
@@ -1964,14 +2074,14 @@ fn site_init_simulated_creates_a_complete_bundle_with_exact_output_and_defaults(
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(text(&output.stderr), LOOPBACK_FLAG_STDERR);
     let stdout = text(&output.stdout);
-    let site_id = record(&stdout, "DOTCORE_SITE_ID=");
-    let node_id = record(&stdout, "DOTCORE_NODE_ID=");
+    let site_id = fact(&stdout, "site id");
+    let node_id = fact(&stdout, "node id");
     assert!(site_id.starts_with("site-"));
     assert!(node_id.starts_with("node-"));
     assert_eq!(
         stdout,
         format!(
-            "Site initialized\nDOTCORE_SITE_DIR={}\nDOTCORE_SITE_ID={site_id}\nDOTCORE_NODE_ID={node_id}\nDOTCORE_NODE_HOST=127.0.0.1\nDOTCORE_INFERENCE=simulated\nDOTCORE_APPLICATIONS=simulated\n",
+            "✔ Site initialized\n  directory     {}\n  site id       {site_id}\n  node id       {node_id}\n  node host     127.0.0.1\n  inference     simulated\n  applications  simulated\n",
             site_dir.display()
         )
     );
@@ -1995,7 +2105,7 @@ fn site_init_flag_overrides_site_directory_environment() {
     assert!(flag_site.join("site.yaml").is_file());
     assert!(flag_site.join("node.yaml").is_file());
     assert!(!environment_site.exists());
-    assert!(text(&output.stdout).contains(&format!("DOTCORE_SITE_DIR={}\n", flag_site.display())));
+    assert!(text(&output.stdout).contains(&format!("  directory     {}\n", flag_site.display())));
 }
 
 #[test]
@@ -2016,7 +2126,9 @@ fn site_validate_flags_override_both_environment_path_sources() {
     assert_eq!(
         text(&output.stdout),
         format!(
-            "Site valid\nDOTCORE_SITE_DIR={}\n",
+            "✔ Site valid
+  directory  {}
+",
             fixture.site_path().display()
         )
     );
@@ -2041,11 +2153,11 @@ fn site_init_matching_rerun_preserves_generated_files_byte_for_byte() {
     assert_eq!(text(&second.stderr), LOOPBACK_FLAG_STDERR);
     let first_stdout = text(&first.stdout);
     let second_stdout = text(&second.stdout);
-    let site_id = record(&first_stdout, "DOTCORE_SITE_ID=");
-    let node_id = record(&first_stdout, "DOTCORE_NODE_ID=");
-    assert_eq!(record(&second_stdout, "DOTCORE_SITE_ID="), site_id);
-    assert_eq!(record(&second_stdout, "DOTCORE_NODE_ID="), node_id);
-    assert!(second_stdout.starts_with("Site already initialized\n"));
+    let site_id = fact(&first_stdout, "site id");
+    let node_id = fact(&first_stdout, "node id");
+    assert_eq!(fact(&second_stdout, "site id"), site_id);
+    assert_eq!(fact(&second_stdout, "node id"), node_id);
+    assert!(second_stdout.starts_with("✔ Site already initialized\n"));
     assert_eq!(
         std::fs::read(site_dir.join("site.yaml")).expect("Site input"),
         site_before
@@ -2067,7 +2179,7 @@ fn site_init_records_a_host_name_as_the_site_node_host() {
         .expect("run simulated init with a host name");
 
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
-    assert!(text(&output.stdout).starts_with("Site initialized\n"));
+    assert!(text(&output.stdout).starts_with("✔ Site initialized\n"));
     let site = std::fs::read_to_string(site_dir.join("site.yaml")).expect("Site input");
     assert!(site.contains("host: manager.example.ts.net\n"), "{site}");
 }
@@ -2421,20 +2533,18 @@ fn node_add_and_join_run_non_interactively_and_install_a_node_folder() {
             loopback_peer_address_toward(std::net::Ipv4Addr::new(127, 0, 0, 2)),
         )
     );
-    let node_id = record(&text(&added.stdout), "DOTCORE_NODE_ID=");
-    assert!(node_id.starts_with("node-"), "{node_id}");
+    let node_id = WORKER_NODE_ID;
     assert_eq!(
         text(&added.stdout),
         format!(
-            "Node join ready\nDOTCORE_JOIN_COMMAND=dotc node join --token-file {}\nNode added\nDOTCORE_NODE_ID={node_id}\nDOTCORE_NODE_NAME=Worker two\nDOTCORE_NODE_HOST=127.0.0.3\n",
+            "On the new machine, run:\n  dotc node join --token-file {}\n✔ Added Worker two at 127.0.0.3\n",
             token_file.display(),
         )
     );
     assert_eq!(
         text(&joined.stdout),
         format!(
-            "Node joined\nDOTCORE_SITE_ID=cli-test-site\nDOTCORE_NODE_ID={node_id}\nDOTCORE_NODE_NAME=Worker two\nDOTCORE_NODE_HOST=127.0.0.3\nDOTCORE_PRIVATE_ADDR=127.0.0.3:{}\nDOTCORE_START_COMMAND=dotcore --site-dir {}\n",
-            node_private_port(),
+            "✔ Joined cli-test-site as Worker two at 127.0.0.3\nStart the node with:\n  dotcore --site-dir {}\n",
             node_dir.display()
         )
     );
@@ -2582,17 +2692,16 @@ fn node_add_prints_a_join_command_that_joins_when_run_on_the_new_machine() {
         .stderr(Stdio::piped());
     let mut child = command.spawn().expect("spawn node add");
     let mut stdout = BufReader::new(child.stdout.take().expect("stdout"));
-    let mut records = String::new();
-    while !records.contains("DOTCORE_JOIN_COMMAND=") {
+    let mut printed = String::new();
+    while !printed.starts_with("dotc node join") {
         let mut line = String::new();
         assert_ne!(
-            stdout.read_line(&mut line).expect("read record"),
+            stdout.read_line(&mut line).expect("read output"),
             0,
-            "{records}"
+            "{printed}"
         );
-        records.push_str(&line);
+        printed = line.trim().to_owned();
     }
-    let printed = record(&records, "DOTCORE_JOIN_COMMAND=");
 
     // Running the printed command on the new machine: its flags are passed as printed, and the
     // operator adds the flags that suit the machine.
@@ -2866,10 +2975,141 @@ const WORKER_NODE_ID: &str = "node-7b836d678d251736";
 const WORKER_APPLICATION_TARGET: &str = "application-execution-target-7182af3d809190c5-simulated";
 
 #[test]
+fn plural_nouns_and_ls_are_aliases_that_group_help_hides() {
+    for arguments in [
+        &["nodes", "ls", "--help"][..],
+        &["node", "ls", "--help"],
+        &["models", "ls", "--help"],
+        &["applications", "ls", "--help"],
+        &["app", "ls", "--help"],
+        &["sites", "validate", "--help"],
+    ] {
+        let output = dotc()
+            .args(arguments)
+            .clear_test_environment()
+            .output()
+            .expect("alias help");
+        assert_eq!(output.status.code(), Some(0), "{arguments:?}");
+        let usage = text(&output.stdout);
+        let canonical = match arguments[0] {
+            "nodes" | "node" => "node",
+            "models" => "model",
+            "sites" => "site",
+            _ => "application",
+        };
+        assert!(
+            usage.contains(&format!("Usage: dotc {canonical} ")),
+            "{arguments:?}\n{usage}"
+        );
+    }
+
+    let root = text(
+        &dotc()
+            .arg("--help")
+            .clear_test_environment()
+            .output()
+            .expect("root help")
+            .stdout,
+    );
+    for plural in ["nodes", "models", "applications", "sites"] {
+        assert!(
+            !root
+                .lines()
+                .any(|line| line.trim_start().starts_with(&format!("{plural} "))),
+            "{root}"
+        );
+    }
+    assert!(root.contains("application  Inspect and control the application deployments of the running site [alias: app]"), "{root}");
+}
+
+#[test]
+fn site_init_and_reset_name_the_node_with_name_and_reject_display_name() {
+    for action in ["init", "reset"] {
+        let help = dotc()
+            .args(["site", action, "--help"])
+            .clear_test_environment()
+            .output()
+            .expect("site help");
+        let help = text(&help.stdout);
+        assert!(help.contains("--name <NAME>"), "{help}");
+        assert!(!help.contains("--display-name"), "{help}");
+
+        let rejected = dotc()
+            .args(["site", action, "--display-name", "Test node"])
+            .clear_test_environment()
+            .output()
+            .expect("rejected flag");
+        assert_eq!(rejected.status.code(), Some(2), "{action}");
+        assert!(
+            text(&rejected.stderr).contains("unexpected argument '--display-name'"),
+            "{}",
+            text(&rejected.stderr)
+        );
+    }
+}
+
+#[test]
+fn logs_help_names_the_deployment_kind_and_every_manager_flag_comes_last() {
+    for (kind, noun) in [("model", "model"), ("application", "application")] {
+        let help = text(
+            &dotc()
+                .args([kind, "logs", "-h"])
+                .clear_test_environment()
+                .output()
+                .expect("logs help")
+                .stdout,
+        );
+        assert!(
+            help.contains(&format!(
+                "  <DEPLOYMENT>  Name or ID of the {noun} deployment\n"
+            )),
+            "{help}"
+        );
+    }
+
+    for arguments in [
+        &["node", "add"][..],
+        &["node", "remove"],
+        &["model", "list"],
+        &["model", "show"],
+        &["model", "pause"],
+        &["model", "resume"],
+        &["model", "teardown"],
+        &["model", "logs"],
+        &["application", "list"],
+        &["application", "show"],
+        &["application", "pause"],
+        &["application", "resume"],
+        &["application", "teardown"],
+        &["application", "logs"],
+    ] {
+        let help = text(
+            &dotc()
+                .args(arguments)
+                .arg("-h")
+                .clear_test_environment()
+                .output()
+                .expect("help")
+                .stdout,
+        );
+        let options: Vec<&str> = help
+            .lines()
+            .skip_while(|line| *line != "Options:")
+            .skip(1)
+            .collect();
+        let manager = options.last().expect("options");
+        assert!(
+            manager.trim_start().starts_with("--manager <ADDRESS>"),
+            "{arguments:?}\n{help}"
+        );
+    }
+}
+
+#[test]
 fn node_remove_leave_and_list_help_describe_their_arguments() {
     let help = |action: &str| {
         let output = dotc()
-            .args(["node", action, "--help"])
+            .args(["node", action, "-h"])
             .clear_test_environment()
             .output()
             .expect("help");
@@ -2880,15 +3120,15 @@ fn node_remove_leave_and_list_help_describe_their_arguments() {
 
     assert_eq!(
         help("remove"),
-        "Remove a worker node from the site, through the running manager or from this stopped site. Run `dotc node leave` on the removed machine afterwards\n\nUsage: dotc node remove [OPTIONS] <NODE>\n\nArguments:\n  <NODE>  Display name or node id of the worker node to remove\n\nOptions:\n      --manager <ADDRESS>   Management address of the running site manager, as host:port or http://host:port [env: DOTCORE_MANAGEMENT_ADDR=] [default: 127.0.0.1:50051]\n      --verbose             Show the complete cause chain of a failure on a terminal\n      --forget-deployments  Drop the declarations of deployments placed on the node, and the routes only they serve, without cleanup evidence from the node. Without it, a node with deployments is refused. A running site accepts it only while the node is not connected\n      --site-dir <PATH>     Absolute site or node folder; defaults to $XDG_STATE_HOME/dotcore/site, else ~/.local/state/dotcore/site [env: DOTCORE_SITE_DIR]\n      --catalog-dir <PATH>  Absolute master catalog folder [env: DOTCORE_CATALOG_DIR]\n      --yes                 Remove the node without asking for confirmation\n      --cache-dir <PATH>    Absolute root of the recreatable caches; defaults to $XDG_CACHE_HOME/dotcore, else ~/.cache/dotcore [env: DOTCORE_CACHE_DIR]\n  -h, --help                Print help\n"
+        "Remove a worker node from the site\n\nUsage: dotc node remove [OPTIONS] <NODE>\n\nArguments:\n  <NODE>  Display name or node id of the worker node to remove\n\nOptions:\n      --forget-deployments  Drop the declarations of deployments placed on the node, and the routes only they serve, without cleanup evidence from the node. Without it, a node with deployments is refused. A running site accepts it only while the node is not connected\n      --verbose             Show the complete cause chain of a failure on a terminal\n      --yaml                Print the result as YAML on stdout, for scripts and agents; the command never asks a question\n      --yes                 Remove the node without asking for confirmation\n      --site-dir <PATH>     Absolute site or node folder; defaults to $XDG_STATE_HOME/dotcore/site, else ~/.local/state/dotcore/site [env: DOTCORE_SITE_DIR]\n      --catalog-dir <PATH>  Absolute master catalog folder [env: DOTCORE_CATALOG_DIR]\n      --cache-dir <PATH>    Absolute root of the recreatable caches; defaults to $XDG_CACHE_HOME/dotcore, else ~/.cache/dotcore [env: DOTCORE_CACHE_DIR]\n  -h, --help                Print help (see more with '--help')\n      --manager <ADDRESS>   Management address of the running site manager, as host:port or http://host:port [env: DOTCORE_MANAGEMENT_ADDR=] [default: 127.0.0.1:50051]\n"
     );
     assert_eq!(
         help("leave"),
-        "Stop this node's workloads and delete its node folder; runs on the removed machine with its server stopped\n\nUsage: dotc node leave [OPTIONS]\n\nOptions:\n      --verbose             Show the complete cause chain of a failure on a terminal\n      --yes                 Stop the node's workloads and delete its folder without asking for confirmation\n      --site-dir <PATH>     Absolute site or node folder; defaults to $XDG_STATE_HOME/dotcore/site, else ~/.local/state/dotcore/site [env: DOTCORE_SITE_DIR]\n      --catalog-dir <PATH>  Absolute master catalog folder [env: DOTCORE_CATALOG_DIR]\n      --cache-dir <PATH>    Absolute root of the recreatable caches; defaults to $XDG_CACHE_HOME/dotcore, else ~/.cache/dotcore [env: DOTCORE_CACHE_DIR]\n  -h, --help                Print help\n"
+        "Leave the site: stop this node's workloads and delete its node folder\n\nUsage: dotc node leave [OPTIONS]\n\nOptions:\n      --verbose             Show the complete cause chain of a failure on a terminal\n      --yes                 Stop the node's workloads and delete its folder without asking for confirmation\n      --yaml                Print the result as YAML on stdout, for scripts and agents; the command never asks a question\n      --site-dir <PATH>     Absolute site or node folder; defaults to $XDG_STATE_HOME/dotcore/site, else ~/.local/state/dotcore/site [env: DOTCORE_SITE_DIR]\n      --catalog-dir <PATH>  Absolute master catalog folder [env: DOTCORE_CATALOG_DIR]\n      --cache-dir <PATH>    Absolute root of the recreatable caches; defaults to $XDG_CACHE_HOME/dotcore, else ~/.cache/dotcore [env: DOTCORE_CACHE_DIR]\n  -h, --help                Print help (see more with '--help')\n"
     );
     assert_eq!(
         help("list"),
-        "List the nodes of this site with their addresses and deployments; runs on the manager, which may be running\n\nUsage: dotc node list [OPTIONS]\n\nOptions:\n      --details             Also show the address each node uses to reach the manager and whether the manager trusts the node's certificate; terminal output only\n      --verbose             Show the complete cause chain of a failure on a terminal\n      --execution-targets   Also list each node's execution targets; terminal output only\n      --site-dir <PATH>     Absolute site or node folder; defaults to $XDG_STATE_HOME/dotcore/site, else ~/.local/state/dotcore/site [env: DOTCORE_SITE_DIR]\n      --catalog-dir <PATH>  Absolute master catalog folder [env: DOTCORE_CATALOG_DIR]\n      --cache-dir <PATH>    Absolute root of the recreatable caches; defaults to $XDG_CACHE_HOME/dotcore, else ~/.cache/dotcore [env: DOTCORE_CACHE_DIR]\n  -h, --help                Print help\n"
+        "List the site's nodes with their addresses and deployments\n\nUsage: dotc node list [OPTIONS]\n\nOptions:\n      --details             Also show the address each node uses to reach the manager and whether the manager trusts the node's certificate\n      --verbose             Show the complete cause chain of a failure on a terminal\n      --execution-targets   Also list each node's execution targets\n      --yaml                Print the result as YAML on stdout, for scripts and agents; the command never asks a question\n      --site-dir <PATH>     Absolute site or node folder; defaults to $XDG_STATE_HOME/dotcore/site, else ~/.local/state/dotcore/site [env: DOTCORE_SITE_DIR]\n      --catalog-dir <PATH>  Absolute master catalog folder [env: DOTCORE_CATALOG_DIR]\n      --cache-dir <PATH>    Absolute root of the recreatable caches; defaults to $XDG_CACHE_HOME/dotcore, else ~/.cache/dotcore [env: DOTCORE_CACHE_DIR]\n  -h, --help                Print help (see more with '--help')\n"
     );
 }
 
@@ -2964,20 +3204,20 @@ fn node_remove_yes_drops_the_node_its_targets_and_its_pin_and_prints_the_records
         .expect("run node remove");
 
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
-    assert_eq!(
-        text(&output.stdout),
-        format!("Node removed\nDOTCORE_NODE_ID={WORKER_NODE_ID}\nDOTCORE_NODE_NAME=Worker two\n")
-    );
+    assert_eq!(text(&output.stdout), "✔ Removed Worker two\n");
     assert_eq!(
         text(&output.stderr),
-        "Notice: Stop the removed node's server, then run `dotc node leave` on that machine to stop its workloads and delete its node folder.\n"
+        "Notice: The removed machine keeps its workloads and node folder\n"
     );
     assert_eq!(pin_files(fixture.site_path()), Vec::<String>::new());
     let site = std::fs::read_to_string(fixture.site_path().join("site.yaml")).expect("Site");
     assert!(!site.contains(WORKER_NODE_ID), "{site}");
     assert!(!site.contains("Worker two"), "{site}");
     assert_eq!(site.matches("executionTargetId:").count(), 2, "{site}");
-    assert_eq!(node_list_stdout(fixture.site_path()), MANAGER_LIST_BLOCK);
+    assert_eq!(
+        node_list_stdout(fixture.site_path()),
+        expected_node_list(None)
+    );
 }
 
 #[test]
@@ -3025,12 +3265,7 @@ fn node_remove_refuses_placed_deployments_unless_they_are_forgotten() {
         "{}",
         text(&forgotten.stderr)
     );
-    assert_eq!(
-        text(&forgotten.stdout),
-        format!(
-            "Node removed\nDOTCORE_NODE_ID={WORKER_NODE_ID}\nDOTCORE_NODE_NAME=Worker two\nDOTCORE_FORGOTTEN_DEPLOYMENT=worker-app\n"
-        )
-    );
+    assert_eq!(text(&forgotten.stdout), "✔ Removed Worker two\n");
     let site = std::fs::read_to_string(fixture.site_path().join("site.yaml")).expect("Site");
     assert!(!site.contains("worker-app"), "{site}");
     assert_eq!(pin_files(fixture.site_path()), Vec::<String>::new());
@@ -3057,7 +3292,7 @@ fn node_remove_of_an_already_removed_node_id_succeeds_and_an_unknown_name_fails(
     assert_eq!(retry.status.code(), Some(0), "{}", text(&retry.stderr));
     assert_eq!(
         text(&retry.stdout),
-        format!("Node already removed\nDOTCORE_NODE_ID={WORKER_NODE_ID}\n")
+        format!("✔ {WORKER_NODE_ID} is already removed from the site\n")
     );
 
     let by_name = node_remove_command(fixture.site_path(), "Worker two")
@@ -3066,7 +3301,7 @@ fn node_remove_of_an_already_removed_node_id_succeeds_and_an_unknown_name_fails(
     assert_eq!(by_name.status.code(), Some(1));
     assert_eq!(
         text(&by_name.stderr),
-        "cannot remove node \"Worker two\": no node \"Worker two\" in this site; declared nodes: \"CLI test node\" (cli-test-node)\n"
+        "no node matches \"Worker two\"; known nodes: cli-test-node (CLI test node)\n"
     );
 
     let manager = node_remove_command(fixture.site_path(), "CLI test node")
@@ -3107,9 +3342,10 @@ fn node_remove_goes_through_the_running_manager_and_reports_its_outcomes() {
     // A worker without deployments is previewed, then removed.
     let removed = remove("Worker two", false);
     assert_eq!(removed.status.code(), Some(0), "{}", text(&removed.stderr));
+    assert_eq!(text(&removed.stdout), "✔ Removed Worker two\n");
     assert_eq!(
-        text(&removed.stdout),
-        "Node removed\nDOTCORE_NODE_ID=node-00000000000000bb\nDOTCORE_NODE_NAME=Worker two\n"
+        text(&removed.stderr),
+        "Notice: The removed machine stops Dotcore by itself; its workloads and node folder remain\n"
     );
     assert_eq!(
         fake.calls()
@@ -3139,7 +3375,7 @@ fn node_remove_goes_through_the_running_manager_and_reports_its_outcomes() {
     assert_eq!(retry.status.code(), Some(0), "{}", text(&retry.stderr));
     assert_eq!(
         text(&retry.stdout),
-        "Node already removed\nDOTCORE_NODE_ID=node-00000000000000bb\n"
+        "✔ node-00000000000000bb is already removed from the site\n"
     );
 
     // Placed deployments refuse it, and a connected worker can't forget them.
@@ -3161,10 +3397,65 @@ fn node_remove_goes_through_the_running_manager_and_reports_its_outcomes() {
     // An unknown name is an error, never an already removed node.
     let unknown = remove("Worker four", false);
     assert_eq!(unknown.status.code(), Some(1));
-    assert!(
-        text(&unknown.stderr).starts_with("no node \"Worker four\" in this site; declared nodes: "),
-        "{}",
-        text(&unknown.stderr)
+    assert_eq!(
+        text(&unknown.stderr),
+        "no node matches \"Worker four\"; known nodes: node-00000000000000aa (Manager), node-00000000000000cc (Worker three)\n"
+    );
+}
+
+#[test]
+fn node_remove_takes_a_name_word_or_an_id_fragment_and_refuses_a_shared_one() {
+    use support::fake_manager::{Call, FakeMachine, FakeManager, FakeState, Rpc};
+
+    let fake = FakeManager::start(FakeState {
+        machines: vec![
+            FakeMachine::manager("node-00000000000000aa", "Manager"),
+            FakeMachine::worker("node-00000000000000bb", "Worker two"),
+            FakeMachine::worker("node-00000000000000cc", "Worker three"),
+        ],
+        ..FakeState::default()
+    });
+    let no_site = TemporarySite::empty();
+    let remove = |node: &str| {
+        let mut command = node_remove_command(&no_site.root.join("site"), node);
+        command.env("DOTCORE_MANAGEMENT_ADDR", fake.address().to_string());
+        command.output().expect("run node remove")
+    };
+
+    let ambiguous = remove("worker");
+    let by_word = remove("two");
+    let by_fragment = remove("00000000000000cc");
+
+    assert_eq!(ambiguous.status.code(), Some(1));
+    assert!(ambiguous.stdout.is_empty());
+    assert_eq!(
+        text(&ambiguous.stderr),
+        "2 nodes match \"worker\": node-00000000000000bb (Worker two), node-00000000000000cc (Worker three); pass one of the ids instead\n"
+    );
+    for (output, name) in [(&by_word, "Worker two"), (&by_fragment, "Worker three")] {
+        assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+        assert_eq!(text(&output.stdout), format!("✔ Removed {name}\n"));
+    }
+    assert_eq!(
+        fake.calls()
+            .into_iter()
+            .map(|Call { rpc, id }| (rpc, id))
+            .collect::<Vec<_>>(),
+        [
+            (Rpc::ListMachines, None),
+            (Rpc::ListMachines, None),
+            (
+                Rpc::PreviewMachineRemoval,
+                Some("node-00000000000000bb".to_owned())
+            ),
+            (Rpc::RemoveMachine, Some("node-00000000000000bb".to_owned())),
+            (Rpc::ListMachines, None),
+            (
+                Rpc::PreviewMachineRemoval,
+                Some("node-00000000000000cc".to_owned())
+            ),
+            (Rpc::RemoveMachine, Some("node-00000000000000cc".to_owned())),
+        ]
     );
 }
 
@@ -3186,10 +3477,7 @@ fn a_removed_node_leaves_and_joins_again_with_the_same_name_host_and_node_id() {
         .output()
         .expect("leave");
     assert_eq!(left.status.code(), Some(0), "{}", text(&left.stderr));
-    assert_eq!(
-        text(&left.stdout),
-        format!("Node left\nDOTCORE_SITE_ID=cli-test-site\nDOTCORE_NODE_ID={WORKER_NODE_ID}\n")
-    );
+    assert_eq!(text(&left.stdout), "✔ Left cli-test-site\n");
     assert_eq!(
         text(&left.stderr),
         "Notice: skipped Docker runtime cleanup because it is unreachable; the site does not bind it, so only resources left by an earlier configuration could remain: connect to local Docker daemon for site cleanup: Docker Engine API request failed: Socket not found: /nonexistent/docker.sock: Socket not found: /nonexistent/docker.sock\n"
@@ -3210,7 +3498,7 @@ fn a_removed_node_leaves_and_joins_again_with_the_same_name_host_and_node_id() {
     );
     assert_eq!(
         node_list_stdout(fixture.site_path()),
-        format!("{MANAGER_LIST_BLOCK}\n{}", worker_list_block())
+        expected_node_list(Some(("127.0.0.3", 0)))
     );
 }
 
@@ -3287,8 +3575,7 @@ fn a_node_joins_again_from_its_intact_folder_on_a_new_host() {
     assert_eq!(
         text(&joined.stdout),
         format!(
-            "Node rejoined\nDOTCORE_SITE_ID=cli-test-site\nDOTCORE_NODE_ID={WORKER_NODE_ID}\nDOTCORE_NODE_NAME=Worker two\nDOTCORE_NODE_HOST=127.0.0.4\nDOTCORE_PRIVATE_ADDR=127.0.0.4:{}\nDOTCORE_START_COMMAND=dotcore --site-dir {}\n",
-            node_private_port(),
+            "✔ Rejoined Worker two at 127.0.0.4\nStart the node with:\n  dotcore --site-dir {}\n",
             node_dir.display()
         )
     );
@@ -3296,7 +3583,7 @@ fn a_node_joins_again_from_its_intact_folder_on_a_new_host() {
     assert_eq!(
         text(&added.stdout),
         format!(
-            "Node join ready\nDOTCORE_JOIN_COMMAND=dotc node join --token-file {}\nNode rejoined\nDOTCORE_NODE_ID={WORKER_NODE_ID}\nDOTCORE_NODE_NAME=Worker two\nDOTCORE_NODE_HOST=127.0.0.4\n",
+            "On the new machine, run:\n  dotc node join --token-file {}\n✔ Rejoined Worker two at 127.0.0.4\n",
             node_dir.with_extension("rejoin.token").display()
         )
     );
@@ -3316,10 +3603,7 @@ fn a_node_joins_again_from_its_intact_folder_on_a_new_host() {
     assert_eq!(after.trust_anchor, before.trust_anchor);
     assert_eq!(
         node_list_stdout(fixture.site_path()),
-        format!(
-            "{MANAGER_LIST_BLOCK}\n{}",
-            worker_list_block().replace("127.0.0.3", "127.0.0.4")
-        )
+        expected_node_list(Some(("127.0.0.4", 0)))
     );
 }
 
@@ -3363,7 +3647,7 @@ fn a_rejoin_without_a_host_keeps_the_declared_host() {
         JoinedState::read(fixture.site_path(), &node_dir).site,
         before.site
     );
-    assert!(text(&joined.stdout).contains("DOTCORE_NODE_HOST=127.0.0.3\n"));
+    assert!(text(&joined.stdout).contains("at 127.0.0.3\n"));
 }
 
 #[test]
@@ -3812,22 +4096,19 @@ fn site_delete_refuses_a_node_folder_held_by_a_running_node() {
 }
 
 #[test]
-fn node_list_prints_one_record_block_per_node_with_and_without_the_site_lock() {
+fn node_list_prints_a_table_row_per_node_with_and_without_the_site_lock() {
     let fixture = TemporarySite::new();
     let nodes = TemporarySite::empty();
     let node_dir = nodes.root.join("worker");
 
-    assert_eq!(node_list_stdout(fixture.site_path()), MANAGER_LIST_BLOCK);
+    assert_eq!(
+        node_list_stdout(fixture.site_path()),
+        expected_node_list(None)
+    );
 
     join_node(fixture.site_path(), &node_dir, "Worker two", "127.0.0.3");
     place_worker_application(fixture.site_path(), "worker-app");
-    let expected = format!(
-        "{MANAGER_LIST_BLOCK}\n{}",
-        worker_list_block().replace(
-            "DOTCORE_NODE_APPLICATION_DEPLOYMENTS=0",
-            "DOTCORE_NODE_APPLICATION_DEPLOYMENTS=1"
-        )
-    );
+    let expected = expected_node_list(Some(("127.0.0.3", 1)));
     assert_eq!(node_list_stdout(fixture.site_path()), expected);
 
     // A running manager holds the site lock exclusively; listing does not need it.
@@ -3852,6 +4133,431 @@ fn node_list_prints_one_record_block_per_node_with_and_without_the_site_lock() {
             dir = node_dir.display()
         )
     );
+}
+
+#[test]
+fn yaml_node_add_and_join_print_progress_on_stderr_and_one_document_on_stdout() {
+    let fixture = TemporarySite::new();
+    let nodes = TemporarySite::empty();
+    let node_dir = nodes.root.join("worker");
+    let token_file = nodes.root.join("worker.token");
+    let manager = LiveManager::start(fixture.site_path());
+    let mut add_command = node_add_command(&manager, Some(&token_file));
+    add_command
+        .args(["--yes", "--yaml"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let add = NodeAdd::start_command(add_command, &token_file);
+
+    let joined = node_join(&token_file, &node_dir, "Worker two", "127.0.0.3")
+        .arg("--yaml")
+        .output()
+        .expect("run node join");
+    let added = add.finish();
+
+    assert_eq!(joined.status.code(), Some(0), "{}", text(&joined.stderr));
+    assert_eq!(
+        text(&joined.stderr),
+        "Connected to site cli-test-site\nWaiting for approval on the manager...\n"
+    );
+    assert_eq!(
+        support::yaml_documents(&text(&joined.stdout)),
+        [serde_json::json!({
+            "outcome": "joined",
+            "siteId": "cli-test-site",
+            "nodeId": WORKER_NODE_ID,
+            "displayName": "Worker two",
+            "host": "127.0.0.3",
+            "privateAddress": format!("127.0.0.3:{}", node_private_port()),
+            "startCommand": format!("dotcore --site-dir {}", node_dir.display()),
+        })]
+    );
+    assert_eq!(added.status.code(), Some(0), "{}", text(&added.stderr));
+    assert_eq!(
+        text(&added.stderr),
+        format!(
+            "Warning: the manager host 127.0.0.2 is a loopback address, which only this machine reaches; a remote node must join with --manager-host <address it reaches this machine at>, and the manager must listen on that address\nOn the new machine, run: dotc node join --token-file {}\nWaiting for the node...\nWarning: the node proposes host 127.0.0.3 but connected from 127.0.0.1; confirm that other nodes reach it at the proposed host\n",
+            token_file.display()
+        )
+    );
+    assert_eq!(
+        support::yaml_documents(&text(&added.stdout)),
+        [serde_json::json!({
+            "outcome": "added",
+            "nodeId": WORKER_NODE_ID,
+            "displayName": "Worker two",
+            "host": "127.0.0.3",
+        })]
+    );
+
+    // The same node joins again from its folder on a new host.
+    let rejoin_token = nodes.root.join("rejoin.token");
+    let mut rejoin_add = node_add_command(&manager, Some(&rejoin_token));
+    rejoin_add
+        .args(["--yes", "--yaml"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let rejoin_add = NodeAdd::start_command(rejoin_add, &rejoin_token);
+    let rejoined = rejoin_command(&rejoin_token, &node_dir, &["--host", "127.0.0.4", "--yaml"])
+        .output()
+        .expect("run node join again");
+    let readded = rejoin_add.finish();
+    manager.stop();
+
+    assert_eq!(
+        rejoined.status.code(),
+        Some(0),
+        "{}",
+        text(&rejoined.stderr)
+    );
+    assert_eq!(
+        support::yaml_documents(&text(&rejoined.stdout)),
+        [serde_json::json!({
+            "outcome": "rejoined",
+            "siteId": "cli-test-site",
+            "nodeId": WORKER_NODE_ID,
+            "displayName": "Worker two",
+            "host": "127.0.0.4",
+            "privateAddress": format!("127.0.0.4:{}", node_private_port()),
+            "startCommand": format!("dotcore --site-dir {}", node_dir.display()),
+        })]
+    );
+    assert_eq!(
+        support::yaml_documents(&text(&readded.stdout)),
+        [serde_json::json!({
+            "outcome": "rejoined",
+            "nodeId": WORKER_NODE_ID,
+            "displayName": "Worker two",
+            "host": "127.0.0.4",
+        })]
+    );
+}
+
+#[test]
+fn yaml_node_list_prints_every_node_with_its_facts() {
+    let fixture = TemporarySite::new();
+    let nodes = TemporarySite::empty();
+    join_node(
+        fixture.site_path(),
+        &nodes.root.join("worker"),
+        "Worker two",
+        "127.0.0.3",
+    );
+    place_worker_application(fixture.site_path(), "worker-app");
+    let platform = match std::env::consts::ARCH {
+        "aarch64" => "linux/arm64",
+        _ => "linux/amd64",
+    };
+
+    let output = node_list_command(fixture.site_path())
+        .arg("--yaml")
+        .output()
+        .expect("run node list");
+
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert_eq!(text(&output.stderr), "");
+    assert_eq!(
+        support::yaml_documents(&text(&output.stdout)),
+        [serde_json::json!({
+            "siteId": "cli-test-site",
+            "nodes": [
+                {
+                    "node": {
+                        "nodeId": "cli-test-node",
+                        "displayName": "CLI test node",
+                        "host": "127.0.0.2",
+                        "siteManager": {},
+                    },
+                    "isManager": true,
+                    "pinned": false,
+                    "executionTargets": [
+                        {
+                            "id": "cli-test-target",
+                            "displayName": "cli-test-target",
+                            "kind": "model",
+                            "platform": "linux/amd64",
+                        },
+                        {
+                            "id": "cli-test-application-target",
+                            "displayName": "cli-test-application-target",
+                            "kind": "application",
+                            "platform": "linux/amd64",
+                        },
+                    ],
+                    "placedModels": 0,
+                    "placedApplications": 0,
+                },
+                {
+                    "node": {
+                        "nodeId": WORKER_NODE_ID,
+                        "displayName": "Worker two",
+                        "host": "127.0.0.3",
+                    },
+                    "isManager": false,
+                    "pinned": true,
+                    "executionTargets": [
+                        {
+                            "id": "execution-target-7182af3d809190c5-simulated-4d747ac0",
+                            "displayName": "Simulated NVIDIA GeForce RTX 5090",
+                            "kind": "model",
+                            "platform": platform,
+                        },
+                        {
+                            "id": WORKER_APPLICATION_TARGET,
+                            "displayName": "Simulated applications",
+                            "kind": "application",
+                            "platform": platform,
+                        },
+                    ],
+                    "placedModels": 0,
+                    "placedApplications": 1,
+                },
+            ],
+        })]
+    );
+}
+
+#[test]
+fn yaml_node_remove_prints_the_removal_response_of_a_stopped_and_a_running_site() {
+    let fixture = TemporarySite::new();
+    let nodes = TemporarySite::empty();
+    let removed_response = |forgotten: serde_json::Value| {
+        let mut plan = serde_json::json!({
+            "nodeId": WORKER_NODE_ID,
+            "displayName": "Worker two",
+            "executionTargetIds": [
+                "execution-target-7182af3d809190c5-simulated-4d747ac0",
+                WORKER_APPLICATION_TARGET,
+            ],
+        });
+        if !forgotten.is_null() {
+            plan["forgottenDeployments"] = forgotten;
+        }
+        serde_json::json!({ "removed": plan })
+    };
+
+    // A stopped site removes the node itself, with the deployments it was told to forget.
+    join_node(
+        fixture.site_path(),
+        &nodes.root.join("worker"),
+        "Worker two",
+        "127.0.0.3",
+    );
+    place_worker_application(fixture.site_path(), "worker-app");
+    let stopped = node_remove_command(fixture.site_path(), "Worker two")
+        .args(["--yaml", "--forget-deployments"])
+        .output()
+        .expect("run node remove on a stopped site");
+    assert_eq!(stopped.status.code(), Some(0), "{}", text(&stopped.stderr));
+    assert_eq!(
+        text(&stopped.stderr),
+        "Notice: The removed machine keeps its workloads and node folder\n"
+    );
+    assert_eq!(
+        support::yaml_documents(&text(&stopped.stdout)),
+        [removed_response(serde_json::json!([{
+            "kind": "MACHINE_REMOVAL_DEPLOYMENT_KIND_APPLICATION",
+            "deploymentId": "worker-app",
+            "name": "Worker app",
+        }]))]
+    );
+
+    // Removing it again is reported as already done.
+    let again = node_remove_command(fixture.site_path(), WORKER_NODE_ID)
+        .arg("--yaml")
+        .output()
+        .expect("run node remove again");
+    assert_eq!(again.status.code(), Some(0), "{}", text(&again.stderr));
+    assert_eq!(
+        support::yaml_documents(&text(&again.stdout)),
+        [serde_json::json!({ "alreadyRemoved": {} })]
+    );
+
+    // A running site's manager answers with the same response.
+    join_node(
+        fixture.site_path(),
+        &nodes.root.join("worker-again"),
+        "Worker two",
+        "127.0.0.3",
+    );
+    let manager = LiveManager::start(fixture.site_path());
+    let running = node_remove_command(fixture.site_path(), "Worker two")
+        .args(["--yaml", "--manager"])
+        .arg(manager.management())
+        .output()
+        .expect("run node remove on a running site");
+    manager.stop();
+    assert_eq!(running.status.code(), Some(0), "{}", text(&running.stderr));
+    assert_eq!(
+        text(&running.stderr),
+        "Notice: The removed machine stops Dotcore by itself; its workloads and node folder remain\n"
+    );
+    assert_eq!(
+        support::yaml_documents(&text(&running.stdout)),
+        [removed_response(serde_json::Value::Null)]
+    );
+}
+
+#[test]
+fn yaml_node_leave_prints_the_site_and_node_that_left() {
+    let fixture = TemporarySite::new();
+    let nodes = TemporarySite::empty();
+    let node_dir = nodes.root.join("worker");
+    join_node(fixture.site_path(), &node_dir, "Worker two", "127.0.0.3");
+
+    let output = node_leave_command(&node_dir)
+        .arg("--yaml")
+        .output()
+        .expect("run node leave");
+
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    assert_eq!(text(&output.stderr), "");
+    assert_eq!(
+        support::yaml_documents(&text(&output.stdout)),
+        [serde_json::json!({
+            "outcome": "left",
+            "siteId": "cli-test-site",
+            "nodeId": WORKER_NODE_ID,
+        })]
+    );
+    assert!(!node_dir.exists());
+}
+
+#[test]
+fn yaml_commands_that_would_ask_fail_naming_the_flag_that_answers_without_asking() {
+    let nodes = TemporarySite::empty();
+    let site = nodes.root.join("site");
+    let cases: [(&[&str], &str); 5] = [
+        (
+            &["node", "add", "--manager", "127.0.0.1:1"],
+            "allowing a node needs confirmation, which --yaml never asks for; pass --yes to allow the node that presents the token",
+        ),
+        (
+            &["node", "join", "--token", "dcjoin1.bad"],
+            "joining asks for confirmation, which --yaml never gives; pass --yes",
+        ),
+        (
+            &["node", "remove", "Worker two"],
+            "removing a node needs confirmation, which --yaml never asks for; pass --yes to remove it",
+        ),
+        (
+            &["node", "leave"],
+            "leaving the site needs confirmation, which --yaml never asks for; pass --yes to stop the node's workloads and delete its folder",
+        ),
+        (
+            &["site", "init"],
+            "error: missing workload choices; --yaml never asks, so pass --inference and --applications",
+        ),
+    ];
+
+    for (arguments, expected) in cases {
+        let mut command = dotc();
+        command
+            .arg("--yaml")
+            .args(arguments)
+            .arg("--site-dir")
+            .arg(&site)
+            .clear_test_environment();
+        let output = command.output().expect("run a command that would ask");
+
+        assert!(!output.status.success(), "{arguments:?}");
+        assert_eq!(text(&output.stdout), "", "{arguments:?}");
+        assert!(
+            text(&output.stderr).starts_with(expected),
+            "{arguments:?}: {}",
+            text(&output.stderr)
+        );
+    }
+    assert!(!site.exists());
+}
+
+#[test]
+fn yaml_site_commands_print_one_document_each() {
+    let fixture = TemporarySite::empty();
+    let site_dir = fixture.root.join("site");
+    let site_command = |verb: &[&str]| {
+        let mut command = dotc();
+        command
+            .arg("--yaml")
+            .arg("site")
+            .args(verb)
+            .arg("--site-dir")
+            .arg(&site_dir)
+            .args([
+                "--host",
+                "127.0.0.1",
+                "--inference",
+                "simulated",
+                "--applications",
+                "simulated",
+                "--applications",
+                "docker",
+                "--site-id",
+                "site-test",
+                "--node-id",
+                "node-test",
+            ])
+            .clear_test_environment();
+        command
+    };
+    let site_document = |outcome: &str| {
+        serde_json::json!({
+            "outcome": outcome,
+            "siteDir": site_dir,
+            "siteId": "site-test",
+            "nodeId": "node-test",
+            "nodeHost": "127.0.0.1",
+            "inference": ["simulated"],
+            "applications": ["simulated", "docker"],
+        })
+    };
+
+    let initialized = site_command(&["init"]).output().expect("run site init");
+    let kept = site_command(&["init"])
+        .output()
+        .expect("run site init again");
+    let reset = site_command(&["reset"]).output().expect("run site reset");
+    let mut validate = dotc();
+    validate
+        .args(["--yaml", "site", "validate", "--site-dir"])
+        .arg(&site_dir)
+        .clear_test_environment();
+    let validated = validate.output().expect("run site validate");
+    let mut if_missing = dotc();
+    if_missing
+        .args(["--yaml", "site", "init", "--if-missing", "--site-dir"])
+        .arg(&site_dir)
+        .args(["--inference", "none", "--applications", "none"])
+        .clear_test_environment();
+    let present = if_missing.output().expect("run site init --if-missing");
+    let mut delete = dotc();
+    delete
+        .args(["--yaml", "site", "delete", "--site-dir"])
+        .arg(&site_dir)
+        .clear_test_environment();
+    let deleted = delete.output().expect("run site delete");
+
+    for (output, document) in [
+        (&initialized, site_document("initialized")),
+        (&kept, site_document("alreadyInitialized")),
+        (&reset, site_document("reset")),
+        (
+            &validated,
+            serde_json::json!({ "outcome": "valid", "siteDir": site_dir }),
+        ),
+        (
+            &present,
+            serde_json::json!({ "outcome": "alreadyInitialized", "siteDir": site_dir }),
+        ),
+        (
+            &deleted,
+            serde_json::json!({ "outcome": "deleted", "siteDir": site_dir }),
+        ),
+    ] {
+        assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+        assert_eq!(support::yaml_documents(&text(&output.stdout)), [document]);
+    }
+    assert!(!site_dir.exists());
 }
 
 #[test]
@@ -4011,7 +4717,8 @@ fn node_remove_asks_the_operator_to_review_and_confirm_in_a_terminal() {
         Session::new([
             Step::Wait("Remove this node from the site?"),
             Step::Send(b"yes\n"),
-        ]),
+        ])
+        .with_stdout_on_terminal(),
     ) else {
         return;
     };
@@ -4025,14 +4732,16 @@ fn node_remove_asks_the_operator_to_review_and_confirm_in_a_terminal() {
         "These deployments are dropped without cleaning up the node",
         "application  Worker app (present)",
         "Removed Worker two",
-        "On that machine, stop its server, then run:",
-        "dotc node leave",
+        "The removed machine keeps its workloads and node folder",
     ] {
         assert!(
             run.screen().contains(expected),
             "{expected}\n{}",
             run.screen()
         );
+    }
+    for absent in ["Next", "dotc node leave"] {
+        assert!(!run.screen().contains(absent), "{absent}\n{}", run.screen());
     }
     assert_eq!(pin_files(fixture.site_path()), Vec::<String>::new());
 }
@@ -4193,10 +4902,7 @@ fn node_join_in_the_default_folder_prints_the_plain_start_command() {
 
     assert_eq!(joined.status.code(), Some(0), "{}", text(&joined.stderr));
     assert_eq!(add.finish().status.code(), Some(0));
-    assert_eq!(
-        record(&text(&joined.stdout), "DOTCORE_START_COMMAND="),
-        "dotcore"
-    );
+    assert_eq!(start_command(&text(&joined.stdout)), "dotcore");
     assert!(state.join("dotcore/site/trust/node-key.pk8").is_file());
 }
 
@@ -4232,10 +4938,7 @@ fn node_join_in_a_folder_from_the_environment_prints_the_plain_start_command() {
 
     assert_eq!(joined.status.code(), Some(0), "{}", text(&joined.stderr));
     assert_eq!(add.finish().status.code(), Some(0));
-    assert_eq!(
-        record(&text(&joined.stdout), "DOTCORE_START_COMMAND="),
-        "dotcore"
-    );
+    assert_eq!(start_command(&text(&joined.stdout)), "dotcore");
     assert!(node_dir.join("trust/node-key.pk8").is_file());
 }
 
@@ -4288,7 +4991,7 @@ fn the_printed_start_command_starts_the_joined_node() {
         .expect("run node join");
     assert_eq!(joined.status.code(), Some(0), "{}", text(&joined.stderr));
     assert_eq!(add.finish().status.code(), Some(0));
-    let printed = record(&text(&joined.stdout), "DOTCORE_START_COMMAND=");
+    let printed = start_command(&text(&joined.stdout));
     assert_eq!(
         printed,
         format!("dotcore --site-dir {}", node_dir.display())
@@ -4433,10 +5136,7 @@ fn node_join_proposes_the_machine_host_variable_unless_the_host_flag_is_given() 
         .output()
         .expect("join with the host variable");
     assert_eq!(joined.status.code(), Some(0), "{}", text(&joined.stderr));
-    assert_eq!(
-        record(&text(&joined.stdout), "DOTCORE_NODE_HOST="),
-        "localhost"
-    );
+    assert_eq!(joined_host(&text(&joined.stdout)), "localhost");
     assert_eq!(add.finish().status.code(), Some(0));
 
     // The flag wins over the variable.
@@ -4451,10 +5151,7 @@ fn node_join_proposes_the_machine_host_variable_unless_the_host_flag_is_given() 
     join.env("DOTCORE_MACHINE_HOST", "localhost");
     let joined = join.output().expect("join with the host flag and variable");
     assert_eq!(joined.status.code(), Some(0), "{}", text(&joined.stderr));
-    assert_eq!(
-        record(&text(&joined.stdout), "DOTCORE_NODE_HOST="),
-        "127.0.0.3"
-    );
+    assert_eq!(joined_host(&text(&joined.stdout)), "127.0.0.3");
     assert_eq!(add.finish().status.code(), Some(0));
 
     // The retired DOTCORE_DEV_HOST name is not read: without a host the manager falls back to the
@@ -4505,7 +5202,7 @@ fn node_join_proposes_the_machine_host_variable_unless_the_host_flag_is_given() 
             text(&observed.stderr)
         );
         assert_eq!(
-            record(&text(&observed.stdout), "DOTCORE_NODE_HOST="),
+            joined_host(&text(&observed.stdout)),
             observed_host.to_string()
         );
         assert_eq!(add.finish().status.code(), Some(0));
@@ -4601,7 +5298,8 @@ fn node_add_asks_the_operator_and_node_join_enters_the_token_hidden() {
     let add_run = thread::spawn(move || {
         run_in_pty(
             add,
-            Session::new([Step::Wait("Allow this node to join?"), Step::Send(b"yes\n")]),
+            Session::new([Step::Wait("Allow this node to join?"), Step::Send(b"yes\n")])
+                .with_stdout_on_terminal(),
         )
     });
     wait_for_file(&token_file, &manager);
@@ -4637,7 +5335,8 @@ fn node_add_asks_the_operator_and_node_join_enters_the_token_hidden() {
         Step::Wait("Waiting for approval on the manager..."),
         Step::Wait("Node name"),
         Step::Send(b"Interactive node\n"),
-    ]);
+    ])
+    .with_stdout_on_terminal();
     let Some(joined) = run_in_pty(join, session) else {
         return;
     };
@@ -4653,10 +5352,11 @@ fn node_add_asks_the_operator_and_node_join_enters_the_token_hidden() {
         joined.screen()
     );
     assert!(
-        joined.screen().contains("Start the node:"),
+        joined.screen().contains("The node is not started"),
         "{}",
         joined.screen()
     );
+    assert!(!joined.screen().contains("Next"), "{}", joined.screen());
     assert!(
         !joined.screen().contains(&token[..16]),
         "the token was echoed:\n{}",
@@ -4763,7 +5463,8 @@ fn an_interactive_join_starts_the_node_with_its_packaged_launcher_or_shows_how()
             Session::new([
                 Step::Wait("Send this proposal to the manager?"),
                 Step::Send(confirm),
-            ]),
+            ])
+            .with_stdout_on_terminal(),
         ) else {
             return;
         };
@@ -4785,7 +5486,7 @@ fn an_interactive_join_starts_the_node_with_its_packaged_launcher_or_shows_how()
                 joined.session()
             );
             assert!(
-                !joined.session().contains("Start the node:"),
+                !joined.session().contains("The node is not started"),
                 "{}",
                 joined.session()
             );
@@ -4793,10 +5494,12 @@ fn an_interactive_join_starts_the_node_with_its_packaged_launcher_or_shows_how()
             // Line prompts can't skip with a key, so they show the command instead.
             assert!(!launched.exists(), "the launcher ran on a dumb terminal");
             assert!(
-                joined.session().contains(&format!(
-                    "Start the node:\n      dotcore --site-dir {}",
-                    node_dir.display()
-                )),
+                joined.session().contains("The node is not started"),
+                "{}",
+                joined.session()
+            );
+            assert!(
+                !joined.session().contains("dotcore --site-dir"),
                 "{}",
                 joined.session()
             );
@@ -4909,7 +5612,9 @@ fn site_validate_success_prints_only_the_exact_machine_readable_records() {
     assert_eq!(
         text(&output.stdout),
         format!(
-            "Site valid\nDOTCORE_SITE_DIR={}\n",
+            "✔ Site valid
+  directory  {}
+",
             fixture.site_path().display()
         )
     );
@@ -4919,7 +5624,7 @@ fn site_validate_success_prints_only_the_exact_machine_readable_records() {
 #[test]
 fn site_commands_read_a_site_that_holds_deployments() {
     let fixture = TemporarySite::new();
-    let valid = "siteId: cli-test-site\nmodelDeploymentIdentityAllocator: { namespace: 0123456789abcdef, nextSequence: '1' }\nnodes:\n- nodeId: cli-test-node\n  host: 127.0.0.2\n  displayName: CLI test node\n  siteManager: {}\nmodelDeployments:\n- modelDeploymentId: upstream-one\n  snapshot:\n    upstream:\n      upstreamModelTemplate:\n        upstreamModelTemplateId: openai-compatible\n        displayName: OpenAI-compatible\n        wireProtocol: UPSTREAM_WIRE_PROTOCOL_OPENAI_COMPATIBLE\n  desiredState: MODEL_DEPLOYMENT_DESIRED_STATE_PRESENT\n  lifecycleGeneration: '1'\n  lifecycleTransition: MODEL_DEPLOYMENT_LIFECYCLE_TRANSITION_CREATE\n  upstreamDesiredConfiguration:\n    upstreamModelId: hosted-private-model\n    apiKey: test-upstream-key\n    inputCapabilities:\n      supportsText: true\n      supportsImage: true\n    endpoint:\n      baseUrl: https://endpoint.example/v1\n      allowInsecureHttp: false\n    boundary:\n      locality: UPSTREAM_MODEL_LOCALITY_PUBLIC_EXTERNAL\n      trustDomain: endpoint.example\n      dataEgressClass: UPSTREAM_MODEL_DATA_EGRESS_CLASS_PUBLIC_INTERNET\n";
+    let valid = "siteId: cli-test-site\ndeploymentIdentityAllocator: { suffixKey: 0123456789abcdef, nextSequence: '1' }\nnodes:\n- nodeId: cli-test-node\n  host: 127.0.0.2\n  displayName: CLI test node\n  siteManager: {}\nmodelDeployments:\n- modelDeploymentId: upstream-one\n  snapshot:\n    upstream:\n      upstreamModelTemplate:\n        upstreamModelTemplateId: openai-compatible\n        displayName: OpenAI-compatible\n        wireProtocol: UPSTREAM_WIRE_PROTOCOL_OPENAI_COMPATIBLE\n  desiredState: MODEL_DEPLOYMENT_DESIRED_STATE_PRESENT\n  lifecycleGeneration: '1'\n  lifecycleTransition: MODEL_DEPLOYMENT_LIFECYCLE_TRANSITION_CREATE\n  upstreamDesiredConfiguration:\n    upstreamModelId: hosted-private-model\n    apiKey: test-upstream-key\n    inputCapabilities:\n      supportsText: true\n      supportsImage: true\n    endpoint:\n      baseUrl: https://endpoint.example/v1\n      allowInsecureHttp: false\n    boundary:\n      locality: UPSTREAM_MODEL_LOCALITY_PUBLIC_EXTERNAL\n      trustDomain: endpoint.example\n      dataEgressClass: UPSTREAM_MODEL_DATA_EGRESS_CLASS_PUBLIC_INTERNET\n";
     let site_yaml = fixture.site_path().join("site.yaml");
     std::fs::write(&site_yaml, valid).expect("Upstream site input");
     std::fs::set_permissions(
@@ -4943,13 +5648,15 @@ fn site_commands_read_a_site_that_holds_deployments() {
     assert_eq!(
         text(&validated.stdout),
         format!(
-            "Site valid\nDOTCORE_SITE_DIR={}\n",
+            "✔ Site valid
+  directory  {}
+",
             fixture.site_path().display()
         )
     );
 
     let configuration = dotc()
-        .args(["config", "show", "--format", "json", "--site-dir"])
+        .args(["--yaml", "config", "show", "--site-dir"])
         .arg(fixture.site_path())
         .clear_test_environment()
         .env("HOME", fixture.root.join("home"))
@@ -4961,9 +5668,10 @@ fn site_commands_read_a_site_that_holds_deployments() {
         "{}",
         text(&configuration.stderr)
     );
-    let json = serde_json::from_slice::<serde_json::Value>(&configuration.stdout)
-        .expect("configuration JSON");
-    assert_eq!(json["nodeHost"], "127.0.0.2");
+    let [document] = &support::yaml_documents(&text(&configuration.stdout))[..] else {
+        panic!("one configuration document");
+    };
+    assert_eq!(document["nodeHost"], "127.0.0.2");
 
     let replaced = dotc()
         .args(["site", "init", "--replace", "--site-dir"])
@@ -5008,7 +5716,9 @@ fn site_validate_platform_catalog_composition_is_optional_and_read_only() {
     assert_eq!(
         text(&output.stdout),
         format!(
-            "Site valid\nDOTCORE_SITE_DIR={}\n",
+            "✔ Site valid
+  directory  {}
+",
             fixture.site_path().display()
         )
     );
@@ -5336,11 +6046,18 @@ fn site_reset_rejects_a_live_server_without_mutation_then_succeeds_after_shutdow
 #[test]
 fn server_start_emits_startup_protocol_and_exits_cleanly_after_signals() {
     for signal in [libc::SIGINT, libc::SIGTERM] {
-        assert_lifecycle(signal);
+        assert_lifecycle(signal, false);
     }
 }
 
-fn assert_lifecycle(signal: libc::c_int) {
+#[test]
+fn server_start_from_a_terminal_session_writes_only_the_startup_protocol_to_stdout() {
+    assert_lifecycle(libc::SIGTERM, true);
+}
+
+/// Runs the server until `signal` stops it, with a controlling terminal when `terminal` is set,
+/// and asserts its stdout carries exactly the startup protocol.
+fn assert_lifecycle(signal: libc::c_int, terminal: bool) {
     let fixture = TemporarySite::new();
     let mut command = dotc();
     command
@@ -5354,6 +6071,14 @@ fn assert_lifecycle(signal: libc::c_int) {
         .env("DOTCORE_CATALOG_DIR", fixture.catalog_path())
         .env("DOTCORE_CACHE_DIR", fixture.cache_path())
         .env("RUST_LOG", "info");
+    let _terminal = if terminal {
+        let Some(terminal) = attach_controlling_terminal(&mut command) else {
+            return;
+        };
+        Some(terminal)
+    } else {
+        None
+    };
     let child = command
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -6118,19 +6843,47 @@ fn join_node(site_dir: &Path, node_dir: &Path, name: &str, host: &str) {
     manager.stop();
 }
 
-const MANAGER_LIST_BLOCK: &str = "Node\nDOTCORE_NODE_ID=cli-test-node\nDOTCORE_NODE_NAME=CLI test node\nDOTCORE_NODE_ROLE=manager\nDOTCORE_NODE_HOST=127.0.0.2\nDOTCORE_NODE_MANAGER_HOST=default\nDOTCORE_NODE_PIN=own identity\nDOTCORE_NODE_EXECUTION_TARGET=cli-test-target model linux/amd64\nDOTCORE_NODE_EXECUTION_TARGET=cli-test-application-target application linux/amd64\nDOTCORE_NODE_MODEL_DEPLOYMENTS=0\nDOTCORE_NODE_APPLICATION_DEPLOYMENTS=0\n";
-
-/// The joined worker's `node list` block: its simulated models run on the default simulated GPU,
-/// which the declared machine puts on a Linux host of this machine's architecture, and its
-/// simulated applications take that architecture too.
-fn worker_list_block() -> String {
-    let platform = match std::env::consts::ARCH {
-        "aarch64" => "linux/arm64",
-        _ => "linux/amd64",
-    };
-    format!(
-        "Node\nDOTCORE_NODE_ID=node-7b836d678d251736\nDOTCORE_NODE_NAME=Worker two\nDOTCORE_NODE_ROLE=worker\nDOTCORE_NODE_HOST=127.0.0.3\nDOTCORE_NODE_MANAGER_HOST=default\nDOTCORE_NODE_PIN=yes\nDOTCORE_NODE_EXECUTION_TARGET=execution-target-7182af3d809190c5-simulated-4d747ac0 model {platform}\nDOTCORE_NODE_EXECUTION_TARGET=application-execution-target-7182af3d809190c5-simulated application {platform}\nDOTCORE_NODE_MODEL_DEPLOYMENTS=0\nDOTCORE_NODE_APPLICATION_DEPLOYMENTS=0\n"
-    )
+/// The plain table `dotc node list` prints for the fixture's manager and, when given, the joined
+/// worker with its host and placed applications.
+fn expected_node_list(worker: Option<(&str, usize)>) -> String {
+    let mut rows = vec![
+        ["NAME", "ID", "ROLE", "HOST", "MODELS", "APPS"].map(str::to_owned),
+        [
+            "CLI test node",
+            "cli-test-node",
+            "manager",
+            "127.0.0.2",
+            "0",
+            "0",
+        ]
+        .map(str::to_owned),
+    ];
+    if let Some((host, applications)) = worker {
+        rows.push(
+            [
+                "Worker two",
+                WORKER_NODE_ID,
+                "worker",
+                host,
+                "0",
+                &applications.to_string(),
+            ]
+            .map(str::to_owned),
+        );
+    }
+    let widths: [usize; 6] =
+        std::array::from_fn(|column| rows.iter().map(|row| row[column].len()).max().unwrap_or(0));
+    let mut text = "Nodes of site cli-test-site\n".to_owned();
+    for row in &rows {
+        let cells = row
+            .iter()
+            .zip(widths)
+            .map(|(cell, width)| format!("{cell:<width$}"))
+            .collect::<Vec<_>>()
+            .join("  ");
+        text.push_str(&format!("  {}\n", cells.trim_end()));
+    }
+    text
 }
 
 /// Builds a non-interactive `dotc node remove` of `node` on the fixture site.
@@ -6150,6 +6903,7 @@ fn node_leave_command(node_dir: &Path) -> Command {
         .args(["node", "leave", "--yes", "--site-dir"])
         .arg(node_dir)
         .clear_test_environment();
+    detach_from_controlling_terminal(&mut command);
     command
 }
 
@@ -6163,7 +6917,7 @@ fn node_list_command(site_dir: &Path) -> Command {
     command
 }
 
-/// Runs `dotc node list` without a terminal and returns its records.
+/// Runs `dotc node list` without a terminal and returns its output.
 fn node_list_stdout(site_dir: &Path) -> String {
     let output = node_list_command(site_dir).output().expect("run node list");
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
@@ -6272,13 +7026,44 @@ fn neighbor_lines<'a>(text: &'a str, start: &str) -> (Option<&'a str>, Option<&'
     )
 }
 
-fn record(stdout: &str, prefix: &str) -> String {
-    let mut records = stdout.lines().filter_map(|line| line.strip_prefix(prefix));
-    let value = records
+/// The command a joined node's output says starts it, on the line after its announcement.
+fn start_command(stdout: &str) -> String {
+    let mut lines = stdout
+        .lines()
+        .skip_while(|line| *line != "Start the node with:");
+    lines.next().expect("start announcement in the output");
+    lines
         .next()
-        .unwrap_or_else(|| panic!("missing {prefix} in {stdout:?}"));
-    assert!(records.next().is_none(), "duplicate {prefix} in {stdout:?}");
-    value.to_owned()
+        .unwrap_or_else(|| panic!("missing start command in {stdout:?}"))
+        .trim()
+        .to_owned()
+}
+
+/// The host a join's success line names, such as `127.0.0.3` in `Joined site as node at 127.0.0.3`.
+fn joined_host(stdout: &str) -> String {
+    let line = stdout
+        .lines()
+        .find(|line| line.contains("Joined ") || line.contains("Rejoined "))
+        .unwrap_or_else(|| panic!("missing join success line in {stdout:?}"));
+    line.rsplit_once(" at ")
+        .expect("host after `at`")
+        .1
+        .to_owned()
+}
+
+/// The value of a labeled fact in a command's output, such as `node host` in a site summary.
+fn fact(stdout: &str, label: &str) -> String {
+    let mut values = stdout.lines().filter_map(|line| {
+        line.trim_start()
+            .strip_prefix(label)
+            .filter(|rest| rest.starts_with("  "))
+            .map(|rest| rest.trim().to_owned())
+    });
+    let value = values
+        .next()
+        .unwrap_or_else(|| panic!("missing {label} in {stdout:?}"));
+    assert!(values.next().is_none(), "duplicate {label} in {stdout:?}");
+    value
 }
 
 fn assert_generated_simulated_bundle(site_dir: &Path, site_id: &str, node_id: &str) {
@@ -6370,6 +7155,27 @@ const SIMULATED_MODEL_TARGET: &str = "- executionTargetId: model-target\n  siteN
 /// Retained execution target bound to the Docker runtime, as a `site.yaml` list item.
 const DOCKER_APPLICATION_TARGET: &str = "- executionTargetId: application-target\n  siteNodeId: retained-node\n  displayName: application-target\n  applicationRuntime: { dockerRuntime: {} }\n";
 
+fn command_tree() -> clap::Command {
+    let mut command = <dotc::Cli as clap::CommandFactory>::command();
+    command.build();
+    command
+}
+
+/// Collects the path of every visible command without visible subcommands.
+fn collect_visible_leaves(command: &clap::Command, path: &str, leaves: &mut Vec<String>) {
+    let mut children = command
+        .get_subcommands()
+        .filter(|child| !child.is_hide_set() && child.get_name() != "help")
+        .peekable();
+    if children.peek().is_none() {
+        leaves.push(path.to_string());
+        return;
+    }
+    for child in children {
+        collect_visible_leaves(child, &format!("{path} {}", child.get_name()), leaves);
+    }
+}
+
 fn text(value: &[u8]) -> String {
     String::from_utf8_lossy(value).into_owned()
 }
@@ -6431,7 +7237,7 @@ impl TemporarySite {
         std::fs::create_dir_all(root.join("cache")).expect("cache directory");
         std::fs::write(
             root.join("site.yaml"),
-            "siteId: cli-test-site\nmodelDeploymentIdentityAllocator: { namespace: 0123456789abcdef, nextSequence: '1' }\nnodes:\n- nodeId: cli-test-node\n  host: 127.0.0.2\n  displayName: CLI test node\n  siteManager: {}\nexecutionTargets:\n- executionTargetId: cli-test-target\n  siteNodeId: cli-test-node\n  displayName: cli-test-target\n  platform: { operatingSystem: linux, architecture: amd64 }\n  acceleratorDeviceIds: [GPU-00000000-0000-0000-0000-000000005090]\n  modelRuntime:\n    simulatedRuntime:\n      defaultScenario: { readyDelayMillis: 0, stopDelayMillis: 0 }\n- executionTargetId: cli-test-application-target\n  siteNodeId: cli-test-node\n  displayName: cli-test-application-target\n  platform: { operatingSystem: linux, architecture: amd64 }\n  applicationRuntime: { simulatedRuntime: {} }\nmodelDeployments: []\ninferenceRoutes: []\napplicationDeployments: []\n",
+            "siteId: cli-test-site\ndeploymentIdentityAllocator: { suffixKey: 0123456789abcdef, nextSequence: '1' }\nnodes:\n- nodeId: cli-test-node\n  host: 127.0.0.2\n  displayName: CLI test node\n  siteManager: {}\nexecutionTargets:\n- executionTargetId: cli-test-target\n  siteNodeId: cli-test-node\n  displayName: cli-test-target\n  platform: { operatingSystem: linux, architecture: amd64 }\n  acceleratorDeviceIds: [GPU-00000000-0000-0000-0000-000000005090]\n  modelRuntime:\n    simulatedRuntime:\n      defaultScenario: { readyDelayMillis: 0, stopDelayMillis: 0 }\n- executionTargetId: cli-test-application-target\n  siteNodeId: cli-test-node\n  displayName: cli-test-application-target\n  platform: { operatingSystem: linux, architecture: amd64 }\n  applicationRuntime: { simulatedRuntime: {} }\nmodelDeployments: []\ninferenceRoutes: []\napplicationDeployments: []\n",
         )
         .expect("desired site");
         std::fs::write(
@@ -6680,6 +7486,113 @@ fn hardware_recommend_prints_exact_tables_for_a_described_machine() {
         recommend(&tight, &["--use-case", "image"]),
         "Image generation\nApp: Fixture Art\n"
     );
+}
+
+#[test]
+fn yaml_hardware_recommend_prints_the_recommendations_as_one_document() {
+    let catalog = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/recommendation-catalog");
+    let fixture = TemporarySite::empty();
+    let machine = fixture.root.join("roomy.yaml");
+    std::fs::write(
+        &machine,
+        "platform: linux/amd64\ncpuCount: 8\nhostMemory: { totalBytes: 34359738368, idleUsedBytes: 4294967296 }\ngpus:\n  - id: GPU-fixture\n    vendor: nvidia\n    model: Fixture GPU X\n    driverVersion: \"580.173.02\"\n    memory: { architecture: dedicated, totalBytes: 34359738368, reservedBytes: 536870912 }\n",
+    )
+    .expect("write machine description");
+
+    let output = isolated_dotc()
+        .args(["--yaml", "hardware", "recommend", "--machine"])
+        .arg(&machine)
+        .arg("--catalog-dir")
+        .arg(&catalog)
+        .output()
+        .expect("run dotc hardware recommend");
+
+    assert!(output.status.success(), "{}", text(&output.stderr));
+    assert_eq!(text(&output.stderr), "");
+    let recommendation = |model: &str, name: &str, total: u64| {
+        serde_json::json!({
+            "modelId": model,
+            "modelName": name,
+            "profileId": "q4",
+            "profileName": "Fixture Q4",
+            "contextPerRequest": 32768,
+            "targets": [{
+                "executionTargetId": "execution-target-4e1fd5461dfe5ef9-nvidia-94da1331",
+                "executionTargetName": "Fixture GPU X",
+                "fit": "fitsNow",
+                "startingTotalContext": total,
+            }],
+        })
+    };
+    assert_eq!(
+        support::yaml_documents(&text(&output.stdout)),
+        [serde_json::json!({
+            "useCases": [
+                {
+                    "useCase": "USE_CASE_CODING",
+                    "recommendations": [
+                        recommendation("big", "Fixture Big", 131072),
+                        recommendation("small", "Fixture Small", 131072),
+                    ],
+                },
+                {
+                    "useCase": "USE_CASE_CHAT_ASSISTANT",
+                    "recommendations": [recommendation("small", "Fixture Small", 131072)],
+                    "application": {
+                        "applicationId": "fixture-chat",
+                        "displayName": "Fixture Chat",
+                        "note": "no target matches its preferred accelerators: apple",
+                    },
+                },
+                {
+                    "useCase": "USE_CASE_IMAGE_GENERATION",
+                    "recommendations": [],
+                    "application": {
+                        "applicationId": "fixture-art",
+                        "displayName": "Fixture Art",
+                    },
+                },
+            ],
+        })]
+    );
+}
+
+#[test]
+fn hardware_show_summarizes_the_machine_and_yaml_prints_a_loadable_description() {
+    let human = isolated_dotc()
+        .args(["hardware", "show"])
+        .output()
+        .expect("run dotc hardware show");
+    let yaml = isolated_dotc()
+        .args(["--yaml", "hardware", "show"])
+        .output()
+        .expect("run dotc --yaml hardware show");
+
+    assert!(human.status.success(), "{}", text(&human.stderr));
+    let summary = text(&human.stdout);
+    assert!(summary.starts_with("Hardware\n"), "{summary}");
+    for label in ["dotcore  ", "platform  ", "cpus  ", "host memory  "] {
+        assert!(summary.contains(label), "{label}: {summary}");
+    }
+    assert!(!summary.contains("cpuCount"), "{summary}");
+
+    assert!(yaml.status.success(), "{}", text(&yaml.stderr));
+    let report = text(&yaml.stdout);
+    assert!(
+        report.starts_with(&format!("# Dotcore {}", env!("CARGO_PKG_VERSION"))),
+        "{report}"
+    );
+    let [document] = &support::yaml_documents(&report)[..] else {
+        panic!("one machine description");
+    };
+    let mut keys = document
+        .as_object()
+        .expect("machine description")
+        .keys()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    keys.retain(|key| *key != "gpus");
+    assert_eq!(keys, ["cpuCount", "hostMemory", "platform"]);
 }
 
 fn list_machines_request() -> &'static [u8] {

@@ -143,7 +143,7 @@ export function useModelDeployMemoryPreview({
           load: () =>
             onPreviewMemory({ configuration: estimateConfiguration, placement, profileId }).then(
               (preview) => ({ placement, preview, profileId }),
-              // The Engine step's command preview reports rejections; this background read only
+              // The Command step's command preview reports rejections; this background read only
               // drops its facts.
               () => ({ placement, profileId }),
             ),

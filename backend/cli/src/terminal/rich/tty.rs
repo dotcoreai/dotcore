@@ -76,8 +76,8 @@ pub(super) fn probe_cursor_reports(tty: &File, timing: TerminalTiming) -> io::Re
 
 /// A crossterm backend drawing on the controlling terminal.
 ///
-/// Only the cursor-position query is replaced: crossterm sends it to process stdout, which must
-/// carry nothing but the command's result records.
+/// Only the cursor-position query is replaced: crossterm sends it to process stdout, which may be
+/// redirected and carries only command output.
 pub(super) struct TtyBackend {
     inner: CrosstermBackend<File>,
     tty: File,
@@ -103,6 +103,24 @@ impl TtyBackend {
         // Raw mode disables output processing, so the line feed needs its carriage return.
         self.tty.write_all(b"\r\n\x1b[J")?;
         self.tty.flush()
+    }
+
+    /// Moves to the start of `row` and erases everything from there, so the next output starts on
+    /// that row.
+    pub(super) fn erase_from(&mut self, row: u16) -> io::Result<()> {
+        self.inner.set_cursor_position(Position::new(0, row))?;
+        Backend::flush(&mut self.inner)?;
+        self.tty.write_all(b"\x1b[J")?;
+        self.tty.flush()
+    }
+
+    /// Starts or ends a frame the terminal shows at once, so a redraw never shows half drawn.
+    pub(super) fn synchronize(&mut self, begin: bool) -> io::Result<()> {
+        if begin {
+            crossterm::execute!(self.inner, crossterm::terminal::BeginSynchronizedUpdate)
+        } else {
+            crossterm::execute!(self.inner, crossterm::terminal::EndSynchronizedUpdate)
+        }
     }
 }
 

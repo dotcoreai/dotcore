@@ -1,26 +1,31 @@
-//! Terminal interaction for guided `dotc site init` and `dotc site reset`:
-//! typed choices, checklists, yes/no confirmations, text answers, and styled messages
-//! behind one injectable seam, for example a host choice returning its index.
+//! Terminal interaction for `dotc` commands: typed choices, checklists, yes/no confirmations,
+//! text answers, and styled messages behind one injectable seam, for example a host choice
+//! returning its index.
 //!
-//! Every prompt and message uses the controlling terminal (`/dev/tty`), never
-//! process stdout or stderr, so the command's result records and diagnostics
-//! stay exact. Messages share one layout (status marks, spacing, aligned facts,
-//! tables, next steps), which diagnostics on a terminal stderr reuse. An answered
-//! question closes its block, so whatever follows starts after a blank line,
-//! while the messages leading up to a question stay attached to it as its
-//! context. Capable terminals get arrow-key prompts with colors; dumb or
-//! unknown terminal types, and terminals that never report their cursor
-//! position, get plain line prompts. An operator cancel always surfaces as one
-//! distinct outcome so the command exits with 130.
+//! Prompts, and the messages that give them context, use the controlling terminal (`/dev/tty`);
+//! command output goes to stdout and outcome warnings to stderr. They share one layout (status
+//! marks, spacing, aligned facts, tables, next steps), which diagnostics on a terminal stderr
+//! reuse. Output on a terminal stdout
+//! shares the prompts' screen and styles; redirected output is plain lines. An answered question
+//! closes its block, so whatever follows starts after a blank line, while the messages leading up
+//! to a question stay attached to it as its context. Capable terminals get arrow-key prompts with
+//! colors; dumb or unknown terminal types, and terminals that never report their cursor position,
+//! get plain line prompts. An operator cancel always surfaces as one distinct outcome so the
+//! command exits with 130.
 
+mod bars;
+mod form;
 mod line;
+mod output;
 mod render;
 mod rich;
 mod scripted;
 
 use std::{collections::BTreeSet, fs::File, io, time::Duration};
 
+pub use bars::{BarChart, BarFill, BarRow, BarSegment, BarTone};
 use dotcore_domain::timing::Timing;
+pub use form::{FieldHint, Footer, FormAnswer, FormField, FormPrompt, FormSession};
 use line::LineTerminal;
 pub use scripted::{ScriptedAnswer, ScriptedPrompt, ScriptedTerminal};
 
@@ -51,8 +56,24 @@ pub trait Terminal {
     /// read a single key press.
     fn countdown(&mut self, prompt: &CountdownPrompt) -> Result<bool, PromptError>;
 
-    /// Displays one styled, non-prompt message to the operator.
+    /// Shows one step's fields together until the operator finishes the step or goes back,
+    /// editing the prompt's field values in place and telling `session` about each edit.
+    fn form(
+        &mut self,
+        prompt: &mut FormPrompt,
+        session: &mut dyn FormSession,
+    ) -> Result<FormAnswer, PromptError>;
+
+    /// Whether forms keep their footer on screen while open; otherwise the caller states what
+    /// the footer says at the points that matter.
+    fn live_footer(&mut self) -> bool;
+
+    /// Displays one styled message as command output, on stdout; a warning goes to stderr.
     fn message(&mut self, message: &Message) -> Result<(), PromptError>;
+
+    /// Displays one styled message next to the prompts, as context the operator needs to answer
+    /// or act, such as a review before a confirmation or a command to run on another machine.
+    fn prompt_context(&mut self, message: &Message) -> Result<(), PromptError>;
 }
 
 /// Opens the process terminal: rich prompts on a capable controlling terminal, plain line
@@ -273,6 +294,14 @@ impl SelectItem {
     pub fn unavailable_reason(&self) -> Option<&str> {
         self.unavailable_reason.as_deref()
     }
+
+    /// Reports whether the label or the description contains `filter`, ignoring case.
+    fn matches(&self, filter: &str) -> bool {
+        let filter = filter.to_lowercase();
+        std::iter::once(self.label())
+            .chain(self.description())
+            .any(|text| text.to_lowercase().contains(&filter))
+    }
 }
 
 /// A yes/no question with the decision taken by an empty answer.
@@ -421,6 +450,9 @@ pub enum Message {
         /// Rows of cells, top first, each empty or the index of its color in `colors`.
         rows: Vec<Vec<Option<usize>>>,
     },
+
+    /// Labelled stacked bars with a legend, such as how full each memory would be.
+    Bars(BarChart),
 }
 
 /// A standard terminal color for the cells of a [`Message::ColorGrid`].

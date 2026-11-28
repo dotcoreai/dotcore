@@ -13,6 +13,8 @@ export interface ParameterView {
   groupId?: string;
   id: string;
   label: string;
+  /** One line for a newcomer shown under the label; absent when the owner declares none. */
+  summary?: string;
   type: ParameterViewType;
 }
 
@@ -25,6 +27,8 @@ export interface ParameterGroupView {
   description?: string;
   id: string;
   label: string;
+  /** One line for a newcomer shown under a plain group's heading. */
+  summary?: string;
   /** The member that switches the other members on and off; absent for a plain group. */
   switchId?: string;
 }

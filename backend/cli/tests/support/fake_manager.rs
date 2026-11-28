@@ -27,6 +27,10 @@ use dotcore_proto::dotcore::{
             ApplicationDeploymentService, ApplicationDeploymentServiceServer,
         },
     },
+    catalog::v1::{
+        self as catalog,
+        catalog_service_server::{CatalogService, CatalogServiceServer},
+    },
     deployment::v1::ExactPlacement,
     model::v1::{
         self as model, CreateModelDeploymentRequest, CreateModelDeploymentResponse,
@@ -119,6 +123,9 @@ impl FakeManager {
                         state: Arc::clone(&served),
                     }))
                     .add_service(ApplicationDeploymentServiceServer::new(FakeApplications {
+                        state: Arc::clone(&served),
+                    }))
+                    .add_service(CatalogServiceServer::new(FakeCatalogService {
                         state: Arc::clone(&served),
                     }))
                     .add_service(SiteServiceServer::new(FakeSite {
@@ -214,6 +221,9 @@ pub struct FakeState {
     /// Machines of the site, which the membership service removes.
     pub machines: Vec<FakeMachine>,
 
+    /// The model catalog, what the deploy reads answer, and the deploy requests received.
+    pub catalog: FakeCatalog,
+
     /// Scripted answers that replace the normal behavior of one call.
     pub scripted: HashMap<Rpc, Scripted>,
 
@@ -247,6 +257,35 @@ impl FakeState {
     }
 }
 
+/// The model catalog the fake serves, the answers of the model deploy reads, and every deploy
+/// request received, so a test can assert the exact request `dotc` built.
+#[derive(Debug, Default)]
+pub struct FakeCatalog {
+    /// Catalog models in list order.
+    pub models: Vec<catalog::Model>,
+
+    /// The answer of every profile compatibility read.
+    pub compatibility: ListModelProfileCompatibilityResponse,
+
+    /// The answer of every deployment preview.
+    pub preview: PreviewLocalModelDeploymentResponse,
+
+    /// The answer of every resource estimate.
+    pub estimate: EstimateLocalModelResourcesResponse,
+
+    /// Profile compatibility requests received, oldest first.
+    pub compatibility_requests: Vec<ListModelProfileCompatibilityRequest>,
+
+    /// Deployment preview requests received, oldest first.
+    pub preview_requests: Vec<PreviewLocalModelDeploymentRequest>,
+
+    /// Resource estimate requests received, oldest first.
+    pub estimate_requests: Vec<EstimateLocalModelResourcesRequest>,
+
+    /// Create requests received, oldest first.
+    pub create_requests: Vec<CreateModelDeploymentRequest>,
+}
+
 /// A faked management call.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum Rpc {
@@ -257,6 +296,8 @@ pub enum Rpc {
     ResumeModel,
 
     RemoveModelDeployment,
+
+    GetApplicationDeployment,
 
     ListApplicationDeployments,
 
@@ -282,6 +323,16 @@ pub enum Rpc {
     PreviewMachineRemoval,
 
     RemoveMachine,
+
+    ListModels,
+
+    ListModelProfileCompatibility,
+
+    PreviewLocalModelDeployment,
+
+    EstimateLocalModelResources,
+
+    CreateModelDeployment,
 }
 
 /// One machine of the fake site and the deployments placed on it.
@@ -555,30 +606,50 @@ impl ModelDeploymentService for FakeModels {
 
     async fn create_model_deployment(
         &self,
-        _request: Request<CreateModelDeploymentRequest>,
+        request: Request<CreateModelDeploymentRequest>,
     ) -> Result<Response<CreateModelDeploymentResponse>, Status> {
-        Err(not_faked())
+        let mut state = self.state.lock().expect("fake manager state");
+        record(&mut state, Rpc::CreateModelDeployment, None)?;
+        let request = request.into_inner();
+        state.catalog.create_requests.push(request.clone());
+        let deployment = created_deployment(&request, state.catalog.create_requests.len());
+        state.model_deployments.push(deployment.clone());
+        Ok(Response::new(CreateModelDeploymentResponse {
+            deployment: Some(deployment),
+        }))
     }
 
     async fn preview_local_model_deployment(
         &self,
-        _request: Request<PreviewLocalModelDeploymentRequest>,
+        request: Request<PreviewLocalModelDeploymentRequest>,
     ) -> Result<Response<PreviewLocalModelDeploymentResponse>, Status> {
-        Err(not_faked())
+        let mut state = self.state.lock().expect("fake manager state");
+        record(&mut state, Rpc::PreviewLocalModelDeployment, None)?;
+        state.catalog.preview_requests.push(request.into_inner());
+        Ok(Response::new(state.catalog.preview.clone()))
     }
 
     async fn estimate_local_model_resources(
         &self,
-        _request: Request<EstimateLocalModelResourcesRequest>,
+        request: Request<EstimateLocalModelResourcesRequest>,
     ) -> Result<Response<EstimateLocalModelResourcesResponse>, Status> {
-        Err(not_faked())
+        let mut state = self.state.lock().expect("fake manager state");
+        record(&mut state, Rpc::EstimateLocalModelResources, None)?;
+        state.catalog.estimate_requests.push(request.into_inner());
+        Ok(Response::new(state.catalog.estimate.clone()))
     }
 
     async fn list_model_profile_compatibility(
         &self,
-        _request: Request<ListModelProfileCompatibilityRequest>,
+        request: Request<ListModelProfileCompatibilityRequest>,
     ) -> Result<Response<ListModelProfileCompatibilityResponse>, Status> {
-        Err(not_faked())
+        let mut state = self.state.lock().expect("fake manager state");
+        record(&mut state, Rpc::ListModelProfileCompatibility, None)?;
+        state
+            .catalog
+            .compatibility_requests
+            .push(request.into_inner());
+        Ok(Response::new(state.catalog.compatibility.clone()))
     }
 
     async fn list_model_recommendations(
@@ -736,9 +807,27 @@ impl ApplicationDeploymentService for FakeApplications {
 
     async fn get_application_deployment(
         &self,
-        _request: Request<application::GetApplicationDeploymentRequest>,
+        request: Request<application::GetApplicationDeploymentRequest>,
     ) -> Result<Response<application::GetApplicationDeploymentResponse>, Status> {
-        Err(not_faked())
+        let id = request.into_inner().application_deployment_id;
+        let mut state = self.state.lock().expect("fake manager state");
+        record(&mut state, Rpc::GetApplicationDeployment, Some(&id))?;
+        if id.is_empty() || id.contains(char::is_whitespace) {
+            return Err(Status::invalid_argument(
+                "Application lifecycle request contains an invalid ID",
+            ));
+        }
+        let deployment = state
+            .application_deployments
+            .iter()
+            .find(|deployment| deployment.application_deployment_id == id)
+            .cloned()
+            .ok_or_else(|| Status::not_found("application deployment was not found"))?;
+        Ok(Response::new(
+            application::GetApplicationDeploymentResponse {
+                deployment: Some(deployment),
+            },
+        ))
     }
 
     async fn create_application_deployment(
@@ -798,6 +887,52 @@ impl ApplicationDeploymentService for FakeApplications {
 /// The site service over the shared state; only the execution targets are faked.
 struct FakeSite {
     state: Arc<Mutex<FakeState>>,
+}
+
+struct FakeCatalogService {
+    state: Arc<Mutex<FakeState>>,
+}
+
+#[tonic::async_trait]
+impl CatalogService for FakeCatalogService {
+    async fn list_models(
+        &self,
+        _request: Request<catalog::ListModelsRequest>,
+    ) -> Result<Response<catalog::ListModelsResponse>, Status> {
+        let mut state = self.state.lock().expect("fake manager state");
+        record(&mut state, Rpc::ListModels, None)?;
+        Ok(Response::new(catalog::ListModelsResponse {
+            models: state.catalog.models.clone(),
+        }))
+    }
+
+    async fn list_engine_releases(
+        &self,
+        _request: Request<catalog::ListEngineReleasesRequest>,
+    ) -> Result<Response<catalog::ListEngineReleasesResponse>, Status> {
+        Err(not_faked())
+    }
+
+    async fn list_applications(
+        &self,
+        _request: Request<catalog::ListApplicationsRequest>,
+    ) -> Result<Response<catalog::ListApplicationsResponse>, Status> {
+        Err(not_faked())
+    }
+
+    async fn list_upstream_model_templates(
+        &self,
+        _request: Request<catalog::ListUpstreamModelTemplatesRequest>,
+    ) -> Result<Response<catalog::ListUpstreamModelTemplatesResponse>, Status> {
+        Err(not_faked())
+    }
+
+    async fn list_hardware_classes(
+        &self,
+        _request: Request<catalog::ListHardwareClassesRequest>,
+    ) -> Result<Response<catalog::ListHardwareClassesResponse>, Status> {
+        Err(not_faked())
+    }
 }
 
 #[tonic::async_trait]
@@ -1001,6 +1136,23 @@ fn removal(outcome: remove_machine_response::Outcome) -> Response<RemoveMachineR
     Response::new(RemoveMachineResponse {
         outcome: Some(outcome),
     })
+}
+
+/// The deployment the fake accepts for a create request: the `created-<n>` deployment of the
+/// requested name and placement, queued.
+fn created_deployment(request: &CreateModelDeploymentRequest, count: usize) -> ModelDeployment {
+    let mut deployment = local_model_deployment(
+        &format!("created-{count}"),
+        request.model_deployment_name.as_deref().unwrap_or_default(),
+        ModelDeploymentStatus::Queued,
+        ModelDeploymentDesiredState::Present,
+    );
+    if let Some(model::create_model_deployment_request::Source::Local(local)) = &request.source
+        && let Some(intent) = deployment.intent.as_mut()
+    {
+        intent.placement = local.placement.clone();
+    }
+    deployment
 }
 
 fn not_faked() -> Status {

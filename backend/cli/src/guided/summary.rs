@@ -28,7 +28,7 @@ pub(super) fn display_summary(
         .first()
         .context("validated guided site inputs lack a node")?;
 
-    terminal.message(&Message::Heading("Initial site plan".to_owned()))?;
+    terminal.prompt_context(&Message::Heading("Initial site plan".to_owned()))?;
     let mut rows = vec![
         (
             "site directory".to_owned(),
@@ -53,8 +53,8 @@ pub(super) fn display_summary(
         };
         rows.push(("native workloads".to_owned(), lifetime.to_owned()));
     }
-    terminal.message(&Message::KeyValues(rows))?;
-    terminal.message(&Message::Hint(NODE_HOST_CONSEQUENCE.to_owned()))?;
+    terminal.prompt_context(&Message::KeyValues(rows))?;
+    terminal.prompt_context(&Message::Hint(NODE_HOST_CONSEQUENCE.to_owned()))?;
     Ok(())
 }
 

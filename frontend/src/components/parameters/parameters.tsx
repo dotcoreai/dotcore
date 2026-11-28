@@ -1,5 +1,6 @@
 import { Fragment, type ReactNode, type RefObject } from "react";
 
+import { CountStepper } from "@/components/ui/count-stepper";
 import { Detail } from "@/components/ui/detail-list";
 import { Field } from "@/components/ui/field";
 import { FormGroup, SwitchedFormGroup } from "@/components/ui/form-group";
@@ -19,6 +20,7 @@ import {
   type ParameterViewValue,
 } from "@/domain/parameter-view";
 import type { FieldErrors } from "@/lib/form-validation";
+import { isSizeUnit } from "@/lib/format";
 
 interface ParametersFormProps {
   /** Errors keyed by parameter ID. */
@@ -30,7 +32,7 @@ interface ParametersFormProps {
   inputs: ReadonlyMap<string, string>;
   inputRefs: RefObject<Map<string, HTMLElement | null>>;
   onBlur: (parameterId: string) => void;
-  onChange: (parameterId: string, input: string) => void;
+  onChange: (parameterId: string, input: string, settled?: boolean) => void;
   /** The step's parameters, in parameter order. */
   parameters: readonly ParameterView[];
   /**
@@ -38,18 +40,16 @@ interface ParametersFormProps {
    * as a richer control for some numbers. The field keeps its place in the layout.
    */
   renderField?: (parameter: ParameterView) => ReactNode;
-  /** The errors of the latest blocked navigation, keyed by parameter ID; they open their groups. */
-  revealedErrors?: FieldErrors;
 }
 
 /**
  * Edits typed parameters as text inputs keyed by parameter ID: a switch holds `true` or `false`,
  * a number field the typed digits, and a select the chosen value. Fields are laid out by their
- * groups and conditions: a group's members share a box, a switched group shows its other members
+ * groups and conditions: a group's members sit under its heading, a switched group shows its other members
  * only while on, and a dependent shows indented under its switch only while that switch is on.
  */
 export function ParametersForm(props: ParametersFormProps) {
-  const { errors, groups, inputs, parameters, revealedErrors } = props;
+  const { groups, inputs, parameters } = props;
   const items = parameterLayout(parameters, groups, parameterInputValues(parameters, inputs));
   // Dependents follow as a sibling, so the switch keeps its element, and focus, as they appear.
   const fieldWithDependents = ({ dependents, parameter }: ParameterLayoutField) => (
@@ -80,17 +80,14 @@ export function ParametersForm(props: ParametersFormProps) {
         </SwitchedFormGroup>
       );
 
-    const fields = members.flatMap(({ dependents, parameter }) => [
-      parameter.id,
-      ...dependents.map((dependent) => dependent.id),
-    ]);
+    // A group with one member has nothing to organize: the member's own label carries it.
+    if (members.length === 1) return fieldWithDependents(members[0]);
+
     return (
       <FormGroup
-        errors={errors}
-        fields={fields}
         help={group.description}
         key={`group:${group.id}`}
-        revealedErrors={revealedErrors}
+        summary={group.summary}
         title={group.label}
       >
         {members.map(fieldWithDependents)}
@@ -171,6 +168,7 @@ function ParameterField({
     error: errors.get(parameter.id),
     help: parameter.description || undefined,
     label: parameter.label,
+    summary: parameter.summary,
   };
   const register = (control: HTMLElement | null) => {
     inputRefs.current.set(parameter.id, control);
@@ -219,7 +217,20 @@ function ParameterField({
   return (
     <Field {...field} facts={parameterFacts(parameter.type)}>
       {(control) => {
-        const input = (
+        const input = isCount(parameter.type) ? (
+          <CountStepper
+            {...control}
+            inputRef={register}
+            label={parameter.label}
+            maximum={
+              parameter.type.maximum === undefined ? undefined : Number(parameter.type.maximum)
+            }
+            minimum={Number(parameter.type.minimum)}
+            onBlur={() => onBlur(parameter.id)}
+            onChange={(input, change) => onChange(parameter.id, input, change?.settled)}
+            value={inputs.get(parameter.id) ?? ""}
+          />
+        ) : (
           <Input
             {...control}
             {...inputProps}
@@ -242,6 +253,13 @@ function ParameterField({
       }}
     </Field>
   );
+}
+
+// Whether a type is a small count, which the stepper edits; byte sizes and tokens keep text input.
+function isCount(
+  type: ParameterViewType,
+): type is Extract<ParameterViewType, { kind: "unsignedInteger" }> {
+  return type.kind === "unsignedInteger" && !type.memoryPool && !isSizeUnit(type.unit);
 }
 
 // The facts under a typed input field: a number's range, or a text's accepted length.

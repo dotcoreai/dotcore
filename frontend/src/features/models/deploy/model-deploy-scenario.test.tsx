@@ -401,6 +401,12 @@ describe("ModelDeployDialog scenario prefill", () => {
     expect(profileRows()).toEqual(["NVFP4 text"]);
     const memory = screen.getByRole("radiogroup", { name: "Memory" });
     expect(within(memory).getByRole("radio", { name: "Free now" })).toBeChecked();
+    // The switch sits in the profile table's toolbar.
+    expect(
+      within(screen.getByRole("region", { name: "Profile" })).getByRole("radiogroup", {
+        name: "Memory",
+      }),
+    ).toBe(memory);
 
     await user.click(within(memory).getByRole("radio", { name: "Total" }));
     await waitFor(() => expect(profilesFooter()).toBe("2 of 4 profiles"));
@@ -810,6 +816,48 @@ describe("ModelDeployDialog shared context", () => {
     ]);
   });
 
+  it.each([
+    { case: "above the last largest fit", largest: 196608, shown: "192k" },
+    { case: "below the last largest fit", largest: 1048576, shown: "256k" },
+  ])(
+    "keeps a following total at the same value while its read is pending and after, $case",
+    async ({ largest, shown }) => {
+      const user = setupUser();
+      const rule = ruleLoader(largest);
+      const release: (() => void)[] = [];
+      // The read of the 64k context per request waits until released.
+      const listProfileCompatibility = vi.fn((modelId: string, requested?: SizingScenario) => {
+        const response = rule(modelId, requested);
+        return requested?.contextTokensPerRequest === 65536
+          ? response.then(
+              (value) => new Promise<typeof value>((resolve) => release.push(() => resolve(value))),
+            )
+          : response;
+      });
+      renderDialog({ initialProfileId: "q4-xl", listProfileCompatibility });
+
+      await screen.findByRole("button", { name: "Runs on filter: this site" });
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      const total = screen.getByRole("textbox", { name: "Total context" });
+      await waitFor(() => expect(total).toHaveValue("128k"));
+
+      await user.click(
+        within(screen.getByRole("group", { name: "Context per request presets" })).getByRole(
+          "button",
+          { name: "64k" },
+        ),
+      );
+      await waitFor(() => expect(release).toHaveLength(1));
+      expect(total).toHaveValue(shown);
+
+      await act(async () => {
+        release[0]();
+        await Promise.resolve();
+      });
+      expect(total).toHaveValue(shown);
+    },
+  );
+
   it("follows the context per request and parallel requests with the read's starting total until edited, and relinks it", async () => {
     const user = setupUser();
     const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
@@ -930,6 +978,38 @@ describe("ModelDeployDialog shared context", () => {
     );
     expect(await readFieldHelpFacts("Context per request")).toContain(
       "Up to 256k with 1 parallel request on node / NVIDIA GeForce RTX 5090",
+    );
+  });
+
+  it("sizes the context at once when parallel requests is stepped with a button", async () => {
+    const user = setupUser();
+    const estimateFit = sharedContextEstimate(runtimeSchemaModel);
+    const onEstimate = vi.fn<ResourceEstimateLoader>(async (values) => {
+      const parallel = values.configuration.engineParameterValues.values.find(
+        (value) => value.parameterId === "parallel-requests",
+      )?.value.value;
+      return {
+        ...(await estimateFit(values)),
+        largestContextPerRequest: parallel === 3n ? 262_144 : 229_376,
+      };
+    });
+    renderDialog({
+      initialProfileId: "q4-xl",
+      listProfileCompatibility: ruleLoader(910336),
+      onEstimate,
+    });
+
+    await screen.findByRole("button", { name: "Runs on filter: this site" });
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(largestFitChip("224k")).toBeVisible());
+
+    // The step settles without the box being left.
+    await user.click(screen.getByRole("button", { name: "Decrease Parallel requests" }));
+
+    expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveValue("3");
+    await waitFor(() => expect(largestFitChip("256k")).toBeVisible());
+    expect(await readFieldHelpFacts("Context per request")).toContain(
+      "Up to 256k with 3 parallel requests on node / NVIDIA GeForce RTX 5090",
     );
   });
 
@@ -1609,7 +1689,7 @@ function scenarioResponse(
 
 /** Picks the target the pattern names on the Model & machine step. */
 async function pickTarget(user: UserEvent, name: RegExp) {
-  await user.click(screen.getByRole("combobox", { name: "Execution target" }));
+  await user.click(screen.getByRole("combobox", { name: "Machine" }));
   await user.click(screen.getByRole("option", { name }));
 }
 

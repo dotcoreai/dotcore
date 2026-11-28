@@ -17,7 +17,7 @@ import { profileCompatibilityStatus } from "@/features/models/profiles/profile-c
 import { ModelDeployContextStep } from "./model-deploy-context-step";
 import { ModelDeployEngineStep } from "./model-deploy-engine-step";
 import type { ModelDeployFormOptions } from "./model-deploy-form-options";
-import { exactPlacement } from "./model-deploy-launch";
+import { exactPlacement, MODEL_DEPLOY_STEP_LABELS } from "./model-deploy-launch";
 import { ModelDeployMachineStep } from "./model-deploy-machine-step";
 import { ModelDeployOptionFields } from "./model-deploy-option-fields";
 import { ModelDeployPerformanceStep } from "./model-deploy-performance-step";
@@ -85,7 +85,11 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
 
   return (
     <DeploymentWizardShell
-      {...deployWizardShellProps(wizard, { labels, pending })}
+      {...deployWizardShellProps(wizard, {
+        labels,
+        pending,
+        stepLabels: MODEL_DEPLOY_STEP_LABELS,
+      })}
       onOpenChange={onOpenChange}
       open={open}
       openerRef={openerRef}
@@ -98,7 +102,7 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
       primaryDisabled={step === "Review & deploy" && form.deployDisabled}
       resourceColorKey={model.modelId}
       resourceName={model.displayName}
-      submitError={step === "Review & deploy" || step === "Engine" ? error : undefined}
+      submitError={step === "Review & deploy" || step === "Command" ? error : undefined}
       title={labels.title}
     >
       {step === "Model & machine" ? (
@@ -222,7 +226,6 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
             onBlur: parameters.blurParameter,
             groups: machine.engineRelease?.parameterSchema?.parameterGroups ?? [],
             onChange: parameters.changeParameter,
-            revealedErrors: wizard.revealedErrors,
             shown: parameters.basicParameters,
           }}
           profile={machine.profile}
@@ -248,10 +251,9 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
             />
           }
           parameterGroups={machine.engineRelease?.parameterSchema?.parameterGroups ?? []}
-          revealedErrors={wizard.revealedErrors}
         />
       ) : null}
-      {step === "Engine" ? (
+      {step === "Command" ? (
         <ModelDeployEngineStep
           blockedBy={form.commandBlockedBy}
           customArgumentTokens={customArguments.tokens}

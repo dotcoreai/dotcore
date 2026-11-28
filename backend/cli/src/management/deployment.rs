@@ -4,31 +4,38 @@
 //!
 //! The manager decides whether a change is allowed and carries it out later, so a request returns
 //! once it is accepted and never waits for the workloads. A teardown asks on the terminal first
-//! and cancels by default; without a terminal it needs explicit consent.
+//! and cancels by default; without a terminal, or asked for YAML, it needs explicit consent.
 
-use tonic::Status;
+use dotcore_proto::dotcore::deployment::v1::ExactPlacement;
+use serde::Serialize;
+use tonic::{Code, Status};
 
 use super::{
-    Addressable, DeploymentGroup, ManagementError, Manager, ManagerArgs, call_failed, resolve,
+    DeploymentDocument, DeploymentGroup, ManagementError, Manager, ManagerArgs, call_failed,
     single_line,
 };
 use crate::{
-    node::write_records,
-    terminal::{
-        ConfirmPrompt, Message, NextStep, PromptError, TerminalCondition,
-        controlling_terminal_condition, open_terminal,
-    },
+    output::{OutputFormat, present, require_consent, write_yaml},
+    reference::{Referable, ReferenceKind, resolve},
+    terminal::{ConfirmPrompt, Message, PromptError, open_terminal},
 };
 
 /// A kind of deployment the management commands handle alike, implemented by the model and the
 /// application deployment messages. The steps are generic over it rather than taking a trait
 /// object because each kind's calls return its own message type.
-pub(crate) trait ManagedDeployment: Addressable + Clone {
+pub(crate) trait ManagedDeployment: Referable + Clone + Serialize {
     /// The command group the kind belongs to.
     const GROUP: DeploymentGroup;
 
     /// Reads every deployment of this kind the manager knows.
     async fn list(manager: &Manager) -> Result<Vec<Self>, Status>;
+
+    /// Reads the deployment with this exact id, or `None` when the manager has no single read for
+    /// the kind. A manager failing with `NotFound` or `InvalidArgument` means the text is not the
+    /// id of a deployment.
+    async fn get(_manager: &Manager, _id: &str) -> Result<Option<Self>, Status> {
+        Ok(None)
+    }
 
     /// Asks the manager for a lifecycle change of the deployment with this id and returns the
     /// deployment as the manager now holds it.
@@ -38,11 +45,12 @@ pub(crate) trait ManagedDeployment: Addressable + Clone {
         lifecycle: Lifecycle,
     ) -> Result<Option<Self>, Status>;
 
+    /// Where the deployment runs; absent for one without a placement, such as an upstream model
+    /// deployment.
+    fn placement(&self) -> Option<&ExactPlacement>;
+
     /// Whether the deployment's desired state is the one the lifecycle change asks for.
     fn accepts(&self, lifecycle: Lifecycle) -> bool;
-
-    /// The console's word for the deployment's effective state, for example `Pausing`.
-    fn state_label(&self) -> &'static str;
 
     /// The word for the desired state the manager drives the deployment toward.
     fn desired_state_label(&self) -> &'static str;
@@ -50,6 +58,10 @@ pub(crate) trait ManagedDeployment: Addressable + Clone {
     /// What tearing the deployment down removes and keeps, asked after its name in the
     /// confirmation.
     fn teardown_consequence(&self) -> String;
+
+    /// Replaces the secret values the deployment carries, which a printed document must not
+    /// reveal.
+    fn mask_secrets(&mut self);
 }
 
 /// The lifecycle change an operator asks for.
@@ -92,12 +104,25 @@ pub(crate) async fn list_deployments<T: ManagedDeployment>(
 }
 
 /// Finds the one deployment an operator reference names, failing when it names none or several.
+/// An exact id is the resolver's first step, so a single read of it decides without the list; any
+/// other reference resolves against the list.
 pub(crate) async fn find_deployment<T: ManagedDeployment>(
     manager: &Manager,
     reference: &str,
 ) -> anyhow::Result<T> {
+    match T::get(manager, reference).await {
+        Ok(Some(deployment)) => return Ok(deployment),
+        Ok(None) => {}
+        Err(status) if matches!(status.code(), Code::NotFound | Code::InvalidArgument) => {}
+        Err(status) => {
+            return Err(
+                call_failed(T::GROUP, format!("read the {}", T::GROUP.noun()))(status).into(),
+            );
+        }
+    }
+
     let deployments = list_deployments::<T>(manager).await?;
-    Ok(resolve(T::GROUP, reference, &deployments)?.clone())
+    Ok(resolve(ReferenceKind::Deployment(T::GROUP), reference, &deployments)?.clone())
 }
 
 /// Pauses or resumes the referenced deployment and reports the accepted state.
@@ -105,21 +130,23 @@ pub(crate) async fn change_lifecycle<T: ManagedDeployment>(
     manager: &ManagerArgs,
     reference: &str,
     lifecycle: Lifecycle,
+    format: OutputFormat,
 ) -> anyhow::Result<()> {
     let manager = manager.connect().await?;
     let deployment = find_deployment::<T>(&manager, reference).await?;
     let accepted = request(&manager, &deployment, lifecycle).await?;
-    report(lifecycle, &accepted)
+    report(&manager, lifecycle, accepted, format).await
 }
 
 /// Tears down the referenced deployment after the operator confirms, or right away with `yes`,
-/// and reports the accepted state.
+/// and reports the accepted state. Asked for YAML, it never asks, so it needs `yes`.
 pub(crate) async fn teardown<T: ManagedDeployment>(
     manager: &ManagerArgs,
     reference: &str,
     yes: bool,
+    format: OutputFormat,
 ) -> anyhow::Result<()> {
-    require_teardown_approval(T::GROUP, yes)?;
+    require_teardown_approval(T::GROUP, yes, format)?;
 
     let manager = manager.connect().await?;
     let deployment = find_deployment::<T>(&manager, reference).await?;
@@ -132,7 +159,7 @@ pub(crate) async fn teardown<T: ManagedDeployment>(
     }
 
     let accepted = request(&manager, &deployment, Lifecycle::Teardown).await?;
-    report(Lifecycle::Teardown, &accepted)
+    report(&manager, Lifecycle::Teardown, accepted, format).await
 }
 
 /// Sends the request for the deployment and returns the deployment as the manager now holds it,
@@ -160,46 +187,46 @@ async fn request<T: ManagedDeployment>(
     }
 }
 
-/// Reports the accepted request: a success line and the next step on the terminal, else one
-/// record block on stdout and a notice on stderr.
-fn report<T: ManagedDeployment>(lifecycle: Lifecycle, accepted: &T) -> anyhow::Result<()> {
-    let name = single_line(accepted.name());
-    let list = T::GROUP.list_command();
-
-    if controlling_terminal_condition() == TerminalCondition::Interactive {
-        let mut terminal = open_terminal();
-        terminal.message(&Message::Success(format!(
-            "{} {name}",
-            lifecycle.progressive()
-        )))?;
-        terminal.message(&Message::Next(vec![
-            NextStep::new("Follow its progress:").with_command(list),
-        ]))?;
-        return Ok(());
+/// Reports the accepted request: the deployment as the manager holds it as YAML when asked, else
+/// a success line.
+async fn report<T: ManagedDeployment>(
+    manager: &Manager,
+    lifecycle: Lifecycle,
+    mut accepted: T,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
+    if format == OutputFormat::Yaml {
+        accepted.mask_secrets();
+        let nodes = manager.node_names().await;
+        return write_yaml(&DeploymentDocument::new(accepted, &nodes));
     }
+    let name = single_line(accepted.name());
 
-    let prefix = T::GROUP.record_prefix();
-    write_records(&format!(
-        "{}\n{prefix}_ID={}\n{prefix}_NAME={name}\n{prefix}_STATE={}\n{prefix}_DESIRED_STATE={}\n",
-        T::GROUP.record_title(),
-        single_line(accepted.id()),
-        accepted.state_label(),
-        accepted.desired_state_label(),
-    ))?;
-    eprintln!("Notice: Run `{list}` to follow its progress.");
-    Ok(())
+    present(&[Message::Success(format!(
+        "{} {name}",
+        lifecycle.progressive()
+    ))])
 }
 
 /// Fails when a teardown has neither a terminal to ask on nor `--yes`, before any call to the
-/// manager.
-fn require_teardown_approval(group: DeploymentGroup, yes: bool) -> anyhow::Result<()> {
-    if !yes && controlling_terminal_condition() != TerminalCondition::Interactive {
-        anyhow::bail!(
+/// manager. YAML output never asks, so it needs `--yes` too.
+fn require_teardown_approval(
+    group: DeploymentGroup,
+    yes: bool,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
+    require_consent(
+        yes,
+        format,
+        &format!(
             "tearing down {} needs a terminal; run in a terminal or pass --yes to tear it down without confirmation",
             group.indefinite_noun()
-        );
-    }
-    Ok(())
+        ),
+        &format!(
+            "tearing down {} needs confirmation, which --yaml never asks for; pass --yes to tear it down",
+            group.indefinite_noun()
+        ),
+    )
 }
 
 /// Asks the operator on the terminal to confirm a teardown, cancelling by default.

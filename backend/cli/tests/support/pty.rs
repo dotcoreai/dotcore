@@ -2,8 +2,8 @@
 //! an operator would: it waits for text on an emulated screen, answers cursor-position
 //! queries, and sends keystrokes. Waits and the whole-session view also see text that already
 //! scrolled off the screen, so assertions do not depend on how much the command printed. The
-//! command's own stdout and stderr stay piped unless a session asks for stderr on the
-//! terminal, so tests can prove that guided output reaches only the terminal.
+//! command's own stdout and stderr stay piped unless a session puts them on the terminal, so
+//! tests can tell what reaches stdout from what reaches only the terminal.
 
 use std::{
     fs::File,
@@ -56,6 +56,7 @@ pub enum Stdin {
 /// A scripted terminal session.
 pub struct Session {
     stdin: Stdin,
+    stdout_on_terminal: bool,
     stderr_on_terminal: bool,
     cursor_position_answers: usize,
     steps: Vec<Step>,
@@ -66,6 +67,7 @@ impl Session {
     pub fn new(steps: impl IntoIterator<Item = Step>) -> Self {
         Self {
             stdin: Stdin::Pty,
+            stdout_on_terminal: false,
             stderr_on_terminal: false,
             cursor_position_answers: usize::MAX,
             steps: steps.into_iter().collect(),
@@ -75,6 +77,13 @@ impl Session {
     /// Replaces the command's stdin.
     pub fn with_stdin(mut self, stdin: Stdin) -> Self {
         self.stdin = stdin;
+        self
+    }
+
+    /// Sends the command's stdout to the terminal, as an interactive shell would, instead of
+    /// piping it; `stdout()` is then empty and the text appears on the screen.
+    pub fn with_stdout_on_terminal(mut self) -> Self {
+        self.stdout_on_terminal = true;
         self
     }
 
@@ -220,7 +229,11 @@ pub fn run_in_pty(mut command: Command, session: Session) -> Option<PtyRun> {
 
     // The test timing bounds the wait on a terminal that never answers a cursor query.
     command.env(TEST_TIMING_ENVIRONMENT, Timing::test().to_environment());
-    command.stdout(Stdio::piped());
+    if session.stdout_on_terminal {
+        command.stdout(Stdio::from(slave.try_clone().expect("clone pty slave")));
+    } else {
+        command.stdout(Stdio::piped());
+    }
     if session.stderr_on_terminal {
         command.stderr(Stdio::from(slave.try_clone().expect("clone pty slave")));
     } else {
@@ -237,23 +250,7 @@ pub fn run_in_pty(mut command: Command, session: Session) -> Option<PtyRun> {
             slave_raw
         }
     };
-    // SAFETY: the closure calls only async-signal-safe session and ioctl operations before
-    // exec.
-    unsafe {
-        command.pre_exec(move || {
-            #[cfg(target_os = "macos")]
-            let request: libc::c_ulong = libc::TIOCSCTTY.into();
-            #[cfg(not(target_os = "macos"))]
-            let request = libc::TIOCSCTTY;
-            if libc::setsid() == -1 || libc::ioctl(controlling_fd, request, 0) == -1 {
-                return Err(std::io::Error::last_os_error());
-            }
-            if controlling_fd != 0 {
-                libc::close(controlling_fd);
-            }
-            Ok(())
-        });
-    }
+    become_controlling_terminal(&mut command, controlling_fd);
 
     let command_line = command_line(&command);
     let terminal = Arc::new(Mutex::new(Terminal::new()));
@@ -323,6 +320,47 @@ pub fn run_in_pty(mut command: Command, session: Session) -> Option<PtyRun> {
             && termios_before.c_cflag == termios_after.c_cflag,
         transcript,
     })
+}
+
+/// A pseudo-terminal given to a command as its controlling terminal; keep it until the command
+/// exits.
+pub struct ControllingTerminal {
+    _master: File,
+    _slave: File,
+}
+
+/// Gives the command a pseudo-terminal as its controlling terminal and null stdin, while stdout
+/// and stderr stay as configured; `None` when pseudo-terminals are unavailable.
+pub fn attach_controlling_terminal(command: &mut Command) -> Option<ControllingTerminal> {
+    let (master, slave) = open_pty()?;
+    command.stdin(Stdio::null());
+    become_controlling_terminal(command, slave.as_raw_fd());
+    Some(ControllingTerminal {
+        _master: master,
+        _slave: slave,
+    })
+}
+
+/// Makes `controlling_fd`, a pty slave descriptor open in the child, the child's controlling
+/// terminal in a new session, closing it unless it is stdin.
+fn become_controlling_terminal(command: &mut Command, controlling_fd: RawFd) {
+    // SAFETY: the closure calls only async-signal-safe session and ioctl operations before
+    // exec.
+    unsafe {
+        command.pre_exec(move || {
+            #[cfg(target_os = "macos")]
+            let request: libc::c_ulong = libc::TIOCSCTTY.into();
+            #[cfg(not(target_os = "macos"))]
+            let request = libc::TIOCSCTTY;
+            if libc::setsid() == -1 || libc::ioctl(controlling_fd, request, 0) == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if controlling_fd != 0 {
+                libc::close(controlling_fd);
+            }
+            Ok(())
+        });
+    }
 }
 
 /// Opens a `ROWS` by `COLS` pseudo-terminal pair, or returns `None` after printing a skip

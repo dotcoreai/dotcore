@@ -1068,6 +1068,7 @@ mod tests {
     secret:
       generatedLength: 32
       minimumLength: 12
+    summary: "Summary."
 services:
   - secretBindings:
       - bindingName: "password"
@@ -1100,6 +1101,7 @@ services:
       generatedLength: 32
       minimumLength: 12
       defaultValue: "dotcore"
+    summary: "Summary."
 "#,
         )
         .expect_err("a secret parameter cannot declare a default");
@@ -1139,6 +1141,7 @@ services:
     #[test]
     fn application_validation_checks_parameter_groups_and_conditions() {
         let login_group = |switch: &str| ParameterGroup {
+            summary: String::new(),
             group_id: "login".to_owned(),
             display_name: String::new(),
             description: String::new(),
@@ -1208,6 +1211,7 @@ services:
     stringEnum:
       values: ["auto", "highvram"]
       defaultValue: "auto"
+    summary: "Summary."
 services:
   - configurationBindings:
       - bindingName: "mode"
@@ -1313,6 +1317,7 @@ services:
         visibility: ParameterVisibility,
     ) -> ParameterDefinition {
         ParameterDefinition {
+            summary: "Summary.".into(),
             parameter_id: id.to_owned(),
             display_name: id.to_owned(),
             description: String::new(),

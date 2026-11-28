@@ -110,8 +110,19 @@ backend/
 
 ## CLI code
 
-- `dotc` writes the exact three-line startup protocol to stdout after backend preparation; diagnostics and failures go to stderr, so stdout stays machine-readable.
-- Guided prompts use the controlling terminal (`/dev/tty`) only, never stdout or stderr.
+- Commands are `dotc <noun> <verb>`. Reuse the existing verbs (`list`, `show`, `catalog`, `template`, `deploy`, `pause`, `resume`, `teardown`, `logs`) before adding one, with the same meaning in every group.
+- Aliases follow one policy in every group: `ls` for `list`, and plural nouns (`models`) as hidden aliases. A group's help describes the group; clap lists its verbs.
+- Flags keep one name everywhere: `--name` for a display name, `--yes` to answer confirmations, `--manager` for the manager address, and the global `--yaml`.
+- Streams:
+  - stdout carries human output, or exactly one YAML document per result under `--yaml`.
+  - stderr carries failures, warnings, notices, progress and diagnostics.
+  - Prompts, their context (reviews before a confirmation, commands to run on another machine) and confirmations use the controlling terminal (`/dev/tty`), never stdout or stderr.
+  - The server-run path is the exception: it writes only the exact three-line startup protocol to stdout. The `dev workload` JSON process protocol is the harness's contract and stays as is.
+- Every command with a result takes `--yaml`; `server`, `code` and `dev` have none and refuse it.
+- `--yaml` never prompts: a command that would ask fails, naming the flag that answers it. A failure prints nothing on stdout, its plain failure on stderr, and exits non-zero; errors are never YAML. A streaming command prints one document per entry, separated by `---`; a long-running one prints progress on stderr and one final document.
+- A YAML document is the management response's proto JSON mapping (`pbjson`) rendered through `cli/src/output.rs`, plus the fields the CLI adds, such as resolved node names and the UTF-8 `text` of a log line next to its raw `content`. A view is an envelope of proto messages plus resolved names (a `#[serde(flatten)]` message beside the added fields), never a reshaping: no renamed, derived or dropped fields. Write one only when no single response holds the result. Mask secret values in the message unless the command's reveal flag is given.
+- Commands that take a deployment, node or route resolve it through the shared resolver (`cli/src/reference.rs`), passing every candidate with its ID, shown name and aliases; never match names or IDs by hand. Its order (exact ID, exact name, ID fragment, name prefix, name words) is fixed: the first step that matches decides, and several matches there fail listing them, even when a later step would single one out.
 - Human output goes through the shared terminal layout (`cli/src/terminal/`) and failure rendering (`cli/src/failure.rs`); never hand-format tables, alignment or spacing. A failure is a one-line verdict, facts and copyable next commands; the cause chain shows only with `--verbose`.
+- Success output carries no next-step commands. A fact the operator still needs, such as nodes to rejoin, is an info or warning line.
 - Wording is short and sentence case: say what happened or is asked, in operator words (`node`, `site`, `model`) rather than code identifiers, one success line per outcome; review blocks show only what the operator decides on. Explanations belong in `--help` and `docs/usage.md`.
-- Result records, the startup protocol, JSON, exit codes and non-terminal stderr keep their plain stable form.
+- YAML documents, the startup protocol, exit codes and non-terminal stderr keep their plain stable form.

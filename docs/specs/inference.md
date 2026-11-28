@@ -17,8 +17,8 @@ Code: `backend/core/src/route_manager/`, `backend/core/src/router/`,
 - Expose a deployment directly under its own route, or keep it hidden in other routes. Route
   membership doesn't care whether a deployment is local or upstream.
 - Create, inspect, rename, enable, disable and delete routes. See their membership and
-  availability, and why a route or member is unavailable, without exposing private provider
-  configuration.
+  availability, and why a route or member is unavailable, without exposing provider credentials.
+  An upstream model's ID isn't private.
 - Use ordered fallback groups and selection among eligible deployments, within bounded retry safety.
 - Get connection information and integration examples for a route.
 
@@ -181,7 +181,7 @@ flowchart LR
 ## Invariants
 
 - The route manager and the inference controller stay off the live request path.
-- Public route identity is preserved while source-private model, endpoint and credential details stay
+- Public route identity is preserved while source-private endpoint and credential details stay
   isolated.
 - Dispatch authority and revocation are scoped to the selected deployment. Changing one target never
   revokes another.

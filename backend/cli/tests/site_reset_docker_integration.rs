@@ -283,10 +283,7 @@ fn hw_docker_node_leave_removes_only_the_joined_nodes_resources_on_a_shared_daem
     assert_success("dotc node leave", &output);
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        format!(
-            "Node left\nDOTCORE_SITE_ID={}\nDOTCORE_NODE_ID={}\n",
-            fixture.site_id, fixture.worker_node_id
-        )
+        format!("✔ Left {}\n", fixture.site_id)
     );
     assert!(!fixture.node_dir.exists());
     assert!(!docker_succeeds(&[

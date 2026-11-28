@@ -117,8 +117,8 @@ option effects itself.
 - Declares a maximum context, a property of its weights. A model-local engine configuration may
   declare a lower one when its engine can't serve the model's. Resolution enforces the lower of the
   two at deploy time. Engine limits stay separate, as engine parameter bounds.
-- Declares its options, each with a description and the same basic, advanced or hidden visibility
-  as engine parameters.
+- Declares its options, each with a one-line summary for newcomers, a description with the detail
+  and the same basic, advanced or hidden visibility as engine parameters.
 - May carry an intelligence score and the upstream licence with a link to its terms. Both are display
   metadata, outside the model's release identity and deployment snapshots. The licence is not a
   compliance assessment.
@@ -151,6 +151,8 @@ A preset of defaults and parameter visibility overrides for one engine configura
   stays undeclared, so a parameter may have no maximum.
 - May declare parameter defaults within their bounds. A default on a parameter that sizing derives
   is rejected.
+- Gives every engine parameter, app parameter and plain parameter group a one-line summary for
+  newcomers; the description holds the detail. A switched group takes its switch parameter's.
 - Defines every engine parameter and its shape. A configuration only narrows that set, never adds
   or redefines a parameter; a profile presets values and visibility.
 - May mark an integer parameter in bytes, MiB or GiB with the sizing estimate it feeds, accelerator

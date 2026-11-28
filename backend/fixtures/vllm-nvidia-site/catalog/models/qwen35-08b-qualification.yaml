@@ -7,6 +7,7 @@ options:
   - optionId: "image-understanding"
     displayName: "Image understanding"
     description: "Fixture option."
+    summary: "Fixture summary."
     visibility: "PARAMETER_VISIBILITY_ADVANCED"
     vision: {}
 artifacts:

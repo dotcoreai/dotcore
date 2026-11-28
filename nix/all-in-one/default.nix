@@ -41,7 +41,7 @@ let
         caddy
         frontend.runtimeConfig
         pkgs.coreutils
-        pkgs.jq
+        pkgs.yq-go
       ];
       derivationArgs = {
         postCheck = ''
@@ -113,7 +113,7 @@ let
     set -euo pipefail
     if [[ " $* " == *" config show "* ]]; then
       printf '%s\n' "''${DOTCORE_PACKAGED_SOURCE_FLAKE-unset}" > "''${DOTCORE_PACKAGE_SOURCE_FILE:?}"
-      printf '%s\n' '{"role":"bogus","siteDir":"/site","masterCatalogDir":"/catalog","cacheDir":"/cache"}'
+      printf '%s\n' 'role: bogus' 'siteDir: /site' 'masterCatalogDir: /catalog' 'cacheDir: /cache'
       exit 0
     fi
     printf '%s\n' "unexpected command: $*" >&2

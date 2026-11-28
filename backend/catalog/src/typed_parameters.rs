@@ -29,6 +29,9 @@ pub(crate) fn validate_parameter_definition(
     if definition.display_name.trim().is_empty() {
         errors.push(anyhow!("parameter {id:?} requires a display name"));
     }
+    if let Some(problem) = summary_problem(&definition.summary) {
+        errors.push(anyhow!("parameter {id:?} {problem}"));
+    }
     if !ParameterVisibility::try_from(definition.visibility).is_ok_and(is_declared_visibility) {
         errors.push(anyhow!(
             "parameter {id:?} requires a basic, advanced or hidden visibility"
@@ -111,6 +114,20 @@ pub(crate) fn validate_parameter_definition(
         errors.push(anyhow!("parameter {id:?} default is invalid: {error}"));
     }
     errors
+}
+
+/// Longest summary, in characters, that fits under a field label.
+const SUMMARY_MAX_CHARS: usize = 100;
+
+/// Returns what is wrong with a required one-line summary, or none when it is valid.
+pub(crate) fn summary_problem(summary: &str) -> Option<&'static str> {
+    if summary.trim().is_empty() {
+        Some("requires a summary")
+    } else if summary.contains(['\n', '\r']) || summary.chars().count() > SUMMARY_MAX_CHARS {
+        Some("summary must be one line of at most 100 characters")
+    } else {
+        None
+    }
 }
 
 /// Whether a parameter may take the visibility: basic, advanced or hidden. Unspecified never may.
@@ -567,6 +584,32 @@ mod tests {
         );
     }
 
+    #[test]
+    fn summary_must_be_one_non_blank_line_within_the_limit() {
+        for (summary, expected) in [
+            (String::new(), "parameter \"mode\" requires a summary"),
+            ("  ".to_owned(), "parameter \"mode\" requires a summary"),
+            (
+                "First.\nSecond.".to_owned(),
+                "parameter \"mode\" summary must be one line of at most 100 characters",
+            ),
+            (
+                "x".repeat(101),
+                "parameter \"mode\" summary must be one line of at most 100 characters",
+            ),
+        ] {
+            let mut hidden = enum_definition(&["auto"], Some("auto"));
+            hidden.visibility = ParameterVisibility::Hidden as i32;
+            hidden.summary = summary.clone();
+
+            assert_errors(&hidden, &[expected]);
+        }
+
+        let mut longest = enum_definition(&["auto"], Some("auto"));
+        longest.summary = "x".repeat(100);
+        assert_errors(&longest, &[]);
+    }
+
     fn assert_errors(definition: &ParameterDefinition, expected: &[&str]) {
         let errors = validate_parameter_definition(definition)
             .iter()
@@ -584,6 +627,7 @@ mod tests {
 
     fn definition(parameter_type: ParameterType) -> ParameterDefinition {
         ParameterDefinition {
+            summary: "Summary.".into(),
             parameter_id: "mode".into(),
             display_name: "Mode".into(),
             description: String::new(),

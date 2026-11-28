@@ -2212,7 +2212,10 @@ fn assert_management_deployment(deployment: &ModelDeployment) {
         .as_ref()
         .expect("trusted POC upstream configuration");
     assert_eq!(configuration.api_key, CREDENTIAL);
-    assert_eq!(deployment.model_deployment_id, "model-d44bc5d823b11591-1");
+    assert_eq!(
+        deployment.model_deployment_id,
+        "upstream-private-model-e9dcf"
+    );
     assert!(matches!(
         deployment
             .snapshot

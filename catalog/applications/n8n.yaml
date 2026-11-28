@@ -17,12 +17,14 @@ graph:
     - groupId: "owner-account"
       displayName: "Owner account"
       description: "The account that owns n8n and manages its users and workflows."
+      summary: "The account that manages n8n users and workflows."
   parameters:
     - parameterId: "owner-email"
       displayName: "Owner email"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       groupId: "owner-account"
       description: "The email address for logging in to n8n as its owner."
+      summary: "Email for the owner account."
       # Email addresses run from `a@b.c` (5 bytes) to 254 bytes (RFC 5321 path limit).
       text:
         format: "TEXT_FORMAT_EMAIL"
@@ -34,6 +36,7 @@ graph:
       visibility: "PARAMETER_VISIBILITY_BASIC"
       groupId: "owner-account"
       description: "The password for logging in to n8n as its owner. Leave it empty to generate a random one, which you can read in the deployment's sidebar."
+      summary: "Leave empty to generate one; shown in the sidebar."
       # The least minimum a secret accepts; n8n 2.43.5 hashes with bcryptjs 2.4.3, which reads only
       # the first 72 bytes.
       secret:

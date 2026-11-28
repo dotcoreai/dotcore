@@ -3670,6 +3670,7 @@ graph:
       secret:
         generatedLength: 32
         minimumLength: 12
+      summary: "Summary."
   services:
     - serviceName: "alpha"
       artifact:
@@ -3813,18 +3814,21 @@ graph:
         minimumLength: 1
         maximumLength: 64
         defaultValue: "admin"
+      summary: "Summary."
     - parameterId: "password"
       displayName: "Password"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       secret:
         generatedLength: 32
         minimumLength: 12
+      summary: "Summary."
     - parameterId: "outcome"
       displayName: "Outcome"
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
       stringEnum:
         values: ["serve", "exit"]
         defaultValue: "serve"
+      summary: "Summary."
   services:
     - serviceName: "web"
       artifact:

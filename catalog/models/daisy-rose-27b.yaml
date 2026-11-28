@@ -11,11 +11,13 @@ options:
     vision: {}
     visibility: "PARAMETER_VISIBILITY_BASIC"
     description: "Lets requests include images. Loads the vision projector next to the model, which uses more memory."
+    summary: "Accept images in requests."
   - optionId: "mtp"
     displayName: "MTP"
     speculativeDecoding: { method: "SPECULATIVE_DECODING_METHOD_MTP" }
     visibility: "PARAMETER_VISIBILITY_ADVANCED"
     description: "Drafts several tokens ahead and has the model check them together, which makes generation faster. Loads the extra prediction layers, which use more memory."
+    summary: "Generates faster by drafting tokens ahead, using more memory."
 artifacts:
   - artifactId: "nvfp4"
     weightQuantization: "NVFP4"

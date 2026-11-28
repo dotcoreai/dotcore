@@ -21,6 +21,7 @@ use dotcore_proto::{
     },
     google::protobuf::Timestamp,
 };
+use serde_json::json;
 use tonic::Status;
 
 mod support;
@@ -35,7 +36,7 @@ use support::{
 };
 
 #[test]
-fn list_prints_one_record_block_per_deployment_in_every_state() {
+fn list_prints_a_table_row_per_deployment_in_every_state() {
     let manager = FakeManager::start(FakeState::with_models(mixed_deployments()));
 
     let output = run(&manager, &["list"]);
@@ -44,15 +45,7 @@ fn list_prints_one_record_block_per_deployment_in_every_state() {
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(
         text(&output.stdout),
-        "Model deployment\nDOTCORE_MODEL_DEPLOYMENT_ID=model-1\nDOTCORE_MODEL_DEPLOYMENT_NAME=Gemma\nDOTCORE_MODEL_DEPLOYMENT_STATE=Ready\nDOTCORE_MODEL_DEPLOYMENT_NODE=gb10-host\nDOTCORE_MODEL_DEPLOYMENT_MODEL=Gemma 4 E4B\n\
-\n\
-Model deployment\nDOTCORE_MODEL_DEPLOYMENT_ID=model-2\nDOTCORE_MODEL_DEPLOYMENT_NAME=Qwen\nDOTCORE_MODEL_DEPLOYMENT_STATE=Downloading\nDOTCORE_MODEL_DEPLOYMENT_NODE=gb10-host\nDOTCORE_MODEL_DEPLOYMENT_MODEL=Gemma 4 E4B\n\
-\n\
-Model deployment\nDOTCORE_MODEL_DEPLOYMENT_ID=model-3\nDOTCORE_MODEL_DEPLOYMENT_NAME=Llama\nDOTCORE_MODEL_DEPLOYMENT_STATE=Failed\nDOTCORE_MODEL_DEPLOYMENT_NODE=gb10-host\nDOTCORE_MODEL_DEPLOYMENT_MODEL=Gemma 4 E4B\n\
-\n\
-Model deployment\nDOTCORE_MODEL_DEPLOYMENT_ID=model-4\nDOTCORE_MODEL_DEPLOYMENT_NAME=Mistral\nDOTCORE_MODEL_DEPLOYMENT_STATE=Paused\nDOTCORE_MODEL_DEPLOYMENT_NODE=gb10-host\nDOTCORE_MODEL_DEPLOYMENT_MODEL=Gemma 4 E4B\n\
-\n\
-Model deployment\nDOTCORE_MODEL_DEPLOYMENT_ID=model-5\nDOTCORE_MODEL_DEPLOYMENT_NAME=Phi\nDOTCORE_MODEL_DEPLOYMENT_STATE=Tearing down\nDOTCORE_MODEL_DEPLOYMENT_NODE=gb10-host\nDOTCORE_MODEL_DEPLOYMENT_MODEL=Gemma 4 E4B\n"
+        "  NAME     ID       STATE         NODE       MODEL\n  Gemma    model-1  Ready         gb10-host  Gemma 4 E4B\n  Qwen     model-2  Downloading   gb10-host  Gemma 4 E4B\n  Llama    model-3  Failed        gb10-host  Gemma 4 E4B\n  Mistral  model-4  Paused        gb10-host  Gemma 4 E4B\n  Phi      model-5  Tearing down  gb10-host  Gemma 4 E4B\n"
     );
     assert_eq!(
         manager.calls(),
@@ -73,25 +66,25 @@ fn list_shows_the_node_id_when_the_manager_does_not_name_the_node() {
 
     assert_eq!(output.status.code(), Some(0));
     assert!(
-        text(&output.stdout).contains("DOTCORE_MODEL_DEPLOYMENT_NODE=node-1\n"),
+        text(&output.stdout).contains("  Ready         node-1  Gemma 4 E4B\n"),
         "{}",
         text(&output.stdout)
     );
 }
 
 #[test]
-fn list_of_an_empty_site_prints_nothing() {
+fn list_of_an_empty_site_says_there_are_no_deployments() {
     let manager = FakeManager::start(FakeState::with_models(Vec::new()));
 
     let output = run(&manager, &["list"]);
 
     assert_eq!(output.status.code(), Some(0));
-    assert_eq!(text(&output.stdout), "");
+    assert_eq!(text(&output.stdout), "No model deployments\n");
     assert_eq!(text(&output.stderr), "");
 }
 
 #[test]
-fn show_prints_every_key_for_a_ready_deployment() {
+fn show_prints_every_known_fact_for_a_ready_deployment() {
     let manager = FakeManager::start(FakeState::with_models(mixed_deployments()));
 
     let output = run(&manager, &["show", "Gemma"]);
@@ -100,7 +93,7 @@ fn show_prints_every_key_for_a_ready_deployment() {
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(
         text(&output.stdout),
-        "Model deployment\nDOTCORE_MODEL_DEPLOYMENT_ID=model-1\nDOTCORE_MODEL_DEPLOYMENT_NAME=Gemma\nDOTCORE_MODEL_DEPLOYMENT_STATE=Ready\nDOTCORE_MODEL_DEPLOYMENT_DESIRED_STATE=Present\nDOTCORE_MODEL_DEPLOYMENT_NODE=gb10-host\nDOTCORE_MODEL_DEPLOYMENT_EXECUTION_TARGET=node-1-model\nDOTCORE_MODEL_DEPLOYMENT_MODEL=Gemma 4 E4B\nDOTCORE_MODEL_DEPLOYMENT_PROFILE=default\nDOTCORE_MODEL_DEPLOYMENT_ENGINE=llama-cpp\nDOTCORE_MODEL_DEPLOYMENT_PROGRESS=\nDOTCORE_MODEL_DEPLOYMENT_FAILURE=\nDOTCORE_MODEL_DEPLOYMENT_MESSAGE=\n"
+        "Model deployment Gemma\n  name       Gemma\n  id         model-1\n  state      Ready\n  desired    Present\n  node       gb10-host\n  target     Simulated models\n  target id  node-1-model\n  model      Gemma 4 E4B\n  profile    default\n  engine     llama-cpp\n"
     );
 }
 
@@ -113,11 +106,11 @@ fn show_reports_progress_failure_and_status_message_by_id() {
 
     assert_eq!(
         text(&downloading.stdout),
-        "Model deployment\nDOTCORE_MODEL_DEPLOYMENT_ID=model-2\nDOTCORE_MODEL_DEPLOYMENT_NAME=Qwen\nDOTCORE_MODEL_DEPLOYMENT_STATE=Downloading\nDOTCORE_MODEL_DEPLOYMENT_DESIRED_STATE=Present\nDOTCORE_MODEL_DEPLOYMENT_NODE=gb10-host\nDOTCORE_MODEL_DEPLOYMENT_EXECUTION_TARGET=node-1-model\nDOTCORE_MODEL_DEPLOYMENT_MODEL=Gemma 4 E4B\nDOTCORE_MODEL_DEPLOYMENT_PROFILE=default\nDOTCORE_MODEL_DEPLOYMENT_ENGINE=llama-cpp\nDOTCORE_MODEL_DEPLOYMENT_PROGRESS=42%\nDOTCORE_MODEL_DEPLOYMENT_FAILURE=\nDOTCORE_MODEL_DEPLOYMENT_MESSAGE=Fetching weights\n"
+        "Model deployment Qwen\n  name       Qwen\n  id         model-2\n  state      Downloading\n  desired    Present\n  node       gb10-host\n  target     Simulated models\n  target id  node-1-model\n  model      Gemma 4 E4B\n  profile    default\n  engine     llama-cpp\n  progress   42%\n  message    Fetching weights\n"
     );
     assert_eq!(
         text(&failed.stdout),
-        "Model deployment\nDOTCORE_MODEL_DEPLOYMENT_ID=model-3\nDOTCORE_MODEL_DEPLOYMENT_NAME=Llama\nDOTCORE_MODEL_DEPLOYMENT_STATE=Failed\nDOTCORE_MODEL_DEPLOYMENT_DESIRED_STATE=Present\nDOTCORE_MODEL_DEPLOYMENT_NODE=gb10-host\nDOTCORE_MODEL_DEPLOYMENT_EXECUTION_TARGET=node-1-model\nDOTCORE_MODEL_DEPLOYMENT_MODEL=Gemma 4 E4B\nDOTCORE_MODEL_DEPLOYMENT_PROFILE=default\nDOTCORE_MODEL_DEPLOYMENT_ENGINE=llama-cpp\nDOTCORE_MODEL_DEPLOYMENT_PROGRESS=\nDOTCORE_MODEL_DEPLOYMENT_FAILURE=Out of memory on the GPU\nDOTCORE_MODEL_DEPLOYMENT_MESSAGE=\n"
+        "Model deployment Llama\n  name       Llama\n  id         model-3\n  state      Failed\n  desired    Present\n  node       gb10-host\n  target     Simulated models\n  target id  node-1-model\n  model      Gemma 4 E4B\n  profile    default\n  engine     llama-cpp\n  failure    Out of memory on the GPU\n"
     );
 }
 
@@ -129,16 +122,12 @@ fn show_applies_the_console_state_overrides() {
     let tearing_down = run(&manager, &["show", "Phi"]);
 
     assert!(
-        text(&paused.stdout).contains(
-            "DOTCORE_MODEL_DEPLOYMENT_STATE=Paused\nDOTCORE_MODEL_DEPLOYMENT_DESIRED_STATE=Paused\n"
-        ),
+        text(&paused.stdout).contains("  state      Paused\n  desired    Paused\n"),
         "{}",
         text(&paused.stdout)
     );
     assert!(
-        text(&tearing_down.stdout).contains(
-            "DOTCORE_MODEL_DEPLOYMENT_STATE=Tearing down\nDOTCORE_MODEL_DEPLOYMENT_DESIRED_STATE=Teardown\n"
-        ),
+        text(&tearing_down.stdout).contains("  state      Tearing down\n  desired    Teardown\n"),
         "{}",
         text(&tearing_down.stdout)
     );
@@ -161,11 +150,11 @@ fn show_hides_the_status_message_that_a_requested_change_overrides() {
 
     assert_eq!(
         text(&tearing_down.stdout),
-        "Model deployment\nDOTCORE_MODEL_DEPLOYMENT_ID=model-6\nDOTCORE_MODEL_DEPLOYMENT_NAME=Old\nDOTCORE_MODEL_DEPLOYMENT_STATE=Tearing down\nDOTCORE_MODEL_DEPLOYMENT_DESIRED_STATE=Teardown\nDOTCORE_MODEL_DEPLOYMENT_NODE=gb10-host\nDOTCORE_MODEL_DEPLOYMENT_EXECUTION_TARGET=node-1-model\nDOTCORE_MODEL_DEPLOYMENT_MODEL=Gemma 4 E4B\nDOTCORE_MODEL_DEPLOYMENT_PROFILE=default\nDOTCORE_MODEL_DEPLOYMENT_ENGINE=llama-cpp\nDOTCORE_MODEL_DEPLOYMENT_PROGRESS=\nDOTCORE_MODEL_DEPLOYMENT_FAILURE=\nDOTCORE_MODEL_DEPLOYMENT_MESSAGE=\n"
+        "Model deployment Old\n  name       Old\n  id         model-6\n  state      Tearing down\n  desired    Teardown\n  node       gb10-host\n  target     Simulated models\n  target id  node-1-model\n  model      Gemma 4 E4B\n  profile    default\n  engine     llama-cpp\n"
     );
     assert_eq!(
         text(&pausing.stdout),
-        "Model deployment\nDOTCORE_MODEL_DEPLOYMENT_ID=model-7\nDOTCORE_MODEL_DEPLOYMENT_NAME=Slow\nDOTCORE_MODEL_DEPLOYMENT_STATE=Pausing\nDOTCORE_MODEL_DEPLOYMENT_DESIRED_STATE=Paused\nDOTCORE_MODEL_DEPLOYMENT_NODE=gb10-host\nDOTCORE_MODEL_DEPLOYMENT_EXECUTION_TARGET=node-1-model\nDOTCORE_MODEL_DEPLOYMENT_MODEL=Gemma 4 E4B\nDOTCORE_MODEL_DEPLOYMENT_PROFILE=default\nDOTCORE_MODEL_DEPLOYMENT_ENGINE=llama-cpp\nDOTCORE_MODEL_DEPLOYMENT_PROGRESS=\nDOTCORE_MODEL_DEPLOYMENT_FAILURE=\nDOTCORE_MODEL_DEPLOYMENT_MESSAGE=\n"
+        "Model deployment Slow\n  name       Slow\n  id         model-7\n  state      Pausing\n  desired    Paused\n  node       gb10-host\n  target     Simulated models\n  target id  node-1-model\n  model      Gemma 4 E4B\n  profile    default\n  engine     llama-cpp\n"
     );
 }
 
@@ -182,13 +171,13 @@ fn an_unknown_or_ambiguous_reference_fails_with_exit_code_1() {
     assert_eq!(text(&unknown.stdout), "");
     assert_eq!(
         text(&unknown.stderr),
-        "no model deployment is named or has id \"nothing\"; see `dotc model list`\n"
+        "no model deployment matches \"nothing\"; see `dotc model list`\n"
     );
     assert_eq!(ambiguous.status.code(), Some(1));
     assert_eq!(text(&ambiguous.stdout), "");
     assert_eq!(
         text(&ambiguous.stderr),
-        "2 model deployments are named \"Gemma\": model-1, model-6; pass one of the ids instead\n"
+        "2 model deployments match \"Gemma\": model-1 (Gemma), model-6 (Gemma); pass one of the ids instead\n"
     );
     assert!(
         manager
@@ -196,6 +185,38 @@ fn an_unknown_or_ambiguous_reference_fails_with_exit_code_1() {
             .iter()
             .all(|call| call.rpc != Rpc::RemoveModelDeployment),
         "an ambiguous teardown must not reach the manager"
+    );
+}
+
+#[test]
+fn a_name_word_or_an_id_fragment_names_one_deployment_and_a_shared_part_fails() {
+    let manager = FakeManager::start(FakeState::with_models(vec![
+        local_model_deployment("qwen3-8-27b-3cfmn", "Qwen 3.8 27B", Ready, Present),
+        local_model_deployment("qwen3-8-8b-7tq2m", "Qwen 3.8 8B", Ready, Present),
+        local_model_deployment("gemma-4-e4b-m2rpw", "", Ready, Present),
+    ]));
+
+    let by_word = run(&manager, &["pause", "e4"]);
+    let by_fragment = run(&manager, &["pause", "7tq2m"]);
+    let ambiguous = run(&manager, &["teardown", "qwen", "--yes", "--yaml"]);
+
+    for (output, name) in [(&by_word, "Gemma 4 E4B"), (&by_fragment, "Qwen 3.8 8B")] {
+        assert_eq!(text(&output.stderr), "");
+        assert_eq!(output.status.code(), Some(0));
+        assert_eq!(text(&output.stdout), format!("✔ Pausing {name}\n"));
+    }
+    assert_eq!(ambiguous.status.code(), Some(1));
+    assert_eq!(text(&ambiguous.stdout), "");
+    assert_eq!(
+        text(&ambiguous.stderr),
+        "2 model deployments match \"qwen\": qwen3-8-27b-3cfmn (Qwen 3.8 27B), qwen3-8-8b-7tq2m (Qwen 3.8 8B); pass one of the ids instead\n"
+    );
+    assert_eq!(
+        lifecycle_calls(&manager),
+        [
+            call(Rpc::PauseModel, Some("gemma-4-e4b-m2rpw")),
+            call(Rpc::PauseModel, Some("qwen3-8-8b-7tq2m")),
+        ]
     );
 }
 
@@ -227,7 +248,7 @@ fn commands_need_no_site_folder() {
     let output = command.output().expect("run dotc model list");
 
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
-    assert!(text(&output.stdout).contains("DOTCORE_MODEL_DEPLOYMENT_ID=model-1\n"));
+    assert!(text(&output.stdout).contains("  Gemma    model-1  Ready"));
     assert_eq!(
         std::fs::read_dir(empty.path())
             .expect("read working directory")
@@ -249,7 +270,7 @@ fn the_manager_flag_overrides_the_environment_address() {
     let output = command.output().expect("run dotc model list");
 
     assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
-    assert!(text(&output.stdout).contains("DOTCORE_MODEL_DEPLOYMENT_ID=model-5\n"));
+    assert!(text(&output.stdout).contains("  Phi      model-5  Tearing down"));
 }
 
 #[test]
@@ -259,7 +280,7 @@ fn help_lists_the_six_verbs_and_the_manager_flag() {
         .output()
         .expect("run help");
     let list = isolated_dotc()
-        .args(["model", "list", "--help"])
+        .args(["model", "list", "-h"])
         .output()
         .expect("run help");
 
@@ -286,24 +307,16 @@ fn pause_and_resume_request_the_change_and_print_the_accepted_state() {
 
     let paused = run(&manager, &["pause", "Gemma"]);
 
-    assert_eq!(
-        text(&paused.stderr),
-        "Notice: Run `dotc model list` to follow its progress.\n"
-    );
+    assert_eq!(text(&paused.stderr), "");
     assert_eq!(paused.status.code(), Some(0));
-    assert_eq!(
-        text(&paused.stdout),
-        "Model deployment\nDOTCORE_MODEL_DEPLOYMENT_ID=model-1\nDOTCORE_MODEL_DEPLOYMENT_NAME=Gemma\nDOTCORE_MODEL_DEPLOYMENT_STATE=Pausing\nDOTCORE_MODEL_DEPLOYMENT_DESIRED_STATE=Paused\n"
-    );
+    assert_eq!(text(&paused.stdout), "✔ Pausing Gemma\n");
     assert_eq!(manager.model_deployment("model-1").desired_state(), Paused);
 
     let resumed = run(&manager, &["resume", "model-4"]);
 
     assert_eq!(resumed.status.code(), Some(0));
-    assert_eq!(
-        text(&resumed.stdout),
-        "Model deployment\nDOTCORE_MODEL_DEPLOYMENT_ID=model-4\nDOTCORE_MODEL_DEPLOYMENT_NAME=Mistral\nDOTCORE_MODEL_DEPLOYMENT_STATE=Paused\nDOTCORE_MODEL_DEPLOYMENT_DESIRED_STATE=Present\n"
-    );
+    assert_eq!(text(&resumed.stderr), "");
+    assert_eq!(text(&resumed.stdout), "✔ Resuming Mistral\n");
     assert_eq!(manager.model_deployment("model-4").desired_state(), Present);
     assert_eq!(
         lifecycle_calls(&manager),
@@ -321,10 +334,8 @@ fn teardown_with_yes_removes_the_deployment_and_prints_the_accepted_state() {
     let output = run(&manager, &["teardown", "Llama", "--yes"]);
 
     assert_eq!(output.status.code(), Some(0));
-    assert_eq!(
-        text(&output.stdout),
-        "Model deployment\nDOTCORE_MODEL_DEPLOYMENT_ID=model-3\nDOTCORE_MODEL_DEPLOYMENT_NAME=Llama\nDOTCORE_MODEL_DEPLOYMENT_STATE=Tearing down\nDOTCORE_MODEL_DEPLOYMENT_DESIRED_STATE=Teardown\n"
-    );
+    assert_eq!(text(&output.stderr), "");
+    assert_eq!(text(&output.stdout), "✔ Tearing down Llama\n");
     assert_eq!(
         manager.model_deployment("model-3").desired_state(),
         Teardown
@@ -631,7 +642,7 @@ fn logs_of_an_unknown_deployment_fail_before_reading_any_log() {
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(
         text(&output.stderr),
-        "no model deployment is named or has id \"missing\"; see `dotc model list`\n"
+        "no model deployment matches \"missing\"; see `dotc model list`\n"
     );
     assert!(manager.state().model_logs.reads.is_empty());
 }
@@ -640,7 +651,10 @@ fn logs_of_an_unknown_deployment_fail_before_reading_any_log() {
 fn a_terminal_shows_the_list_as_a_table() {
     let manager = FakeManager::start(FakeState::with_models(mixed_deployments()));
 
-    let Some(run) = run_in_pty(terminal_command(&manager, &["list"]), Session::new([])) else {
+    let Some(run) = run_in_pty(
+        terminal_command(&manager, &["list"]),
+        Session::new([]).with_stdout_on_terminal(),
+    ) else {
         return;
     };
 
@@ -664,12 +678,34 @@ fn a_terminal_shows_the_list_as_a_table() {
 }
 
 #[test]
+fn a_terminal_session_writes_the_list_to_a_redirected_stdout() {
+    let manager = FakeManager::start(FakeState::with_models(mixed_deployments()));
+
+    let Some(run) = run_in_pty(terminal_command(&manager, &["list"]), Session::new([])) else {
+        return;
+    };
+
+    assert_eq!(run.code(), Some(0), "screen:\n{}", run.screen());
+    assert_eq!(
+        run.stdout(),
+        "  NAME     ID       STATE         NODE       MODEL\n\
+         \x20 Gemma    model-1  Ready         gb10-host  Gemma 4 E4B\n\
+         \x20 Qwen     model-2  Downloading   gb10-host  Gemma 4 E4B\n\
+         \x20 Llama    model-3  Failed        gb10-host  Gemma 4 E4B\n\
+         \x20 Mistral  model-4  Paused        gb10-host  Gemma 4 E4B\n\
+         \x20 Phi      model-5  Tearing down  gb10-host  Gemma 4 E4B\n"
+    );
+    assert_eq!(run.stderr(), "");
+    assert_eq!(run.screen().trim(), "");
+}
+
+#[test]
 fn a_terminal_shows_the_details_of_one_deployment() {
     let manager = FakeManager::start(FakeState::with_models(mixed_deployments()));
 
     let Some(run) = run_in_pty(
         terminal_command(&manager, &["show", "Qwen"]),
-        Session::new([]),
+        Session::new([]).with_stdout_on_terminal(),
     ) else {
         return;
     };
@@ -698,7 +734,57 @@ fn a_terminal_shows_the_details_of_one_deployment() {
 }
 
 #[test]
-fn a_terminal_reports_a_pause_with_the_next_step() {
+fn a_terminal_session_writes_the_details_to_a_redirected_stdout() {
+    let manager = FakeManager::start(FakeState::with_models(mixed_deployments()));
+
+    let Some(run) = run_in_pty(
+        terminal_command(&manager, &["show", "Qwen"]),
+        Session::new([]),
+    ) else {
+        return;
+    };
+
+    assert_eq!(run.code(), Some(0), "screen:\n{}", run.screen());
+    assert_eq!(
+        run.stdout(),
+        "Model deployment Qwen\n\
+         \x20 name       Qwen\n\
+         \x20 id         model-2\n\
+         \x20 state      Downloading\n\
+         \x20 desired    Present\n\
+         \x20 node       gb10-host\n\
+         \x20 target     Simulated models\n\
+         \x20 target id  node-1-model\n\
+         \x20 model      Gemma 4 E4B\n\
+         \x20 profile    default\n\
+         \x20 engine     llama-cpp\n\
+         \x20 progress   42%\n\
+         \x20 message    Fetching weights\n"
+    );
+    assert_eq!(run.stderr(), "");
+    assert_eq!(run.screen().trim(), "");
+}
+
+#[test]
+fn a_terminal_reports_a_pause_without_a_next_step() {
+    let manager = FakeManager::start(FakeState::with_models(mixed_deployments()));
+
+    let Some(run) = run_in_pty(
+        terminal_command(&manager, &["pause", "Gemma"]),
+        Session::new([]).with_stdout_on_terminal(),
+    ) else {
+        return;
+    };
+
+    assert_eq!(run.code(), Some(0), "screen:\n{}", run.screen());
+    assert_eq!(run.stdout(), "");
+    assert_eq!(run.stderr(), "");
+    assert_eq!(run.screen().trim(), "OK Pausing Gemma");
+    assert_eq!(manager.model_deployment("model-1").desired_state(), Paused);
+}
+
+#[test]
+fn a_terminal_session_writes_a_pause_to_a_redirected_stdout() {
     let manager = FakeManager::start(FakeState::with_models(mixed_deployments()));
 
     let Some(run) = run_in_pty(
@@ -709,12 +795,52 @@ fn a_terminal_reports_a_pause_with_the_next_step() {
     };
 
     assert_eq!(run.code(), Some(0), "screen:\n{}", run.screen());
-    assert_eq!(run.stdout(), "");
+    assert_eq!(run.stdout(), "OK Pausing Gemma\n");
     assert_eq!(run.stderr(), "");
-    let lines = run.screen().lines().map(str::trim).collect::<Vec<_>>();
-    assert!(lines.contains(&"OK Pausing Gemma"), "{}", run.screen());
-    assert!(lines.contains(&"dotc model list"), "{}", run.screen());
+    assert_eq!(run.screen().trim(), "");
     assert_eq!(manager.model_deployment("model-1").desired_state(), Paused);
+}
+
+#[test]
+fn a_color_terminal_styles_output_only_when_stdout_is_the_terminal() {
+    let manager = FakeManager::start(FakeState::with_models(mixed_deployments()));
+    let colored = |stdout_on_terminal: bool| {
+        let mut command = terminal_command(&manager, &["pause", "Gemma"]);
+        command.env("TERM", "xterm-256color");
+        let session = Session::new([]);
+        run_in_pty(
+            command,
+            if stdout_on_terminal {
+                session.with_stdout_on_terminal()
+            } else {
+                session
+            },
+        )
+    };
+
+    let (Some(on_terminal), Some(redirected)) = (colored(true), colored(false)) else {
+        return;
+    };
+
+    assert_eq!(
+        on_terminal.code(),
+        Some(0),
+        "screen:\n{}",
+        on_terminal.screen()
+    );
+    assert!(
+        on_terminal.color_sgr_count() > 0,
+        "{}",
+        on_terminal.screen()
+    );
+    assert_eq!(
+        redirected.code(),
+        Some(0),
+        "screen:\n{}",
+        redirected.screen()
+    );
+    assert_eq!(redirected.color_sgr_count(), 0);
+    assert_eq!(redirected.stdout(), "OK Pausing Gemma\n");
 }
 
 #[test]
@@ -728,14 +854,18 @@ fn a_terminal_teardown_asks_and_removes_when_accepted() {
                 "Tear down Gemma? This removes the deployment and its running workload resources. [no]",
             ),
             Step::Send(b"yes\n"),
-            Step::Wait("Tearing down Gemma"),
         ]),
     ) else {
         return;
     };
 
     assert_eq!(run.code(), Some(0), "screen:\n{}", run.screen());
-    assert_eq!(run.stdout(), "");
+    assert_eq!(run.stdout(), "OK Tearing down Gemma\n");
+    assert!(
+        !run.screen().contains("Tearing down Gemma"),
+        "{}",
+        run.screen()
+    );
     assert_eq!(run.stderr(), "");
     assert_eq!(
         manager.model_deployment("model-1").desired_state(),
@@ -796,10 +926,7 @@ fn show_prints_visible_parameters_in_schema_order_with_secrets_masked() {
     assert_eq!(output.status.code(), Some(0));
     let stdout = text(&output.stdout);
     assert!(!stdout.contains("s3cretKey"), "{stdout}");
-    assert_eq!(
-        support::parameter_lines(&stdout, PARAMETER_PREFIX),
-        PARAMETER_LINES_MASKED
-    );
+    assert_eq!(support::parameter_rows(&stdout), PARAMETER_ROWS_MASKED);
 }
 
 #[test]
@@ -809,11 +936,8 @@ fn show_reveals_secret_parameters_with_the_flag() {
     let output = run(&manager, &["show", "Gemma", "--reveal-secrets"]);
 
     assert_eq!(output.status.code(), Some(0));
-    let revealed = PARAMETER_LINES_MASKED.map(|line| line.replace("********", "s3cretKey"));
-    assert_eq!(
-        support::parameter_lines(&text(&output.stdout), PARAMETER_PREFIX),
-        revealed
-    );
+    let revealed = PARAMETER_ROWS_MASKED.map(|line| line.replace("********", "s3cretKey"));
+    assert_eq!(support::parameter_rows(&text(&output.stdout)), revealed);
 }
 
 #[test]
@@ -832,14 +956,8 @@ fn show_prints_the_upstream_api_key_masked_unless_revealed() {
     let revealed = text(&run(&manager, &["show", "Remote", "--reveal-secrets"]).stdout);
 
     assert!(!masked.contains("sk-remote"), "{masked}");
-    assert_eq!(
-        support::parameter_lines(&masked, PARAMETER_PREFIX),
-        ["DOTCORE_MODEL_DEPLOYMENT_PARAMETER_API_KEY=********"]
-    );
-    assert_eq!(
-        support::parameter_lines(&revealed, PARAMETER_PREFIX),
-        ["DOTCORE_MODEL_DEPLOYMENT_PARAMETER_API_KEY=sk-remote"]
-    );
+    assert_eq!(support::parameter_rows(&masked), ["API key ********"]);
+    assert_eq!(support::parameter_rows(&revealed), ["API key sk-remote"]);
 }
 
 #[test]
@@ -865,7 +983,7 @@ fn a_terminal_shows_parameters_under_their_own_heading() {
 
     let Some(run) = run_in_pty(
         terminal_command(&manager, &["show", "Gemma"]),
-        Session::new([]),
+        Session::new([]).with_stdout_on_terminal(),
     ) else {
         return;
     };
@@ -893,13 +1011,389 @@ fn a_terminal_shows_parameters_under_their_own_heading() {
     );
 }
 
-const PARAMETER_PREFIX: &str = "DOTCORE_MODEL_DEPLOYMENT_PARAMETER_";
-const PARAMETER_LINES_MASKED: [&str; 5] = [
-    "DOTCORE_MODEL_DEPLOYMENT_PARAMETER_FLASH_ATTENTION=true",
-    "DOTCORE_MODEL_DEPLOYMENT_PARAMETER_PARALLEL_REQUESTS=4",
-    "DOTCORE_MODEL_DEPLOYMENT_PARAMETER_EXPERT_CAP=24576 MiB",
-    "DOTCORE_MODEL_DEPLOYMENT_PARAMETER_TUNED_FLAG=false",
-    "DOTCORE_MODEL_DEPLOYMENT_PARAMETER_API_KEY=********",
+#[test]
+fn yaml_list_prints_the_manager_deployments_with_their_names_and_secrets_masked() {
+    let mut downloading = local_model_deployment("model-2", "Qwen", Downloading, Present);
+    downloading.state.as_mut().expect("seeded state").progress = Some(ModelDeploymentProgress {
+        percent: Some(42),
+        completed: 5_000_000_000,
+        ..Default::default()
+    });
+    let mut upstream = local_model_deployment("model-9", "Remote", Ready, Present);
+    upstream.intent = None;
+    upstream.snapshot = Some(ModelDeploymentSnapshot {
+        source: Some(Source::Upstream(Default::default())),
+    });
+    upstream.upstream_desired_configuration = Some(UpstreamModelDesiredConfiguration {
+        upstream_model_id: "gpt-remote".to_owned(),
+        api_key: "sk-remote".to_owned(),
+        ..Default::default()
+    });
+    let manager = FakeManager::start(FakeState::with_models(vec![downloading, upstream]));
+
+    let output = run(&manager, &["--yaml", "list"]);
+
+    assert_eq!(text(&output.stderr), "");
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        support::yaml_documents(&text(&output.stdout)),
+        [json!({
+            "deployments": [
+                {
+                    "modelDeploymentId": "model-2",
+                    "modelDeploymentName": "Qwen",
+                    "intent": {
+                        "placement": {
+                            "siteNodeId": "node-1",
+                            "executionTargetId": "node-1-model",
+                        },
+                    },
+                    "snapshot": {
+                        "local": {
+                            "modelId": "gemma-4-e4b",
+                            "modelDisplayName": "Gemma 4 E4B",
+                            "profileId": "default",
+                            "engineArtifact": { "engineReleaseId": "llama-cpp" },
+                        },
+                    },
+                    "state": {
+                        "status": "MODEL_DEPLOYMENT_STATUS_DOWNLOADING",
+                        "progress": { "percent": 42, "completed": "5000000000" },
+                    },
+                    "desiredState": "MODEL_DEPLOYMENT_DESIRED_STATE_PRESENT",
+                    "siteNodeDisplayName": "gb10-host",
+                    "executionTargetDisplayName": "Simulated models",
+                },
+                {
+                    "modelDeploymentId": "model-9",
+                    "modelDeploymentName": "Remote",
+                    "snapshot": { "upstream": {} },
+                    "state": { "status": "MODEL_DEPLOYMENT_STATUS_READY" },
+                    "desiredState": "MODEL_DEPLOYMENT_DESIRED_STATE_PRESENT",
+                    "upstreamDesiredConfiguration": {
+                        "upstreamModelId": "gpt-remote",
+                        "apiKey": "********",
+                    },
+                },
+            ],
+        })]
+    );
+}
+
+#[test]
+fn yaml_list_of_an_empty_site_is_an_empty_document() {
+    let manager = FakeManager::start(FakeState::with_models(Vec::new()));
+
+    let output = run(&manager, &["list", "--yaml"]);
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(support::yaml_documents(&text(&output.stdout)), [json!({})]);
+}
+
+#[test]
+fn yaml_show_prints_the_deployment_with_secret_values_masked_unless_revealed() {
+    let deployment = deployment_with_parameters();
+    let manager = FakeManager::start(FakeState::with_models(vec![deployment.clone()]));
+
+    let masked = run(&manager, &["show", "Gemma", "--yaml"]);
+    let revealed = run(&manager, &["show", "Gemma", "--yaml", "--reveal-secrets"]);
+
+    assert_eq!(text(&masked.stderr), "");
+    assert_eq!(masked.status.code(), Some(0));
+    let mut revealed_document = serde_json::to_value(&deployment).expect("deployment mapping");
+    revealed_document["siteNodeDisplayName"] = json!("gb10-host");
+    revealed_document["executionTargetDisplayName"] = json!("Simulated models");
+    let mut masked_document = revealed_document.clone();
+    let api_key = masked_document["snapshot"]["local"]["engineParameterValues"]["values"]
+        .as_array_mut()
+        .expect("values")
+        .iter_mut()
+        .find(|value| value["parameterId"] == "api-key")
+        .expect("api key value");
+    assert_eq!(api_key["string"], "s3cretKey");
+    api_key["string"] = json!("********");
+    assert_eq!(
+        support::yaml_documents(&text(&masked.stdout)),
+        [masked_document]
+    );
+
+    assert_eq!(revealed.status.code(), Some(0));
+    assert_eq!(
+        support::yaml_documents(&text(&revealed.stdout)),
+        [revealed_document]
+    );
+}
+
+#[test]
+fn yaml_logs_print_one_document_per_entry() {
+    let manager = FakeManager::start(FakeState::with_models(mixed_deployments()));
+    manager.state().model_logs.page = log_page(
+        vec![
+            log_source("server", DeploymentLogSourceState::Available),
+            log_source("proxy", DeploymentLogSourceState::Unavailable),
+        ],
+        vec![
+            log_entry("server", 10, b"loading weights"),
+            log_entry("proxy", 11, b"listening"),
+        ],
+    );
+
+    let output = run(&manager, &["logs", "Gemma", "--yaml"]);
+
+    assert_eq!(text(&output.stderr), "Proxy (proxy): unavailable\n");
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = text(&output.stdout);
+    assert_eq!(stdout.lines().filter(|line| *line == "---").count(), 1);
+    assert_eq!(
+        support::yaml_documents(&stdout),
+        [
+            json!({
+                "sourceName": "server",
+                "sourceLabel": "Server",
+                "timestamp": { "seconds": "1794500010" },
+                "content": "bG9hZGluZyB3ZWlnaHRz",
+                "text": "loading weights",
+            }),
+            json!({
+                "sourceName": "proxy",
+                "sourceLabel": "Proxy",
+                "timestamp": { "seconds": "1794500011" },
+                "content": "bGlzdGVuaW5n",
+                "text": "listening",
+            }),
+        ]
+    );
+}
+
+#[test]
+fn yaml_logs_text_replaces_invalid_utf8_and_keeps_the_raw_content() {
+    let manager = FakeManager::start(FakeState::with_models(mixed_deployments()));
+    manager.state().model_logs.page = log_page(
+        vec![log_source("server", DeploymentLogSourceState::Available)],
+        vec![log_entry("server", 10, b"bad \xff byte")],
+    );
+
+    let output = run(&manager, &["logs", "Gemma", "--yaml"]);
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        support::yaml_documents(&text(&output.stdout)),
+        [json!({
+            "sourceName": "server",
+            "sourceLabel": "Server",
+            "timestamp": { "seconds": "1794500010" },
+            "content": "YmFkIP8gYnl0ZQ==",
+            "text": "bad \u{fffd} byte",
+        })]
+    );
+}
+
+#[test]
+fn yaml_logs_with_follow_stream_one_document_per_new_entry() {
+    let manager = FakeManager::start(FakeState::with_models(mixed_deployments()));
+    {
+        let mut state = manager.state();
+        state.model_logs.page = log_page(
+            vec![log_source("server", DeploymentLogSourceState::Available)],
+            vec![log_entry("server", 10, b"loading weights")],
+        );
+        state.model_logs.follow = vec![
+            Ok(follow_entry("server", 12, b"ready")),
+            Ok(follow_source("server", DeploymentLogSourceState::Ended)),
+        ];
+    }
+
+    let output = run(&manager, &["logs", "Gemma", "--follow", "--yaml"]);
+
+    assert_eq!(
+        text(&output.stderr),
+        "Server (server): ended\nthe log follow of model deployment Gemma ended\n"
+    );
+    assert_eq!(output.status.code(), Some(0));
+    let contents = support::yaml_documents(&text(&output.stdout))
+        .into_iter()
+        .map(|document| document["content"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(contents, [json!("bG9hZGluZyB3ZWlnaHRz"), json!("cmVhZHk=")]);
+}
+
+#[test]
+fn a_yaml_failure_prints_nothing_on_stdout_and_the_plain_failure_on_stderr() {
+    let manager = FakeManager::start(FakeState::with_models(mixed_deployments()));
+    manager.state().model_logs.page = log_page(
+        vec![log_source("server", DeploymentLogSourceState::Unavailable)],
+        vec![log_entry("server", 10, b"loading weights")],
+    );
+
+    let unknown = run(&manager, &["show", "nothing", "--yaml"]);
+    let unavailable = run(&manager, &["logs", "Gemma", "--yaml"]);
+
+    assert_eq!(unknown.status.code(), Some(1));
+    assert_eq!(text(&unknown.stdout), "");
+    assert_eq!(
+        text(&unknown.stderr),
+        "no model deployment matches \"nothing\"; see `dotc model list`\n"
+    );
+    assert_eq!(unavailable.status.code(), Some(1));
+    assert_eq!(text(&unavailable.stdout), "");
+    assert_eq!(
+        text(&unavailable.stderr),
+        "every log source of model deployment Gemma is unavailable; its node may be unreachable\n"
+    );
+}
+
+#[test]
+fn yaml_lifecycle_verbs_print_the_accepted_deployment_with_its_names() {
+    let manager = FakeManager::start(FakeState::with_models(mixed_deployments()));
+    let document = |id: &str, name: &str, state: serde_json::Value, desired: &str| {
+        json!({
+            "modelDeploymentId": id,
+            "modelDeploymentName": name,
+            "intent": {
+                "placement": {
+                    "siteNodeId": "node-1",
+                    "executionTargetId": "node-1-model",
+                },
+            },
+            "snapshot": {
+                "local": {
+                    "modelId": "gemma-4-e4b",
+                    "modelDisplayName": "Gemma 4 E4B",
+                    "profileId": "default",
+                    "engineArtifact": { "engineReleaseId": "llama-cpp" },
+                },
+            },
+            "state": state,
+            "desiredState": desired,
+            "siteNodeDisplayName": "gb10-host",
+            "executionTargetDisplayName": "Simulated models",
+        })
+    };
+
+    let paused = run(&manager, &["pause", "Gemma", "--yaml"]);
+    let resumed = run(&manager, &["resume", "model-4", "--yaml"]);
+    let torn_down = run(&manager, &["--yaml", "teardown", "model-2", "--yes"]);
+
+    for output in [&paused, &resumed, &torn_down] {
+        assert_eq!(text(&output.stderr), "");
+        assert_eq!(output.status.code(), Some(0));
+    }
+    assert_eq!(
+        support::yaml_documents(&text(&paused.stdout)),
+        [document(
+            "model-1",
+            "Gemma",
+            json!({ "status": "MODEL_DEPLOYMENT_STATUS_READY" }),
+            "MODEL_DEPLOYMENT_DESIRED_STATE_PAUSED"
+        )]
+    );
+    assert_eq!(
+        support::yaml_documents(&text(&resumed.stdout)),
+        [document(
+            "model-4",
+            "Mistral",
+            json!({ "status": "MODEL_DEPLOYMENT_STATUS_PAUSED" }),
+            "MODEL_DEPLOYMENT_DESIRED_STATE_PRESENT"
+        )]
+    );
+    assert_eq!(
+        support::yaml_documents(&text(&torn_down.stdout)),
+        [document(
+            "model-2",
+            "Qwen",
+            json!({
+                "status": "MODEL_DEPLOYMENT_STATUS_UNLOADING",
+                "statusMessage": "Fetching weights",
+                "progress": { "percent": 42 },
+            }),
+            "MODEL_DEPLOYMENT_DESIRED_STATE_TEARDOWN"
+        )]
+    );
+    assert_eq!(
+        lifecycle_calls(&manager),
+        vec![
+            call(Rpc::PauseModel, Some("model-1")),
+            call(Rpc::ResumeModel, Some("model-4")),
+            call(Rpc::RemoveModelDeployment, Some("model-2")),
+        ]
+    );
+}
+
+#[test]
+fn yaml_lifecycle_masks_upstream_secrets() {
+    let mut upstream = local_model_deployment("model-9", "Remote", Ready, Present);
+    upstream.intent = None;
+    upstream.snapshot = Some(ModelDeploymentSnapshot {
+        source: Some(Source::Upstream(Default::default())),
+    });
+    upstream.upstream_desired_configuration = Some(UpstreamModelDesiredConfiguration {
+        upstream_model_id: "gpt-remote".to_owned(),
+        api_key: "sk-remote".to_owned(),
+        ..Default::default()
+    });
+    let manager = FakeManager::start(FakeState::with_models(vec![upstream]));
+
+    let output = run(&manager, &["pause", "Remote", "--yaml"]);
+
+    assert_eq!(text(&output.stderr), "");
+    assert_eq!(
+        support::yaml_documents(&text(&output.stdout)),
+        [json!({
+            "modelDeploymentId": "model-9",
+            "modelDeploymentName": "Remote",
+            "snapshot": { "upstream": {} },
+            "state": { "status": "MODEL_DEPLOYMENT_STATUS_READY" },
+            "desiredState": "MODEL_DEPLOYMENT_DESIRED_STATE_PAUSED",
+            "upstreamDesiredConfiguration": {
+                "upstreamModelId": "gpt-remote",
+                "apiKey": "********",
+            },
+        })]
+    );
+}
+
+#[test]
+fn yaml_teardown_without_yes_fails_naming_the_flag_without_calling_the_manager() {
+    let manager = FakeManager::start(FakeState::with_models(mixed_deployments()));
+
+    let output = run(&manager, &["teardown", "Llama", "--yaml"]);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(text(&output.stdout), "");
+    assert_eq!(
+        text(&output.stderr),
+        "tearing down a model deployment needs confirmation, which --yaml never asks for; pass --yes to tear it down\n"
+    );
+    assert_eq!(manager.calls(), Vec::new());
+}
+
+#[test]
+fn yaml_is_refused_by_the_commands_that_have_no_result_to_print() {
+    for arguments in [
+        &["--yaml", "server", "start"][..],
+        &["--yaml", "code", "opencode"][..],
+    ] {
+        let output = isolated_dotc()
+            .args(arguments)
+            .output()
+            .expect("run a command without a YAML result");
+
+        assert_eq!(output.status.code(), Some(2), "{arguments:?}");
+        assert_eq!(text(&output.stdout), "", "{arguments:?}");
+        assert!(
+            text(&output.stderr).starts_with("error: --yaml is not available for this command\n"),
+            "{arguments:?}: {}",
+            text(&output.stderr)
+        );
+    }
+}
+
+const PARAMETER_ROWS_MASKED: [&str; 5] = [
+    "Flash attention true",
+    "Parallel requests 4",
+    "Expert cap 24576 MiB",
+    "Tuned flag false",
+    "API key ********",
 ];
 
 /// A local deployment whose schema has a default flag, a plain integer, a sized integer, a flag

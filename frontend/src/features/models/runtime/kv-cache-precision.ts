@@ -19,6 +19,7 @@ export interface KvCachePrecisionOption {
   description: string;
   displayName: string;
   optionId: string;
+  summary: string;
 }
 
 // Parameter id the catalog contract fixes for the precision of a KV cache precision option.
@@ -61,6 +62,7 @@ export function configurationKvCachePrecision(
       description: option.description,
       displayName: option.displayName,
       optionId: option.optionId,
+      summary: option.summary,
     };
   }
   return undefined;

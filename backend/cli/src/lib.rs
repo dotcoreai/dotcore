@@ -21,6 +21,7 @@ use tokio::runtime::{Builder, Runtime};
 mod application;
 mod code;
 mod config;
+mod deploy;
 mod failure;
 mod gc;
 pub mod guided;
@@ -30,11 +31,14 @@ mod hosts;
 mod management;
 mod model;
 mod node;
+mod output;
 mod parameters;
 mod paths;
+mod reference;
 mod runtime_confirmation;
 mod server;
 mod site;
+mod skill;
 mod telemetry;
 pub mod terminal;
 #[cfg(test)]
@@ -49,58 +53,67 @@ pub use paths::RootPathArgs;
     name = "dotc",
     version,
     arg_required_else_help = true,
-    subcommand_required = true
+    override_usage = "dotc [OPTIONS] <COMMAND>\n       dotc --skill"
 )]
 pub struct Cli {
     /// Show the complete cause chain of a failure on a terminal.
     #[arg(long, global = true)]
     pub verbose: bool,
 
+    /// Print the result as YAML on stdout, for scripts and agents; the command never asks a
+    /// question.
+    #[arg(long, global = true)]
+    pub yaml: bool,
+
+    /// Print an agent skill describing this CLI and its commands, as Markdown on stdout.
+    #[arg(long)]
+    pub skill: bool,
+
     #[command(flatten)]
     pub paths: RootPathArgs,
 
+    /// The command to run; absent only for `--skill`, which stands alone.
     #[command(subcommand)]
-    pub command: Command,
+    pub command: Option<Command>,
 }
 
 /// Product CLI command groups.
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Inspect effective Dotcore process configuration.
+    /// Inspect the effective Dotcore process configuration
     Config(config::ConfigCommand),
 
-    /// Manage the bare local server process that `dotcore` supervises.
+    /// Manage the bare local server process that `dotcore` supervises
     Server(ServerCommand),
 
-    /// Create, reset, validate, and delete site inputs offline.
+    /// Create, reset, validate and delete site inputs offline
+    #[command(alias = "sites")]
     Site(site::SiteCommand),
 
-    /// Manage site nodes: `add`, `remove`, and `list` on the manager, `join` and `leave` on the
-    /// node's machine.
+    /// Manage the nodes of a site and this machine's membership in one
+    #[command(alias = "nodes")]
     Node(node::NodeCommand),
 
-    /// Manage the model deployments of the running site: `list`, `show`, `pause`, `resume`,
-    /// `teardown` and `logs`.
+    /// Inspect and control the model deployments of the running site
     #[command(alias = "models")]
     Model(model::ModelCommand),
 
-    /// Manage the application deployments of the running site: `list`, `show`, `pause`, `resume`,
-    /// `teardown` and `logs`.
+    /// Inspect and control the application deployments of the running site
     #[command(visible_alias = "app", alias = "applications")]
     Application(application::ApplicationCommand),
 
-    /// Start a coding agent on a site's inference API, with an inference route as its model.
+    /// Start a coding agent on a site's inference API
     Code(code::CodeArgs),
 
-    /// Run one transient development workload.
+    /// Run one transient development workload
     Dev(workload::DevCommand),
 
-    /// Remove Docker image names on this machine that no Docker-delivered Nix artifact uses,
-    /// after listing them and asking for confirmation.
+    /// Remove unused Docker image names from this machine after confirmation
+    ///
+    /// Lists the names no Docker-delivered Nix artifact uses, then asks before removing them.
     Gc(gc::GcCommand),
 
-    /// Describe this machine's hardware and recommend models for it, without a site: `show` and
-    /// `recommend`.
+    /// Describe this machine's hardware and recommend models for it
     Hardware(hardware::HardwareCommand),
 }
 
@@ -115,14 +128,16 @@ pub struct ServerCommand {
 /// Actions supported by the local server command group.
 #[derive(Debug, Subcommand)]
 enum ServerSubcommand {
-    /// Run the bare backend server process for a site folder; settings come from the environment.
-    /// `dotcore` supervises this process and also serves the console and public listeners.
+    /// Run the bare backend server process for a site folder
+    ///
+    /// Settings come from the environment. `dotcore` supervises this process and also serves the
+    /// console and public listeners.
     Start,
 }
 
-/// Initializes the process-wide tracing subscriber. The interactive node membership, model and application commands
-/// default to warnings so their prompts and result records are not interleaved with routine
-/// events; `RUST_LOG` overrides this.
+/// Initializes the process-wide tracing subscriber. The interactive node membership, model and
+/// application commands default to warnings so their prompts and output are not interleaved with
+/// routine events; `RUST_LOG` overrides this.
 pub fn initialize_tracing() {
     let words = command_words(std::env::args_os());
     dotcore::logging::initialize_with_default_filter(if quiet_by_default(&words) {
@@ -143,17 +158,21 @@ pub fn build_runtime() -> Result<Runtime> {
 /// Dispatches a parsed command to its owning capability.
 pub async fn dispatch(cli: Cli) -> Result<()> {
     let paths = &cli.paths;
-    match cli.command {
-        Command::Config(command) => command.dispatch(paths),
+    let format = cli.output_format();
+    let Some(command) = cli.command else {
+        return skill::print(&Cli::parser());
+    };
+    match command {
+        Command::Config(command) => command.dispatch(paths, format),
         Command::Server(command) => command.dispatch(paths).await,
-        Command::Site(command) => command.dispatch(paths).await,
-        Command::Node(command) => command.dispatch(paths).await,
-        Command::Model(command) => command.dispatch().await,
-        Command::Application(command) => command.dispatch().await,
+        Command::Site(command) => command.dispatch(paths, format).await,
+        Command::Node(command) => command.dispatch(paths, format).await,
+        Command::Model(command) => command.dispatch(format).await,
+        Command::Application(command) => command.dispatch(format).await,
         Command::Code(command) => command.dispatch(paths).await,
         Command::Dev(command) => command.dispatch(paths).await,
-        Command::Gc(command) => command.dispatch(paths).await,
-        Command::Hardware(command) => command.dispatch(paths),
+        Command::Gc(command) => command.dispatch(paths, format).await,
+        Command::Hardware(command) => command.dispatch(paths, format),
     }
 }
 
@@ -198,6 +217,7 @@ fn command_words(arguments: impl IntoIterator<Item = std::ffi::OsString>) -> Vec
         if paths::VALUE_OPTIONS.contains(&argument.as_ref()) {
             arguments.next();
         } else if argument == "--verbose"
+            || argument == "--yaml"
             || paths::VALUE_OPTIONS.iter().any(|option| {
                 argument
                     .strip_prefix(option)
@@ -213,6 +233,16 @@ fn command_words(arguments: impl IntoIterator<Item = std::ffi::OsString>) -> Vec
         }
     }
     words
+}
+
+/// Reports whether anything besides `--skill` was given on the command line. The environment
+/// still supplies the root path options.
+fn skill_has_company(matches: &clap::ArgMatches) -> bool {
+    matches.subcommand_name().is_some()
+        || matches.ids().any(|id| {
+            id.as_str() != "skill"
+                && matches.value_source(id.as_str()) == Some(clap::parser::ValueSource::CommandLine)
+        })
 }
 
 /// Returns the arguments without the root path options and their values.
@@ -233,8 +263,8 @@ fn without_root_paths(arguments: &[std::ffi::OsString]) -> Vec<std::ffi::OsStrin
     kept
 }
 
-/// Reports whether the command prints prompts and result records that routine info events would
-/// interleave with, so it stays at warnings.
+/// Reports whether the command prints prompts and output that routine info events would interleave
+/// with, so it stays at warnings.
 fn quiet_by_default(words: &[String]) -> bool {
     matches!(
         (
@@ -258,6 +288,24 @@ fn workload_arguments(words: &[String]) -> bool {
         && words.get(1).is_some_and(|word| word == "workload")
 }
 
+impl Command {
+    /// Reports whether the command can print its result as YAML. The server, the coding agent and
+    /// the development workloads have no result to print: the server speaks its startup protocol,
+    /// the agent takes over the terminal and workloads speak their own JSON protocol.
+    fn prints_yaml(&self) -> bool {
+        match self {
+            Self::Config(_)
+            | Self::Site(_)
+            | Self::Node(_)
+            | Self::Model(_)
+            | Self::Application(_)
+            | Self::Gc(_)
+            | Self::Hardware(_) => true,
+            Self::Server(_) | Self::Code(_) | Self::Dev(_) => false,
+        }
+    }
+}
+
 impl ServerCommand {
     async fn dispatch(self, paths: &RootPathArgs) -> Result<()> {
         let Some(ServerSubcommand::Start) = self.command else {
@@ -279,16 +327,41 @@ impl Cli {
     {
         let arguments = arguments.into_iter().map(Into::into).collect::<Vec<_>>();
         Self::reject_missing_action(&arguments)?;
-        let matches = Self::command().try_get_matches_from(arguments)?;
+        let matches = Self::parser().try_get_matches_from(arguments)?;
         let mut cli = <Self as clap::FromArgMatches>::from_arg_matches(&matches)?;
         cli.paths.site_dir_on_command_line =
             matches.value_source("site_dir") == Some(clap::parser::ValueSource::CommandLine);
         cli.paths.cache_dir_on_command_line =
             matches.value_source("cache_dir") == Some(clap::parser::ValueSource::CommandLine);
+        if cli.skill && skill_has_company(&matches) {
+            return Err(Self::command().error(
+                clap::error::ErrorKind::ArgumentConflict,
+                "--skill cannot be combined with other arguments",
+            ));
+        }
         if let Some(message) = cli.argument_contract_error() {
             return Err(Self::command().error(clap::error::ErrorKind::ArgumentConflict, message));
         }
         Ok(cli)
+    }
+
+    /// The clap command, with `--yaml` hidden from the help of the groups that refuse it. Each of
+    /// those groups redeclares the global flag hidden, so it replaces the visible one in them and
+    /// their subcommands.
+    fn parser() -> clap::Command {
+        let hidden_yaml = || {
+            clap::Arg::new("yaml")
+                .long("yaml")
+                .action(clap::ArgAction::SetTrue)
+                .global(true)
+                .hide(true)
+        };
+
+        let mut command = Self::command();
+        for group in ["server", "code", "dev"] {
+            command = command.mut_subcommand(group, |group| group.arg(hidden_yaml()));
+        }
+        command
     }
 
     /// Parses process arguments and exits using clap's standard error contract.
@@ -356,9 +429,24 @@ impl Cli {
         }
     }
 
+    /// How the command presents its result.
+    fn output_format(&self) -> output::OutputFormat {
+        if self.yaml {
+            output::OutputFormat::Yaml
+        } else {
+            output::OutputFormat::Human
+        }
+    }
+
     fn argument_contract_error(&self) -> Option<&'static str> {
-        match &self.command {
-            Command::Site(command) => command.argument_contract_error(),
+        let Some(command) = self.command.as_ref() else {
+            return (!self.skill).then_some("a command is required; see --help");
+        };
+        if self.yaml && !command.prints_yaml() {
+            return Some("--yaml is not available for this command");
+        }
+        match command {
+            Command::Site(command) => command.argument_contract_error(self.yaml),
             Command::Node(command) => command.argument_contract_error(),
             Command::Model(command) => command.argument_contract_error(),
             Command::Application(command) => command.argument_contract_error(),
@@ -376,12 +464,14 @@ impl Cli {
 mod tests {
     use clap::error::ErrorKind;
 
+    use clap::CommandFactory;
+
     use super::Cli;
 
     #[test]
     fn server_start_is_the_canonical_server_command() {
         let command = Cli::try_parse_from(["dotc", "server", "start"]).expect("server start");
-        assert!(matches!(command.command, super::Command::Server(_)));
+        assert!(matches!(command.command, Some(super::Command::Server(_))));
     }
 
     #[test]
@@ -396,7 +486,7 @@ mod tests {
                 Some(std::path::PathBuf::from("/srv/node")),
                 "{arguments:?}"
             );
-            let super::Command::Server(server) = command.command else {
+            let Some(super::Command::Server(server)) = command.command else {
                 panic!("server command");
             };
             assert!(matches!(
@@ -440,6 +530,10 @@ mod tests {
         assert_eq!(
             words(&["dotc", "node", "--site-dir", "/a", "list"]),
             ["node", "list"]
+        );
+        assert_eq!(
+            words(&["dotc", "--yaml", "model", "--verbose", "list"]),
+            ["model", "list"]
         );
         assert_eq!(words(&["dotc"]), Vec::<String>::new());
     }
@@ -503,7 +597,7 @@ mod tests {
             "simulated",
         ])
         .expect("site init");
-        assert!(matches!(command.command, super::Command::Site(_)));
+        assert!(matches!(command.command, Some(super::Command::Site(_))));
     }
 
     #[test]
@@ -516,9 +610,29 @@ mod tests {
         ] {
             let command = Cli::try_parse_from(arguments).expect("synonym parses");
             match (command.command, is_model) {
-                (super::Command::Model(_), true) | (super::Command::Application(_), false) => {}
+                (Some(super::Command::Model(_)), true)
+                | (Some(super::Command::Application(_)), false) => {}
                 (other, _) => panic!("{arguments:?} parsed as {other:?}"),
             }
+        }
+    }
+
+    #[test]
+    fn yaml_cannot_start_the_guided_site_flow() {
+        for (arguments, message) in [
+            (
+                &["dotc", "--yaml", "site", "init", "--interactive"][..],
+                "--interactive cannot be combined with --yaml, which never asks",
+            ),
+            (
+                &["dotc", "--yaml", "site", "reset"][..],
+                "missing workload choices; --yaml never asks, so pass --inference and --applications",
+            ),
+        ] {
+            let error = Cli::try_parse_from(arguments).expect_err("guided flow under --yaml");
+
+            assert_eq!(error.kind(), ErrorKind::ArgumentConflict, "{arguments:?}");
+            assert!(error.to_string().contains(message), "{error}");
         }
     }
 
@@ -545,6 +659,79 @@ mod tests {
     }
 
     #[test]
+    fn every_leaf_command_has_a_one_line_about_in_one_style() {
+        let mut leaves = Vec::new();
+        collect_leaves(&Cli::command(), "dotc", &mut leaves);
+
+        assert_eq!(leaves.join("\n"), EXPECTED_LEAF_ABOUTS.join("\n"));
+        for leaf in &leaves {
+            let about = leaf.split_once(": ").expect("path and about").1;
+            assert!(!about.contains('\n'), "{leaf}");
+            assert!(!about.ends_with('.'), "{leaf}");
+        }
+    }
+
+    /// Lists `path: about` for every command without subcommands.
+    fn collect_leaves(command: &clap::Command, path: &str, leaves: &mut Vec<String>) {
+        let mut subcommands = command
+            .get_subcommands()
+            .filter(|subcommand| subcommand.get_name() != "help")
+            .peekable();
+        if subcommands.peek().is_none() {
+            let about = command
+                .get_about()
+                .map(ToString::to_string)
+                .unwrap_or_default();
+            leaves.push(format!("{path}: {about}"));
+            return;
+        }
+        for subcommand in subcommands {
+            let path = format!("{path} {}", subcommand.get_name());
+            collect_leaves(subcommand, &path, leaves);
+        }
+    }
+
+    const EXPECTED_LEAF_ABOUTS: &[&str] = &[
+        "dotc config show: Show the effective process paths and this site folder's role",
+        "dotc server start: Run the bare backend server process for a site folder",
+        "dotc site init: Create a site with its signing key and this machine's node identity",
+        "dotc site reset: Start a fresh site, replacing the current one after confirmation",
+        "dotc site delete: Delete a stopped site, its runtime resources and its caches",
+        "dotc site validate: Validate the site's input bundle without starting services",
+        "dotc node add: Allow one new machine to join the site",
+        "dotc node join: Join this machine to a site with the token `dotc node add` printed",
+        "dotc node remove: Remove a worker node from the site",
+        "dotc node leave: Leave the site: stop this node's workloads and delete its node folder",
+        "dotc node list: List the site's nodes with their addresses and deployments",
+        "dotc model list: List the model deployments with their state and node",
+        "dotc model show: Show one model deployment by name or ID",
+        "dotc model catalog: List the catalog models you can deploy, with whether each profile fits each target",
+        "dotc model template: Print a deploy payload for a catalog model, pre-filled with its starting values",
+        "dotc model deploy: Deploy a catalog model step by step on a terminal, or from a payload or its starting values",
+        "dotc model pause: Pause a model deployment, without waiting for it to pause",
+        "dotc model resume: Resume a paused model deployment, without waiting for it to resume",
+        "dotc model teardown: Remove a model deployment and its workload after confirmation",
+        "dotc model logs: Print the recent log lines of a model deployment",
+        "dotc application list: List the application deployments with their state and node",
+        "dotc application show: Show one application deployment by name or ID",
+        "dotc application pause: Pause an application deployment, without waiting for it to pause",
+        "dotc application resume: Resume a paused application deployment, without waiting for it to resume",
+        "dotc application teardown: Remove an application deployment and its workloads after confirmation",
+        "dotc application logs: Print the recent log lines of an application deployment",
+        "dotc code: Start a coding agent on a site's inference API",
+        "dotc dev workload launch: Resolve and launch a workload",
+        "dotc dev workload inspect: Inspect an ownership handle and its runtime namespace",
+        "dotc dev workload logs: Read workload diagnostics",
+        "dotc dev workload vram: Observe the exact-process NVIDIA VRAM of a workload",
+        "dotc dev workload teardown: Stop and remove the owned workload",
+        "dotc dev telemetry fit: Fit a model binding's sizing constants from recorded workload resources",
+        "dotc dev telemetry check: Check a model binding's sizing constants against recorded workload resources",
+        "dotc gc: Remove unused Docker image names from this machine after confirmation",
+        "dotc hardware show: Show this machine's hardware and the hardware class of each model target",
+        "dotc hardware recommend: Rank the master catalog's models for each use case on this machine",
+    ];
+
+    #[test]
     fn help_and_version_succeed() {
         for arguments in [["dotc", "--help"], ["dotc", "--version"]] {
             let error = Cli::try_parse_from(arguments).expect_err("clap display command");
@@ -557,6 +744,25 @@ mod tests {
 
         let error = Cli::try_parse_from(["dotc", "--version"]).expect_err("version");
         assert!(error.to_string().contains(env!("CARGO_PKG_VERSION")));
+    }
+
+    #[test]
+    fn help_offers_yaml_only_where_the_command_takes_it() {
+        let help = |arguments: &[&str]| {
+            let mut all = vec!["dotc"];
+            all.extend(arguments);
+            all.push("--help");
+            Cli::try_parse_from(all).expect_err("help").to_string()
+        };
+
+        for arguments in [
+            &["dev", "workload", "launch"][..],
+            &["server", "start"],
+            &["code"],
+        ] {
+            assert!(!help(arguments).contains("--yaml"), "{arguments:?}");
+        }
+        assert!(help(&["model", "list"]).contains("--yaml"));
     }
 
     #[test]

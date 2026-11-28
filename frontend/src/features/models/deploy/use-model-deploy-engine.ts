@@ -9,7 +9,7 @@ import { timing } from "@/lib/timing";
 import type { LocalDeploymentValues } from "./model-deploy-launch";
 
 /**
- * The custom engine arguments the Engine step's text box holds, and the tokens they split into.
+ * The custom engine arguments the Command step's text box holds, and the tokens they split into.
  * Restored tokens start as one line each, so they read back unchanged.
  */
 export function useCustomArguments(startTokens: readonly string[]) {
@@ -28,7 +28,7 @@ export function useCustomArguments(startTokens: readonly string[]) {
 }
 
 /**
- * The Engine step's launch command: the backend's preview of the launch, read when the step opens
+ * The Command step's launch command: the backend's preview of the launch, read when the step opens
  * and again once typing pauses, never while an earlier step has errors. Only the latest request's
  * answer counts; until it lands, the previous one stays shown as updating. A rejection blocks the
  * deploy only while it answers the current values.
@@ -39,7 +39,7 @@ export function useLiveCommandPreview({
   onPreview,
   request,
 }: {
-  /** Whether the Engine step shows, which reads the command. */
+  /** Whether the Command step shows, which reads the command. */
   active: boolean;
   /** Whether an earlier step has errors, which skips the read. */
   blocked: boolean;

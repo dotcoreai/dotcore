@@ -4,8 +4,9 @@
 //! behind by an older loader once no node pins it, then shared workload storage that no workload
 //! has used for a number of days. Each step lists what it would remove and asks for confirmation
 //! before removing it. It acts on the whole machine, so it needs neither a running server nor a
-//! site, and it never adds Nix roots or runs Nix garbage collection. On a terminal it prints
-//! tables; without one it prints one record block per removal on stdout.
+//! site, and it never adds Nix roots or runs Nix garbage collection. It prints
+//! tables, on the terminal or as plain text without one. Asked for YAML, it
+//! never asks, so it needs confirmation in advance, and prints one document of every removal.
 
 mod storage;
 
@@ -16,14 +17,12 @@ use clap::Args;
 use dotcore_artifact::{
     DockerOciClient, ImageCleanup, ImageRemoval, RemovalOutcome, RemovalReason,
 };
+use serde::Serialize;
 
 use crate::{
     RootPathArgs,
-    node::{record_value, write_records},
-    terminal::{
-        ConfirmPrompt, Message, PromptError, Terminal, TerminalCondition,
-        controlling_terminal_condition, open_terminal,
-    },
+    output::{LazyTerminal, OutputFormat, present_on, write_yaml},
+    terminal::{ConfirmPrompt, Message, PromptError, Terminal, TerminalCondition},
 };
 
 /// Arguments of `dotc gc`.
@@ -41,12 +40,26 @@ pub struct GcCommand {
 }
 
 impl GcCommand {
-    pub(crate) async fn dispatch(self, paths: &RootPathArgs) -> anyhow::Result<()> {
-        self.clean_images(paths).await?;
-        storage::clean(paths, self.unused_days, self.yes).await
+    pub(crate) async fn dispatch(
+        self,
+        paths: &RootPathArgs,
+        format: OutputFormat,
+    ) -> anyhow::Result<()> {
+        let images = self.clean_images(paths, format).await?;
+        let storage = storage::clean(paths, self.unused_days, self.yes, format).await?;
+        if format == OutputFormat::Yaml {
+            write_yaml(&GcDocument { images, storage })?;
+        }
+        Ok(())
     }
 
-    async fn clean_images(&self, paths: &RootPathArgs) -> anyhow::Result<()> {
+    /// Removes the unused Docker image names and returns what happened to each, or none when the
+    /// operator declined or there was nothing to remove.
+    async fn clean_images(
+        &self,
+        paths: &RootPathArgs,
+        format: OutputFormat,
+    ) -> anyhow::Result<Vec<ImageResult>> {
         let cache = dotcore_domain::CacheLayout(&paths.cache_root()?).model_artifacts();
         let docker = DockerOciClient::connect()
             .await
@@ -56,30 +69,64 @@ impl GcCommand {
             .plan()
             .await
             .context("Docker image cleanup planning failed")?;
-        let mut terminal = open_terminal();
-        if !approve_removals(terminal.as_mut(), &planned, self.yes)? {
-            return Ok(());
+        let mut terminal = LazyTerminal::new();
+        if !approve_removals(&mut terminal, &planned, self.yes, format)? {
+            return Ok(Vec::new());
         }
 
         let results = cleanup
             .apply()
             .await
             .context("Docker image cleanup failed")?;
-        if controlling_terminal_condition() == TerminalCondition::Interactive {
-            show_results(terminal.as_mut(), &results)?;
-        } else {
-            let blocks = results
-                .iter()
-                .map(|(removal, outcome)| record_block(removal, outcome))
-                .collect::<anyhow::Result<Vec<_>>>()?;
-            write_records(&blocks.join("\n"))?;
+        if format == OutputFormat::Human {
+            show_results(&mut terminal, &results)?;
         }
         let failed = results
             .iter()
             .filter(|(_, outcome)| matches!(outcome, RemovalOutcome::Failed(_)))
             .count();
         anyhow::ensure!(failed == 0, "{failed} Docker image removals failed");
-        Ok(())
+        Ok(results
+            .iter()
+            .map(|(removal, outcome)| ImageResult::new(removal, outcome))
+            .collect())
+    }
+}
+
+/// The YAML document of `dotc gc`: what each cleanup step removed.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GcDocument {
+    images: Vec<ImageResult>,
+    storage: Vec<storage::StorageResult>,
+}
+
+/// What happened to one Docker image name.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ImageResult {
+    image_id: String,
+    reference: String,
+    reason: &'static str,
+    result: &'static str,
+}
+
+impl ImageResult {
+    fn new(removal: &ImageRemoval, outcome: &RemovalOutcome) -> Self {
+        Self {
+            image_id: removal.image_id.clone(),
+            reference: removal.reference.clone(),
+            reason: match removal.reason {
+                RemovalReason::UnusedName => "unusedName",
+                RemovalReason::DigestReference => "digestReference",
+                RemovalReason::UntaggedBuild => "untaggedBuild",
+            },
+            result: match outcome {
+                RemovalOutcome::Removed => "removed",
+                RemovalOutcome::InUse => "inUse",
+                RemovalOutcome::Failed(_) => "failed",
+            },
+        }
     }
 }
 
@@ -88,6 +135,7 @@ fn approve_removals(
     terminal: &mut dyn Terminal,
     planned: &[ImageRemoval],
     yes: bool,
+    format: OutputFormat,
 ) -> anyhow::Result<bool> {
     approve(
         terminal,
@@ -98,6 +146,7 @@ fn approve_removals(
             rows: planned.iter().map(removal_row).collect(),
         },
         yes,
+        format,
     )
 }
 
@@ -113,15 +162,29 @@ struct Approval<'a> {
 
 /// Decides whether the planned removals go ahead: nothing to remove needs no approval, `yes`
 /// approves in advance, and otherwise the operator confirms the listed removals on the terminal.
-/// Without a terminal it refuses, and a declined prompt returns [`PromptError::Cancelled`].
-fn approve(terminal: &mut dyn Terminal, approval: Approval<'_>, yes: bool) -> anyhow::Result<bool> {
+/// Without a terminal, or asked for YAML, it refuses, and a declined prompt returns
+/// [`PromptError::Cancelled`].
+fn approve(
+    terminal: &mut dyn Terminal,
+    approval: Approval<'_>,
+    yes: bool,
+    format: OutputFormat,
+) -> anyhow::Result<bool> {
     let count = approval.rows.len();
     if count == 0 {
-        terminal.message(&Message::Success(approval.nothing.to_owned()))?;
+        if format == OutputFormat::Human {
+            present_on(terminal, &[Message::Success(approval.nothing.to_owned())])?;
+        }
         return Ok(false);
     }
     if yes {
         return Ok(true);
+    }
+    if format == OutputFormat::Yaml {
+        anyhow::bail!(
+            "{count} {} can be removed; --yaml never asks for confirmation, pass --yes to remove them",
+            approval.noun
+        );
     }
     if terminal.condition() == TerminalCondition::NonInteractive {
         anyhow::bail!(
@@ -130,7 +193,7 @@ fn approve(terminal: &mut dyn Terminal, approval: Approval<'_>, yes: bool) -> an
         );
     }
 
-    terminal.message(&Message::Table {
+    terminal.prompt_context(&Message::Table {
         header: approval
             .header
             .iter()
@@ -152,31 +215,40 @@ fn show_results(
     terminal: &mut dyn Terminal,
     results: &[(ImageRemoval, RemovalOutcome)],
 ) -> anyhow::Result<()> {
-    terminal.message(&Message::Table {
-        header: ["IMAGE", "NAME", "REASON", "RESULT"]
-            .map(str::to_owned)
-            .to_vec(),
-        rows: results
-            .iter()
-            .map(|(removal, outcome)| {
-                let mut row = removal_row(removal);
-                row.push(outcome_text(outcome));
-                row
-            })
-            .collect(),
-    })?;
+    present_on(
+        terminal,
+        &[Message::Table {
+            header: ["IMAGE", "NAME", "REASON", "RESULT"]
+                .map(str::to_owned)
+                .to_vec(),
+            rows: results
+                .iter()
+                .map(|(removal, outcome)| {
+                    let mut row = removal_row(removal);
+                    row.push(outcome_text(outcome));
+                    row
+                })
+                .collect(),
+        }],
+    )?;
     let removed = results
         .iter()
         .filter(|(_, outcome)| outcome == &RemovalOutcome::Removed)
         .count();
-    terminal.message(&Message::Success(format!(
-        "Removed {removed} of {} Docker image names",
-        results.len()
-    )))?;
-    terminal.message(&Message::Info(
-        "Nix store space is reclaimed separately by Nix garbage collection".to_owned(),
-    ))?;
-    terminal.message(&Message::Command("nix-store --gc".to_owned()))?;
+    present_on(
+        terminal,
+        &[Message::Success(format!(
+            "Removed {removed} of {} Docker image names",
+            results.len()
+        ))],
+    )?;
+    present_on(
+        terminal,
+        &[Message::Info(
+            "Nix store space is reclaimed separately by Nix garbage collection".to_owned(),
+        )],
+    )?;
+    present_on(terminal, &[Message::Command("nix-store --gc".to_owned())])?;
     Ok(())
 }
 
@@ -186,16 +258,6 @@ fn removal_row(removal: &ImageRemoval) -> Vec<String> {
         removal.reference.clone(),
         reason(removal.reason).to_owned(),
     ]
-}
-
-fn record_block(removal: &ImageRemoval, outcome: &RemovalOutcome) -> anyhow::Result<String> {
-    Ok(format!(
-        "Removal\nDOTCORE_GC_IMAGE={}\nDOTCORE_GC_NAME={}\nDOTCORE_GC_REASON={}\nDOTCORE_GC_RESULT={}\n",
-        record_value(&removal.image_id)?,
-        record_value(&removal.reference)?,
-        reason(removal.reason),
-        record_value(&outcome_text(outcome))?,
-    ))
 }
 
 fn reason(reason: RemovalReason) -> &'static str {
@@ -226,26 +288,18 @@ mod tests {
     use crate::terminal::{ScriptedAnswer, ScriptedPrompt, ScriptedTerminal};
 
     #[test]
-    fn records_name_the_removal_and_its_result() {
-        let removal = n8n_removal();
-
-        assert_eq!(
-            record_block(&removal, &RemovalOutcome::Removed).expect("removed record"),
-            "Removal\nDOTCORE_GC_IMAGE=sha256:0123456789abcdef\nDOTCORE_GC_NAME=dotcore-nix/docker-image-n8n:0123\nDOTCORE_GC_REASON=unused name\nDOTCORE_GC_RESULT=removed\n"
-        );
-        assert!(
-            record_block(&removal, &RemovalOutcome::Failed("conflict".to_owned()))
-                .expect("failed record")
-                .ends_with("DOTCORE_GC_RESULT=failed: conflict\n")
-        );
-        assert_eq!(short_id(&removal.image_id), "0123456789ab");
+    fn the_short_image_id_drops_the_algorithm() {
+        assert_eq!(short_id(&n8n_removal().image_id), "0123456789ab");
     }
 
     #[test]
     fn nothing_to_remove_needs_no_approval() {
-        let mut terminal = ScriptedTerminal::new(TerminalCondition::NonInteractive, []);
+        let mut terminal = ScriptedTerminal::interactive([]);
 
-        assert!(!approve_removals(&mut terminal, &[], false).expect("nothing to approve"));
+        assert!(
+            !approve_removals(&mut terminal, &[], false, OutputFormat::Human)
+                .expect("nothing to approve")
+        );
         assert_eq!(terminal.lines(), ["✔ No Docker image to clean up"]);
     }
 
@@ -254,14 +308,75 @@ mod tests {
         let planned = [n8n_removal()];
         let mut terminal = ScriptedTerminal::new(TerminalCondition::NonInteractive, []);
 
-        let error = approve_removals(&mut terminal, &planned, false).expect_err("needs yes");
+        let error = approve_removals(&mut terminal, &planned, false, OutputFormat::Human)
+            .expect_err("needs yes");
 
         assert_eq!(
             error.to_string(),
             "1 Docker image names can be removed; run in a terminal or pass --yes to remove them without confirmation"
         );
-        assert!(approve_removals(&mut terminal, &planned, true).expect("yes approves"));
+        assert!(
+            approve_removals(&mut terminal, &planned, true, OutputFormat::Human)
+                .expect("yes approves")
+        );
         assert!(terminal.prompts().is_empty());
+    }
+
+    #[test]
+    fn yaml_never_asks_so_removals_need_yes_and_nothing_to_remove_prints_nothing() {
+        let planned = [n8n_removal()];
+        let mut terminal = ScriptedTerminal::interactive([]);
+
+        let error = approve_removals(&mut terminal, &planned, false, OutputFormat::Yaml)
+            .expect_err("needs yes");
+
+        assert_eq!(
+            error.to_string(),
+            "1 Docker image names can be removed; --yaml never asks for confirmation, pass --yes to remove them"
+        );
+        assert!(terminal.prompts().is_empty());
+        assert!(terminal.messages().is_empty());
+        assert!(
+            approve_removals(&mut terminal, &planned, true, OutputFormat::Yaml)
+                .expect("yes approves")
+        );
+        assert!(
+            !approve_removals(&mut terminal, &[], false, OutputFormat::Yaml)
+                .expect("nothing to approve")
+        );
+        assert!(terminal.messages().is_empty());
+    }
+
+    #[test]
+    fn the_document_names_each_removal_and_its_result() {
+        let document = GcDocument {
+            images: vec![
+                ImageResult::new(&n8n_removal(), &RemovalOutcome::Removed),
+                ImageResult::new(&n8n_removal(), &RemovalOutcome::InUse),
+            ],
+            storage: Vec::new(),
+        };
+
+        assert_eq!(
+            serde_json::to_value(&document).expect("document"),
+            serde_json::json!({
+                "images": [
+                    {
+                        "imageId": "sha256:0123456789abcdef",
+                        "reference": "dotcore-nix/docker-image-n8n:0123",
+                        "reason": "unusedName",
+                        "result": "removed",
+                    },
+                    {
+                        "imageId": "sha256:0123456789abcdef",
+                        "reference": "dotcore-nix/docker-image-n8n:0123",
+                        "reason": "unusedName",
+                        "result": "inUse",
+                    },
+                ],
+                "storage": [],
+            })
+        );
     }
 
     #[test]
@@ -272,8 +387,12 @@ mod tests {
             ScriptedAnswer::Confirm(false),
         ]);
 
-        assert!(approve_removals(&mut terminal, &planned, false).expect("confirmed"));
-        let declined = approve_removals(&mut terminal, &planned, false).expect_err("declined");
+        assert!(
+            approve_removals(&mut terminal, &planned, false, OutputFormat::Human)
+                .expect("confirmed")
+        );
+        let declined = approve_removals(&mut terminal, &planned, false, OutputFormat::Human)
+            .expect_err("declined");
 
         assert!(matches!(
             declined.downcast_ref::<PromptError>(),

@@ -2,7 +2,7 @@
 
 use dotcore_proto::dotcore::application::v1::ApplicationDeployment;
 
-use crate::parameters::{ParameterInput, ParameterRow, retained};
+use crate::parameters::{ParameterInput, ParameterRow, mask_secret_values, retained};
 
 /// The deployment's retained parameters in catalog order. A parameter without a retained value,
 /// such as one its switch disabled, is left out.
@@ -26,4 +26,16 @@ pub(super) fn rows(deployment: &ApplicationDeployment, reveal_secrets: bool) -> 
             .row(reveal_secrets)
         })
         .collect()
+}
+
+/// Masks the deployment's secret parameter values in place.
+pub(super) fn mask_secrets(deployment: &mut ApplicationDeployment) {
+    let Some(snapshot) = deployment.snapshot.as_mut() else {
+        return;
+    };
+    let definitions = snapshot
+        .graph
+        .as_ref()
+        .map_or(&[][..], |graph| &graph.parameters);
+    mask_secret_values(definitions, &mut snapshot.parameter_values);
 }

@@ -470,6 +470,7 @@ pub fn write_sizing_engine(root: &std::path::Path) {
         minimum: "512"
         maximum: "16777216"
         unit: "tokens"
+      summary: "Summary."
     - parameterId: "context-per-request"
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
@@ -478,6 +479,7 @@ pub fn write_sizing_engine(root: &std::path::Path) {
         maximum: "16777216"
         unit: "tokens"
         defaultValue: "8192"
+      summary: "Summary."
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
       visibility: "PARAMETER_VISIBILITY_BASIC"
@@ -486,6 +488,7 @@ pub fn write_sizing_engine(root: &std::path::Path) {
         maximum: "64"
         unit: "requests"
         defaultValue: "4"
+      summary: "Summary."
     - parameterId: "prompt-cache-memory-mib"
       displayName: "Prompt cache memory"
       visibility: "PARAMETER_VISIBILITY_HIDDEN"
@@ -494,10 +497,12 @@ pub fn write_sizing_engine(root: &std::path::Path) {
         minimum: "0"
         maximum: "65536"
         unit: "MiB"
+      summary: "Summary."
   parameterGroups:
     - groupId: "prompt-cache"
       displayName: "Prompt cache"
       description: "Memory that keeps recent prompts for reuse."
+      summary: "Summary."
 "#,
     );
 }

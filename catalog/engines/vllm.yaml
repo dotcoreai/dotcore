@@ -9,12 +9,14 @@ parameterSchema:
     - groupId: "host-memory"
       displayName: "Host memory"
       description: "Host memory the engine uses, in addition to accelerator memory, to keep context it can reuse."
+      summary: "Host memory that keeps context the model can reuse later."
   parameters:
     # Shared parameters: the engine adapter in backend/core/src/model/engine/ maps them to flags.
     - parameterId: "total-context"
       displayName: "Total context"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "Memory the model holds for all requests at once; requests that start with the same prompt share it. It follows the context per request times the parallel requests unless you set it. Raise it to serve longer or more simultaneous conversations; when it fills, the newest requests pause and are processed again once memory frees up."
+      summary: "Context memory shared by all requests."
       # At least Dotcore's context floor. No vLLM argument: the adapter turns it into KV cache bytes,
       # so vLLM bounds nothing above.
       unsignedInteger:
@@ -24,6 +26,7 @@ parameterSchema:
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "Largest context one request may use. It reserves nothing: requests draw from the total context as they grow. Lower it to stop one long request from filling the total context."
+      summary: "Longest conversation one request can hold."
       # At least Dotcore's context floor; `--max-model-len` has no upper limit (`max_model_len`,
       # `vllm/config/model.py`), and the model's maximum context bounds it.
       unsignedInteger:
@@ -34,6 +37,7 @@ parameterSchema:
       displayName: "Parallel requests"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "Requests generated at once; more wait in a queue. The total context grows with them unless you set it, and each one also holds model state of its own, so every added request uses more memory; raise it when several callers use the model together."
+      summary: "How many requests run at the same time."
       # `--max-num-seqs` is `ge=1` with no upper limit (`max_num_seqs`, `vllm/config/scheduler.py`).
       unsignedInteger:
         minimum: "1"
@@ -43,6 +47,7 @@ parameterSchema:
       displayName: "Maximum batched tokens"
       visibility: "PARAMETER_VISIBILITY_HIDDEN"
       description: "Most tokens processed in one step across all requests. Higher values read long prompts faster but use more memory; lower them if the model runs out of memory while reading prompts."
+      summary: "Higher reads long prompts faster, uses more memory."
       # `--max-num-batched-tokens` is `ge=1` with no upper limit (`max_num_batched_tokens`,
       # `vllm/config/scheduler.py`).
       unsignedInteger:
@@ -52,6 +57,7 @@ parameterSchema:
       displayName: "Maximum CUDA graph capture size"
       visibility: "PARAMETER_VISIBILITY_HIDDEN"
       description: "Largest group of requests whose GPU work is recorded ahead of time for faster generation. Lower it to save a little memory and start-up time if you never run that many requests at once."
+      summary: "Most requests at once that get faster generation; lower saves a little memory."
       # With CUDA graphs on, as the adapter launches, vLLM asserts at least 1 and sets no upper limit
       # (`max_cudagraph_capture_size`, `vllm/config/vllm.py`); 512 or 1024 is only its default cap
       # (`vllm/config/compilation.py`).
@@ -62,6 +68,7 @@ parameterSchema:
       displayName: "KV cache memory"
       visibility: "PARAMETER_VISIBILITY_HIDDEN"
       description: "Accelerator memory set aside for the total context. The model's sizing sets it from the total context, so change it only to override that estimate."
+      summary: "Accelerator memory for context; set from the total context unless you override it."
       # No upper limit (`kv_cache_memory_bytes`, `vllm/config/cache.py`), and 0 reads as unset, so
       # vLLM sizes the cache from GPU memory utilization instead (`vllm/v1/worker/gpu_worker.py`):
       # an explicit size is at least 1.
@@ -73,6 +80,7 @@ parameterSchema:
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
       groupId: "host-memory"
       description: "Host memory that keeps context evicted from the total context, so a later request with the same prompt start reuses it instead of processing it again. Raise it for long prompts that repeat; 0 turns it off."
+      summary: "Host memory to reuse repeated prompts; 0 turns it off."
       # vLLM validates no range (`kv_offloading_size`, `vllm/config/cache.py`); the adapter leaves 0
       # out, which turns offloading off.
       unsignedInteger:

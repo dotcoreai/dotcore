@@ -482,7 +482,7 @@ mod tests {
                 site_manager: Some(SiteManagerRole {}),
                 manager_host: String::new(),
             }],
-            model_deployment_identity_allocator: Some(crate::test_support::identity_allocator()),
+            deployment_identity_allocator: Some(crate::test_support::identity_allocator()),
             execution_targets: vec![
                 ExecutionTarget {
                     execution_target_id: "target-one".to_owned(),

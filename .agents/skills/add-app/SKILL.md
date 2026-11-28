@@ -30,7 +30,7 @@ Each image has a folder under `apps/` (or `engines/` for an engine image) with a
    * Reference the package `apps.<name>.docker` with `dockerImage: {}`, and list the platforms the image was pinned for.
    * Bind the inference endpoint and published URLs with resolved values rather than literals, and keep `notes` to what the parameters, storage choices and console don't say; never repeat them.
    * Declare the upstream `license` as `catalog/AGENTS.md` describes.
-   * Group related parameters, and put a parameter that only matters when another is on (a login's email and password) behind it.
+   * Group related parameters, and put a parameter that only matters when another is on (a login's email and password) behind it. Give every parameter and plain group a `summary` as `catalog/AGENTS.md` describes.
    * Declare `useCases` when the app is the master catalog's app for a use case (one app per use case), and `preferredAccelerators` (vendor names) when it runs best on one vendor's GPUs. Both are advisory metadata.
 
 5. Write the folder's `README.md` and `AGENTS.md` from the templates in `apps/AGENTS.md`.

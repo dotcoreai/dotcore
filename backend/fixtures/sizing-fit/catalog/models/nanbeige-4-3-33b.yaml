@@ -8,6 +8,7 @@ options:
   - optionId: "kv-cache"
     displayName: "KV cache precision"
     description: "Fixture option."
+    summary: "Fixture summary."
     visibility: "PARAMETER_VISIBILITY_ADVANCED"
     kvCachePrecision: {}
 artifacts:

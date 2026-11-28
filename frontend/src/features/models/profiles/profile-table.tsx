@@ -39,6 +39,8 @@ export interface ProfileTableProps {
   chipSettings?: Partial<Record<ProfileTableField, DataTableChipSetting>>;
   /** The metric columns to show after Profile; every one by default. */
   columns?: readonly ProfileValueColumnId[];
+  /** Host controls shown in the toolbar, such as a memory basis switch. */
+  controls?: ReactNode;
   /**
    * The metric columns shown at first and after Reset. With it, the View menu shows or hides the
    * others; without it, every column shows and none can be hidden.
@@ -99,6 +101,7 @@ export function ProfileTable({
   availability,
   chipSettings,
   columns,
+  controls,
   defaultColumns,
   disabled = false,
   estimatesPending,
@@ -188,6 +191,7 @@ export function ProfileTable({
     <div className="flex min-w-0 flex-col gap-2">
       <DataTableToolbar
         chipSettings={chipSettings}
+        controls={controls}
         facets={table.facets}
         onViewChange={changeView}
         ui={ui}

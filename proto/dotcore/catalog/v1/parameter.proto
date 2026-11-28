@@ -15,6 +15,9 @@ message ParameterDefinition {
   // Optional practical guidance shown with this parameter.
   string description = 3;
 
+  // Required one-line summary for newcomers, shown under the label whatever the visibility.
+  string summary = 12;
+
   // Where the console shows this parameter.
   ParameterVisibility visibility = 7;
 
@@ -57,6 +60,9 @@ message ParameterGroup {
 
   // Optional practical guidance shown with this group; empty for a switched group.
   string description = 3;
+
+  // One-line summary for newcomers, required on a plain group; empty for a switched group.
+  string summary = 5;
 
   // Boolean first member of this group that switches the other members on and off; none for a
   // plain group.

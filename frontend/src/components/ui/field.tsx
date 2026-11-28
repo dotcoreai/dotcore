@@ -27,10 +27,12 @@ interface FieldProps {
   error?: string;
   /** Facts about the value, such as its range and unit, shown only in the popover. */
   facts?: ReactNode;
+  /** One line telling a newcomer what the field does, shown under the label. */
+  summary?: string;
   /** What the field does and the facts that bound it, shown in the help popover. */
   help?: ReactNode;
   label: string;
-  /** `inline` puts a compact control, such as a switch, on the label's row. */
+  /** `inline` puts a compact control, such as a switch, before the label. */
   layout?: "inline" | "stacked";
 }
 
@@ -50,24 +52,33 @@ function Field({
   help,
   label,
   layout = "stacked",
+  summary,
 }: FieldProps) {
   const descriptionId = `${controlId}-description`;
+  const summaryId = `${controlId}-summary`;
   const errorId = `${controlId}-error`;
   const control = children({
     "aria-describedby":
-      [help ? descriptionId : "", describedBy ?? "", error ? errorId : ""]
+      [summary ? summaryId : "", help ? descriptionId : "", describedBy ?? "", error ? errorId : ""]
         .filter(Boolean)
         .join(" ") || undefined,
     "aria-invalid": error ? "true" : undefined,
     id: controlId,
   });
-  const labelRow = (
-    <div className="flex min-w-0 items-center gap-1.5">
-      <label htmlFor={controlId}>{label}</label>
-      {help || facts ? (
-        <FieldHelp descriptionId={descriptionId} facts={facts} label={label}>
-          {help}
-        </FieldHelp>
+  const heading = (
+    <div className="grid min-w-0 gap-0.5">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <label htmlFor={controlId}>{label}</label>
+        {help || facts ? (
+          <FieldHelp descriptionId={descriptionId} facts={facts} label={label}>
+            {help}
+          </FieldHelp>
+        ) : null}
+      </div>
+      {summary ? (
+        <p className="text-xs text-muted-foreground" id={summaryId}>
+          {summary}
+        </p>
       ) : null}
     </div>
   );
@@ -75,13 +86,13 @@ function Field({
   return (
     <div className={cn("grid gap-1", className)} data-slot="field">
       {layout === "inline" ? (
-        <div className="flex items-center justify-between gap-3">
-          {labelRow}
+        <div className="flex items-start gap-3">
           {control}
+          {heading}
         </div>
       ) : (
         <>
-          {labelRow}
+          {heading}
           {control}
         </>
       )}

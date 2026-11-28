@@ -15,6 +15,8 @@ use dotcore_proto::dotcore::catalog::v1::{
     parameter_value::Value,
 };
 
+use crate::typed_parameters::summary_problem;
+
 /// Returns the parameter whose boolean value enables `definition`: its own enabling parameter,
 /// else its switched group's switch. A switch, and a parameter with neither, has none and is
 /// always enabled.
@@ -148,11 +150,19 @@ fn validate_group<'a>(
                 "{owner} parameter group {id:?} requires a description"
             ));
         }
+        if let Some(problem) = summary_problem(&group.summary) {
+            errors.push(anyhow!("{owner} parameter group {id:?} {problem}"));
+        }
         return;
     };
     if !group.display_name.is_empty() || !group.description.is_empty() {
         errors.push(anyhow!(
             "{owner} parameter group {id:?} takes its display name and description from its switch {switch_id:?}"
+        ));
+    }
+    if !group.summary.is_empty() {
+        errors.push(anyhow!(
+            "{owner} parameter group {id:?} takes its summary from its switch {switch_id:?}"
         ));
     }
     let Some((_, switch)) = members
@@ -407,7 +417,7 @@ mod tests {
 
     #[test]
     fn group_rules_reject_each_malformed_group() {
-        let cases: [GroupCase; 9] = [
+        let cases: [GroupCase; 13] = [
             (
                 "unknown group",
                 vec![member("cache", "memory")],
@@ -453,6 +463,48 @@ mod tests {
                 &[
                     "application parameter group \"memory\" requires a display name",
                     "application parameter group \"memory\" requires a description",
+                ],
+            ),
+            (
+                "plain group without a summary",
+                vec![member("cache", "memory")],
+                vec![ParameterGroup {
+                    summary: " ".to_owned(),
+                    ..plain("memory")
+                }],
+                &["application parameter group \"memory\" requires a summary"],
+            ),
+            (
+                "plain group with a two-line summary",
+                vec![member("cache", "memory")],
+                vec![ParameterGroup {
+                    summary: "First.\nSecond.".to_owned(),
+                    ..plain("memory")
+                }],
+                &[
+                    "application parameter group \"memory\" summary must be one line of at most 100 characters",
+                ],
+            ),
+            (
+                "plain group with a 101-character summary",
+                vec![member("cache", "memory")],
+                vec![ParameterGroup {
+                    summary: "x".repeat(101),
+                    ..plain("memory")
+                }],
+                &[
+                    "application parameter group \"memory\" summary must be one line of at most 100 characters",
+                ],
+            ),
+            (
+                "switched group with its own summary",
+                login_parameters(),
+                vec![ParameterGroup {
+                    summary: "Login.".to_owned(),
+                    ..switched("login", "require-login")
+                }],
+                &[
+                    "application parameter group \"login\" takes its summary from its switch \"require-login\"",
                 ],
             ),
             (
@@ -656,6 +708,7 @@ mod tests {
 
     fn plain(group_id: &str) -> ParameterGroup {
         ParameterGroup {
+            summary: "Summary.".into(),
             group_id: group_id.to_owned(),
             display_name: "Memory".to_owned(),
             description: "Where the cache lives.".to_owned(),
@@ -665,6 +718,7 @@ mod tests {
 
     fn switched(group_id: &str, switch: &str) -> ParameterGroup {
         ParameterGroup {
+            summary: String::new(),
             group_id: group_id.to_owned(),
             display_name: String::new(),
             description: String::new(),
@@ -722,6 +776,7 @@ mod tests {
 
     fn definition(parameter_id: &str, parameter_type: ParameterType) -> ParameterDefinition {
         ParameterDefinition {
+            summary: "Summary.".into(),
             parameter_id: parameter_id.to_owned(),
             display_name: parameter_id.to_owned(),
             description: String::new(),

@@ -834,7 +834,7 @@ export const UpstreamModelDeploymentSnapshotSchema: GenMessage<UpstreamModelDepl
  */
 export type UpstreamModelDesiredConfiguration = Message<"dotcore.model.v1.UpstreamModelDesiredConfiguration"> & {
   /**
-   * Private model identifier sent in endpoint requests.
+   * Model identifier sent in endpoint requests; it also names the deployment's ID.
    *
    * @generated from field: string upstream_model_id = 1;
    */

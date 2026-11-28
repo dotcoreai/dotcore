@@ -22,6 +22,7 @@ Sizing is owned by the `model-sizing` skill. Catalog loading and validation live
 
 3. Write the model file from the closest existing one by engine, weight format and features (vision, MTP, mixture of experts), following `catalog/AGENTS.md`.
    * Declare the model's `license` as `catalog/AGENTS.md` describes.
+   * Give every option a `summary` as `catalog/AGENTS.md` describes.
    * Prefer the engine-embedded chat template; add a template artifact only when the smoke test shows the embedded one fails.
    * Size each configuration with the `model-sizing` skill.
 

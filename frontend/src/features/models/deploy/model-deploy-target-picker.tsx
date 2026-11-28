@@ -2,12 +2,14 @@ import type { RefObject } from "react";
 
 import { Combobox } from "@/components/ui/combobox";
 import { FieldError } from "@/components/ui/field-error";
+import { Notice } from "@/components/ui/notice";
 import {
   configuredExecutionTargetOptionLabel,
   executionTargetKey,
   executionTargetName,
   executionTargetPresentation,
 } from "@/domain/execution-target";
+import { DeploymentFormSection } from "@/features/deployments/deployment-form-layout";
 import type { ExactPlacement } from "@/gen/dotcore/deployment/v1/placement_pb";
 import type { ConfiguredExecutionTarget } from "@/gen/dotcore/site/v1/service_pb";
 
@@ -15,7 +17,8 @@ interface ModelDeployTargetPickerProps {
   disabled: boolean;
   error?: string;
   executionTargets: readonly ConfiguredExecutionTarget[];
-  inputRef: RefObject<HTMLInputElement | null>;
+  /** The control that takes focus for a blocked Next: the picker, or the notice of a single machine. */
+  inputRef: RefObject<HTMLElement | null>;
   /** Whether the first target read is still in flight. */
   loading: boolean;
   /** Whether the picker presents loading, which outlasts the read for a minimum visible time. */
@@ -33,7 +36,7 @@ interface ModelDeployTargetPickerProps {
 /**
  * The deploy dialog's execution target choice: a picker of the configured model execution targets,
  * named by host, with targets that can't deploy or can't run the profile disabled with their
- * reason. A single listed target is shown as a line.
+ * reason. A single listed target shows no picker, only a notice when it can't deploy.
  */
 export function ModelDeployTargetPicker({
   disabled,
@@ -62,60 +65,80 @@ export function ModelDeployTargetPicker({
   const onlyTarget =
     !loadingPresentation && executionTargets.length === 1 ? executionTargets[0] : undefined;
 
+  // A single machine needs no choice: the memory strip names it, and only what blocks it shows.
+  if (onlyTarget) {
+    const blocker =
+      executionTargetPresentation(onlyTarget).deploymentGate ?? unavailableReason?.(onlyTarget);
+    // The notice names the machine and why it can't take the profile, so it stands in for the
+    // generic required error and takes the focus a blocked Next moves.
+    return blocker || error ? (
+      <div
+        className="grid gap-2 outline-none"
+        ref={(element) => {
+          inputRef.current = element;
+        }}
+        tabIndex={-1}
+      >
+        {blocker ? (
+          <Notice tone="warning">
+            {executionTargetName(onlyTarget)} — {blocker}
+          </Notice>
+        ) : null}
+        {error && !blocker ? <FieldError>{error}</FieldError> : null}
+      </div>
+    ) : null;
+  }
+  if (!executionTargets.length && !loadingPresentation) return null;
+
   return (
-    <div className="min-w-0 flex-1">
-      {onlyTarget ? (
-        <div className="grid gap-1">
-          <OnlyTargetLine target={onlyTarget} />
-          {error ? <FieldError>{error}</FieldError> : null}
-        </div>
-      ) : executionTargets.length || loadingPresentation ? (
-        <div className="grid gap-1">
-          <Combobox
-            ariaInvalid={Boolean(error)}
-            status={
-              loadingPresentation
-                ? loadingMessageVisible
-                  ? "Loading configured execution targets…"
-                  : undefined
-                : deployableCount === 0
-                  ? "Configured targets are visible, but none are deployable."
-                  : placement
-                    ? undefined
-                    : "Select an execution target."
-            }
-            disabled={disabled || loading || !targetsCurrent}
-            errorDescriptionId={error ? "model-execution-target-error" : undefined}
-            inputRef={inputRef}
-            label="Execution target"
-            loading={loadingPresentation}
-            loadingMessageVisible={loadingMessageVisible}
-            onBlur={onBlur}
-            onValueChange={(value) =>
-              onSelect(
-                executionTargets.find(
-                  (candidate) => executionTargetKey(candidate) === value && selectable(candidate),
-                ),
-              )
-            }
-            options={[...executionTargets].sort(compareTargets).map((target) => {
-              const reason = unavailableReason?.(target);
-              return {
-                detail: target.platformLabel || "Unknown platform",
-                disabled: !targetsCurrent || !selectable(target),
-                id: executionTargetKey(target),
-                label: reason
-                  ? `${executionTargetName(target)} — ${reason}`
-                  : configuredExecutionTargetOptionLabel(target),
-              };
-            })}
-            searchable={executionTargets.length >= searchableTargetCount}
-            value={selectedTarget ? executionTargetKey(selectedTarget) : ""}
-          />
-          {error ? <FieldError id="model-execution-target-error">{error}</FieldError> : null}
-        </div>
-      ) : null}
-    </div>
+    <DeploymentFormSection title="Machine">
+      <div className="grid min-w-0 gap-1">
+        <Combobox
+          ariaInvalid={Boolean(error)}
+          status={
+            loadingPresentation
+              ? loadingMessageVisible
+                ? "Loading configured execution targets…"
+                : undefined
+              : deployableCount === 0
+                ? "Configured targets are visible, but none are deployable."
+                : undefined
+          }
+          disabled={disabled || loading || !targetsCurrent}
+          errorDescriptionId={error ? "model-execution-target-error" : undefined}
+          hideLabel
+          inputRef={(element) => {
+            inputRef.current = element;
+          }}
+          label="Machine"
+          loading={loadingPresentation}
+          loadingMessageVisible={loadingMessageVisible}
+          onBlur={onBlur}
+          onValueChange={(value) =>
+            onSelect(
+              executionTargets.find(
+                (candidate) => executionTargetKey(candidate) === value && selectable(candidate),
+              ),
+            )
+          }
+          options={[...executionTargets].sort(compareTargets).map((target) => {
+            const reason = unavailableReason?.(target);
+            return {
+              detail: target.platformLabel || "Unknown platform",
+              disabled: !targetsCurrent || !selectable(target),
+              id: executionTargetKey(target),
+              label: reason
+                ? `${executionTargetName(target)} — ${reason}`
+                : configuredExecutionTargetOptionLabel(target),
+            };
+          })}
+          placeholder="Choose a machine…"
+          searchable={executionTargets.length >= searchableTargetCount}
+          value={selectedTarget ? executionTargetKey(selectedTarget) : ""}
+        />
+        {error ? <FieldError id="model-execution-target-error">{error}</FieldError> : null}
+      </div>
+    </DeploymentFormSection>
   );
 }
 
@@ -141,18 +164,4 @@ function compareTargets(left: ConfiguredExecutionTarget, right: ConfiguredExecut
 function firstGpuIndex(target: ConfiguredExecutionTarget): number {
   const match = / · GPUs? (\d+)/.exec(target.displayName);
   return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
-}
-
-function OnlyTargetLine({ target }: { target: ConfiguredExecutionTarget }) {
-  const gate = executionTargetPresentation(target).deploymentGate;
-
-  return (
-    <div className="grid gap-1 text-sm">
-      <p className="font-medium">Execution target</p>
-      <p>
-        {executionTargetName(target)}
-        {gate ? <span className="text-muted-foreground"> — {gate}</span> : null}
-      </p>
-    </div>
-  );
 }

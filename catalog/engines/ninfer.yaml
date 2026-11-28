@@ -10,12 +10,14 @@ parameterSchema:
     - groupId: "host-memory"
       displayName: "Host memory"
       description: "Host memory the engine uses, in addition to accelerator memory, to keep conversations it can resume."
+      summary: "Host memory that keeps conversations ready to resume."
   parameters:
     # Shared parameters: the engine adapter in backend/core/src/model/engine/ maps them to flags.
     - parameterId: "total-context"
       displayName: "Total context"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "Memory the model holds for all requests at once; requests that start with the same prompt share it. It follows the context per request times the parallel requests unless you set it. Raise it to serve longer or more simultaneous conversations; when it fills, cached prompts move to host memory, then the newest requests pause."
+      summary: "Context memory shared by all requests."
       # At least Dotcore's context floor. No ninfer argument: the adapter sizes `--context-capacity`
       # from it, so ninfer bounds nothing above. The adapter keeps it within the parallel requests at
       # their full context.
@@ -26,6 +28,7 @@ parameterSchema:
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "Largest context one request may use. It reserves nothing: requests draw from the total context as they grow. Lower it to stop one long request from filling the total context."
+      summary: "Longest conversation one request can hold."
       # At least Dotcore's context floor; `--max-context` takes up to the uint32 maximum
       # (`Field::MaxContext`, `src/product/config/schema.cpp`) and the model's maximum context bounds
       # it further. Below ninfer's default prefill chunk the adapter also requires a multiple of 128.
@@ -38,6 +41,7 @@ parameterSchema:
       displayName: "Parallel requests"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "Requests generated at once; more wait in a queue, and new ones are refused when the queue is full. The total context grows with them unless you set it, so each added request uses more accelerator memory; raise it only when several callers use the model together."
+      summary: "How many requests run at the same time."
       # `--max-concurrency` takes 1 to `kMaximumConcurrency` (`include/ninfer/types.h`,
       # `src/product/config/schema.cpp`).
       unsignedInteger:
@@ -50,6 +54,7 @@ parameterSchema:
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
       groupId: "host-memory"
       description: "Host memory that keeps idle conversations and paused requests so they resume without processing their prompt again. Raise it for many long conversations that come back; 0 turns it off."
+      summary: "Host memory to resume idle conversations without rereading them; 0 turns it off."
       # `--host-cache-capacity` takes bytes up to the uint64 maximum, and 0 turns it off; the adapter
       # passes MiB, so up to that maximum in whole MiB (`quantity`, `src/product/config/schema.cpp`).
       unsignedInteger:

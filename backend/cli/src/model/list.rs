@@ -1,20 +1,20 @@
 //! Shows the model deployments of the running site with their state, node and model, for
 //! example one ready Gemma on a GPU node and one paused.
 //!
-//! On a terminal it prints a table; without one it prints one record block per deployment on
-//! stdout, each carrying the id, name, state, node and model.
+//! It prints a table, on the terminal or as plain text without one. Asked for YAML, it prints the
+//! deployments as the manager returns them, with secret values masked.
 
 use clap::Args;
 use dotcore_proto::dotcore::model::v1::ModelDeployment;
 
 use super::{
-    node_of,
+    document, node_of,
     projection::{model_display_name, presentation_name, state_label},
 };
 use crate::{
-    management::{ManagerArgs, NodeNames, list_deployments, single_line},
-    node::write_records,
-    terminal::{Message, TerminalCondition, controlling_terminal_condition, open_terminal},
+    management::{DeploymentListDocument, ManagerArgs, NodeNames, list_deployments, single_line},
+    output::{OutputFormat, present, write_yaml},
+    terminal::Message,
 };
 
 /// Arguments for listing model deployments.
@@ -24,27 +24,28 @@ pub struct ModelListArgs {
     manager: ManagerArgs,
 }
 
-/// Lists the model deployments on the terminal, else as records.
-pub(crate) async fn model_list(arguments: ModelListArgs) -> anyhow::Result<()> {
+/// Lists the model deployments as YAML when asked, else as a table.
+pub(crate) async fn model_list(
+    arguments: ModelListArgs,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
     let manager = arguments.manager.connect().await?;
     let deployments = list_deployments::<ModelDeployment>(&manager).await?;
     let nodes = manager.node_names().await;
 
-    if controlling_terminal_condition() == TerminalCondition::Interactive {
-        let mut terminal = open_terminal();
-        if deployments.is_empty() {
-            terminal.message(&Message::Info("No model deployments".to_owned()))?;
-        } else {
-            terminal.message(&table(&deployments, &nodes))?;
-        }
-        return Ok(());
+    if format == OutputFormat::Yaml {
+        return write_yaml(&DeploymentListDocument::new(
+            deployments
+                .into_iter()
+                .map(|deployment| document(deployment, &nodes, false))
+                .collect(),
+        ));
     }
 
-    let blocks = deployments
-        .iter()
-        .map(|deployment| record_block(deployment, &nodes))
-        .collect::<Vec<_>>();
-    write_records(&blocks.join("\n"))
+    if deployments.is_empty() {
+        return present(&[Message::Info("No model deployments".to_owned())]);
+    }
+    present(&[table(&deployments, &nodes)])
 }
 
 /// Builds the deployments table, header first.
@@ -69,18 +70,6 @@ fn table(deployments: &[ModelDeployment], nodes: &NodeNames) -> Message {
             .collect(),
         rows,
     }
-}
-
-/// Renders one deployment as a record block ending in a newline.
-fn record_block(deployment: &ModelDeployment, nodes: &NodeNames) -> String {
-    format!(
-        "Model deployment\nDOTCORE_MODEL_DEPLOYMENT_ID={}\nDOTCORE_MODEL_DEPLOYMENT_NAME={}\nDOTCORE_MODEL_DEPLOYMENT_STATE={}\nDOTCORE_MODEL_DEPLOYMENT_NODE={}\nDOTCORE_MODEL_DEPLOYMENT_MODEL={}\n",
-        single_line(&deployment.model_deployment_id),
-        single_line(presentation_name(deployment)),
-        state_label(deployment),
-        single_line(node_of(deployment, nodes).unwrap_or("")),
-        single_line(model_display_name(deployment)),
-    )
 }
 
 #[cfg(test)]

@@ -3,13 +3,23 @@
 //!
 //! Deployments are named by id or name and shown with the same state words as the web console,
 //! for example "Pausing" for a deployment asked to pause whose workload still runs. On a
-//! terminal the commands print tables and messages; without one they print result records on
-//! stdout, for example `DOTCORE_MODEL_DEPLOYMENT_STATE=Ready`.
+//! terminal the commands print tables and messages, and as plain text without one. Asked for YAML,
+//! every command prints the
+//! manager's own message instead.
 
+mod catalog;
+mod deploy;
 mod list;
+mod memory;
 mod parameters;
+mod payload;
 mod projection;
+mod selection;
 mod show;
+mod site;
+mod template;
+mod view;
+mod wizard;
 
 use clap::{Args, Subcommand};
 use dotcore_proto::dotcore::{
@@ -24,14 +34,20 @@ use dotcore_proto::dotcore::{
 use futures_util::StreamExt;
 use tonic::Status;
 
-use crate::management::{
-    DeploymentGroup, Lifecycle, LogEntry, LogEvent, LogEvents, LogPage, LogPosition, LogSource,
-    LogSourceState, LoggedDeployment, LogsArgs, ManagedDeployment, Manager, ManagerArgs, NodeNames,
-    change_lifecycle, deployment_logs, teardown,
+use crate::{
+    management::{
+        DeploymentDocument, DeploymentGroup, Lifecycle, LogEntry, LogEvent, LogEvents, LogPage,
+        LogPosition, LogSource, LogSourceState, LoggedDeployment, LogsArgs, ManagedDeployment,
+        Manager, ManagerArgs, NodeNames, change_lifecycle, deployment_logs, teardown,
+    },
+    output::OutputFormat,
 };
+use catalog::{ModelCatalogArgs, model_catalog};
+use deploy::{ModelDeployArgs, model_deploy};
 use list::{ModelListArgs, model_list};
-use projection::{desired_state_label, state_label};
+use projection::desired_state_label;
 use show::{ModelShowArgs, model_show};
+use template::{ModelTemplateArgs, model_template};
 
 /// Commands that manage the model deployments of a running site.
 #[derive(Debug, Args)]
@@ -44,39 +60,62 @@ pub struct ModelCommand {
 /// Actions supported by the model command group.
 #[derive(Debug, Subcommand)]
 enum ModelSubcommand {
-    /// List the model deployments with their state, node and model; runs against the running
-    /// site manager (`--manager`).
+    /// List the model deployments with their state and node
+    ///
+    /// Runs against the running site manager.
     #[command(alias = "ls")]
     List(ModelListArgs),
 
-    /// Show one model deployment by name or id.
+    /// Show one model deployment by name or ID
     Show(ModelShowArgs),
 
-    /// Ask the manager to pause a model deployment; returns without waiting for the pause.
+    /// List the catalog models you can deploy, with whether each profile fits each target
+    Catalog(ModelCatalogArgs),
+
+    /// Print a deploy payload for a catalog model, pre-filled with its starting values
+    ///
+    /// Edit it and pass it to `deploy -f`. Comments say what each parameter accepts and the largest
+    /// value that fits the target.
+    Template(ModelTemplateArgs),
+
+    /// Deploy a catalog model step by step on a terminal, or from a payload or its starting values
+    ///
+    /// Without a payload or `--yes`, a terminal asks for each choice and shows the memory estimate.
+    /// `--dry-run` estimates the deployment and reports whether it fits, without creating it.
+    Deploy(ModelDeployArgs),
+
+    /// Pause a model deployment, without waiting for it to pause
     Pause(LifecycleArgs),
 
-    /// Ask the manager to resume a paused model deployment; returns without waiting.
+    /// Resume a paused model deployment, without waiting for it to resume
     Resume(LifecycleArgs),
 
-    /// Remove a model deployment and its running workload resources after confirmation.
+    /// Remove a model deployment and its workload after confirmation
     Teardown(ModelTeardownArgs),
 
-    /// Print the most recent log lines of a model deployment, on any node, and follow new ones
-    /// with --follow; lines go to stdout and source states to stderr.
+    /// Print the recent log lines of a model deployment
+    ///
+    /// Reads from any node. With `--follow`, keeps printing new lines. Lines go to stdout and
+    /// source states to stderr.
+    #[command(mut_arg("reference", |argument| argument.help("Name or ID of the model deployment")))]
     Logs(LogsArgs),
 }
 
 impl ModelCommand {
     /// Runs the chosen action.
-    pub(crate) async fn dispatch(self) -> anyhow::Result<()> {
+    pub(crate) async fn dispatch(self, format: OutputFormat) -> anyhow::Result<()> {
         match self.command {
-            Some(ModelSubcommand::List(arguments)) => model_list(arguments).await,
-            Some(ModelSubcommand::Show(arguments)) => model_show(arguments).await,
+            Some(ModelSubcommand::List(arguments)) => model_list(arguments, format).await,
+            Some(ModelSubcommand::Show(arguments)) => model_show(arguments, format).await,
+            Some(ModelSubcommand::Catalog(arguments)) => model_catalog(arguments, format).await,
+            Some(ModelSubcommand::Template(arguments)) => model_template(arguments).await,
+            Some(ModelSubcommand::Deploy(arguments)) => model_deploy(arguments, format).await,
             Some(ModelSubcommand::Pause(arguments)) => {
                 change_lifecycle::<ModelDeployment>(
                     &arguments.manager,
                     &arguments.reference,
                     Lifecycle::Pause,
+                    format,
                 )
                 .await
             }
@@ -85,15 +124,21 @@ impl ModelCommand {
                     &arguments.manager,
                     &arguments.reference,
                     Lifecycle::Resume,
+                    format,
                 )
                 .await
             }
             Some(ModelSubcommand::Teardown(arguments)) => {
-                teardown::<ModelDeployment>(&arguments.manager, &arguments.reference, arguments.yes)
-                    .await
+                teardown::<ModelDeployment>(
+                    &arguments.manager,
+                    &arguments.reference,
+                    arguments.yes,
+                    format,
+                )
+                .await
             }
             Some(ModelSubcommand::Logs(arguments)) => {
-                deployment_logs::<ModelDeployment>(arguments).await
+                deployment_logs::<ModelDeployment>(arguments, format).await
             }
             None => anyhow::bail!("model command requires an action"),
         }
@@ -108,7 +153,7 @@ impl ModelCommand {
 /// Arguments selecting the model deployment to pause or resume.
 #[derive(Debug, Args)]
 struct LifecycleArgs {
-    /// Name or id of the model deployment.
+    /// Name or ID of the model deployment.
     #[arg(value_name = "DEPLOYMENT")]
     reference: String,
 
@@ -119,7 +164,7 @@ struct LifecycleArgs {
 /// Arguments selecting the model deployment to tear down.
 #[derive(Debug, Args)]
 struct ModelTeardownArgs {
-    /// Name or id of the model deployment.
+    /// Name or ID of the model deployment.
     #[arg(value_name = "DEPLOYMENT")]
     reference: String,
 
@@ -170,6 +215,12 @@ impl ManagedDeployment for ModelDeployment {
         }
     }
 
+    fn placement(&self) -> Option<&ExactPlacement> {
+        self.intent
+            .as_ref()
+            .and_then(|intent| intent.placement.as_ref())
+    }
+
     fn accepts(&self, lifecycle: Lifecycle) -> bool {
         self.desired_state()
             == match lifecycle {
@@ -179,12 +230,12 @@ impl ManagedDeployment for ModelDeployment {
             }
     }
 
-    fn state_label(&self) -> &'static str {
-        state_label(self)
-    }
-
     fn desired_state_label(&self) -> &'static str {
         desired_state_label(self.desired_state())
+    }
+
+    fn mask_secrets(&mut self) {
+        parameters::mask_secrets(self);
     }
 
     fn teardown_consequence(&self) -> String {
@@ -193,12 +244,14 @@ impl ManagedDeployment for ModelDeployment {
 }
 
 impl LoggedDeployment for ModelDeployment {
+    type Entry = DeploymentLogEntry;
+
     async fn read_logs(
         manager: &Manager,
         id: String,
         sources: Vec<String>,
         page_size: u32,
-    ) -> Result<LogPage, Status> {
+    ) -> Result<LogPage<DeploymentLogEntry>, Status> {
         let page = manager
             .models()
             .read_deployment_logs(ReadDeploymentLogsRequest {
@@ -236,7 +289,7 @@ impl LoggedDeployment for ModelDeployment {
         id: String,
         sources: Vec<String>,
         positions: Vec<LogPosition>,
-    ) -> Result<LogEvents, Status> {
+    ) -> Result<LogEvents<DeploymentLogEntry>, Status> {
         let events = manager
             .models()
             .follow_deployment_logs(FollowDeploymentLogsRequest {
@@ -285,26 +338,33 @@ fn log_source(name: String, label: String, state: DeploymentLogSourceState) -> L
     }
 }
 
-fn log_entry(entry: DeploymentLogEntry) -> LogEntry {
+fn log_entry(entry: DeploymentLogEntry) -> LogEntry<DeploymentLogEntry> {
     LogEntry {
-        source_name: entry.source_name,
-        source_label: entry.source_label,
+        source_name: entry.source_name.clone(),
+        source_label: entry.source_label.clone(),
         timestamp: entry.timestamp,
-        content: entry.content,
+        content: entry.content.clone(),
         truncated: entry.truncated,
+        message: entry,
     }
 }
 
 /// Where a deployment runs: the node's name (its id when unnamed), or `None` for an upstream
 /// deployment, which has no placement.
 fn node_of<'a>(deployment: &'a ModelDeployment, nodes: &'a NodeNames) -> Option<&'a str> {
-    placement(deployment).map(|placement| nodes.display(&placement.site_node_id))
+    deployment
+        .placement()
+        .map(|placement| nodes.display(&placement.site_node_id))
 }
 
-/// The exact placement of a local deployment.
-fn placement(deployment: &ModelDeployment) -> Option<&ExactPlacement> {
-    deployment
-        .intent
-        .as_ref()
-        .and_then(|intent| intent.placement.as_ref())
+/// The YAML document of a deployment, with its secret values masked unless revealed.
+fn document(
+    mut deployment: ModelDeployment,
+    nodes: &NodeNames,
+    reveal_secrets: bool,
+) -> DeploymentDocument<ModelDeployment> {
+    if !reveal_secrets {
+        parameters::mask_secrets(&mut deployment);
+    }
+    DeploymentDocument::new(deployment, nodes)
 }

@@ -14,6 +14,7 @@ options:
     vision: {}
     visibility: "PARAMETER_VISIBILITY_BASIC"
     description: "Lets requests include images. Loads the vision projector next to the model, which uses more memory."
+    summary: "Accept images in requests."
 artifacts:
   - artifactId: "q3-xl"
     weightQuantization: "Q3_K_XL"

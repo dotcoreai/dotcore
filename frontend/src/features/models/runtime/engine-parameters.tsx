@@ -36,10 +36,8 @@ interface EngineParametersFormProps {
    */
   memoryParameterSizes?: MemoryParameterSizes;
   onBlur: (parameter: ParameterDefinition) => void;
-  onChange: (parameter: ParameterDefinition, input: string) => void;
+  onChange: (parameter: ParameterDefinition, input: string, settled?: boolean) => void;
   parameters: readonly ParameterDefinition[];
-  /** The errors of the latest blocked navigation, which open the groups holding them. */
-  revealedErrors: FieldErrors;
 }
 
 /**
@@ -55,7 +53,6 @@ export function EngineParametersForm({
   onBlur,
   onChange,
   parameters,
-  revealedErrors,
 }: EngineParametersFormProps) {
   const definitions = new Map(parameters.map((parameter) => [parameter.parameterId, parameter]));
   const memoryField = (view: ParameterView) => {
@@ -81,6 +78,7 @@ export function EngineParametersForm({
         onBlur={onBlur}
         onChange={onChange}
         parameter={parameter}
+        summary={view.summary}
         range={fit === undefined ? undefined : { maximum: fit, minimum: Number(view.type.minimum) }}
       />
     );
@@ -97,13 +95,12 @@ export function EngineParametersForm({
         const parameter = definitions.get(parameterId);
         if (parameter) onBlur(parameter);
       }}
-      onChange={(parameterId, input) => {
+      onChange={(parameterId, input, settled) => {
         const parameter = definitions.get(parameterId);
-        if (parameter) onChange(parameter, input);
+        if (parameter) onChange(parameter, input, settled);
       }}
       parameters={engineParameterViews(parameters)}
       renderField={memoryField}
-      revealedErrors={revealedErrors}
     />
   );
 }

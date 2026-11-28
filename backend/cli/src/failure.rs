@@ -24,8 +24,9 @@ use tonic::Code;
 use crate::{
     code::{CodeError, CodingAgent},
     hint,
-    management::{DeploymentGroup, ManagementError, ReferenceError},
+    management::{DeploymentGroup, ManagementError},
     node::RejoinNameMismatch,
+    reference::{Candidate, ReferenceError, ReferenceKind},
     terminal::{Message, NextStep},
 };
 
@@ -485,22 +486,66 @@ fn manager_message(message: &str) -> Vec<Message> {
 
 fn reference_failure(error: &ReferenceError) -> Typed {
     match error {
-        ReferenceError::Unknown { group, reference } => (
+        ReferenceError::Unknown {
+            kind: ReferenceKind::Deployment(group),
+            reference,
+            ..
+        } => (
             format!("No {} matches {reference}", group.noun()),
             Vec::new(),
             vec![list_step(*group)],
         ),
-        ReferenceError::Ambiguous {
-            group,
+        ReferenceError::Unknown {
+            kind,
             reference,
-            ids,
+            known,
         } => (
-            format!("{} {}s are named {reference}", ids.len(), group.noun()),
-            ids.iter()
-                .map(|id| Message::Info(format!("  {id}")))
-                .collect(),
-            vec![NextStep::new("Pass one of these ids instead")],
+            format!("No {} matches {reference}", kind.noun()),
+            candidate_table(*kind, known),
+            vec![pass_candidate_step(*kind)],
         ),
+        ReferenceError::Ambiguous {
+            kind,
+            reference,
+            matches,
+        } => (
+            format!("{} {}s match {reference}", matches.len(), kind.noun()),
+            candidate_table(*kind, matches),
+            vec![pass_candidate_step(*kind)],
+        ),
+    }
+}
+
+/// The objects a reference could name, by id and name, or by name for a kind without ids.
+fn candidate_table(kind: ReferenceKind, candidates: &[Candidate]) -> Vec<Message> {
+    if candidates.is_empty() {
+        return Vec::new();
+    }
+    let (header, rows) = if kind.has_ids() {
+        (
+            vec!["ID".to_owned(), "NAME".to_owned()],
+            candidates
+                .iter()
+                .map(|candidate| vec![candidate.id.clone(), candidate.name.clone()])
+                .collect(),
+        )
+    } else {
+        (
+            vec!["NAME".to_owned()],
+            candidates
+                .iter()
+                .map(|candidate| vec![candidate.name.clone()])
+                .collect(),
+        )
+    };
+    vec![Message::Table { header, rows }]
+}
+
+fn pass_candidate_step(kind: ReferenceKind) -> NextStep {
+    if kind.has_ids() {
+        NextStep::new("Pass one of these ids instead")
+    } else {
+        NextStep::new("Pass one of these names instead")
     }
 }
 
@@ -535,7 +580,7 @@ fn code_failure(error: &CodeError) -> Typed {
             )],
         ),
         CodeError::UnknownRoute { agent, name, ready } => (
-            format!("No ready inference route is named {name}"),
+            format!("No ready inference route matches {name}"),
             route_facts(ready),
             vec![
                 pass_route_step(*agent),
@@ -669,10 +714,9 @@ mod tests {
 
     use super::{Failure, chain_line};
     use crate::{
-        management::{
-            DeploymentGroup, ManagementError, Manager, ManagerAddress, ReferenceError, call_failed,
-        },
+        management::{DeploymentGroup, ManagementError, Manager, ManagerAddress, call_failed},
         node::RejoinNameMismatch,
+        reference::{Candidate, ReferenceError, ReferenceKind},
         terminal::{Message, NextStep},
     };
 
@@ -1219,44 +1263,98 @@ mod tests {
     }
 
     #[test]
-    fn unknown_and_ambiguous_references_point_at_the_list_or_the_ids() {
+    fn unknown_and_ambiguous_references_point_at_the_list_or_the_candidates() {
+        let candidate = |id: &str, name: &str| Candidate {
+            id: id.to_owned(),
+            name: name.to_owned(),
+        };
         let unknown = anyhow::Error::new(ReferenceError::Unknown {
-            group: DeploymentGroup::Model,
+            kind: ReferenceKind::Deployment(DeploymentGroup::Model),
             reference: "gemma".to_owned(),
+            known: vec![candidate("qwen3-8-27b-3cfmn", "Qwen 3.8 27B")],
         });
         let ambiguous = anyhow::Error::new(ReferenceError::Ambiguous {
-            group: DeploymentGroup::Model,
-            reference: "Qwen".to_owned(),
-            ids: vec!["model-2".to_owned(), "model-3".to_owned()],
+            kind: ReferenceKind::Deployment(DeploymentGroup::Model),
+            reference: "qwen".to_owned(),
+            matches: vec![
+                candidate("qwen3-8-27b-3cfmn", "Qwen 3.8 27B"),
+                candidate("qwen3-8-8b-7tq2m", "Qwen 3.8 8B"),
+            ],
+        });
+        let unknown_node = anyhow::Error::new(ReferenceError::Unknown {
+            kind: ReferenceKind::Node,
+            reference: "gpu9".to_owned(),
+            known: vec![
+                candidate("node-00aa", "gpu1"),
+                candidate("node-00bb", "gpu2"),
+            ],
+        });
+        let ambiguous_route = anyhow::Error::new(ReferenceError::Ambiguous {
+            kind: ReferenceKind::Route,
+            reference: "co".to_owned(),
+            matches: vec![candidate("code", "code"), candidate("coder", "coder")],
         });
 
         assert_eq!(
-            lines(&Failure::from_error(&unknown), false),
+            lines(&Failure::from_error(&unknown), true),
             [
                 "✘ No model deployment matches gemma",
                 "Next",
                 "  › List the model deployments:",
                 "      dotc model list",
+                "Cause",
+                "  no model deployment matches \"gemma\"",
             ]
         );
         assert_eq!(
             chain_line(&unknown),
-            "no model deployment is named or has id \"gemma\"; see `dotc model list`"
+            "no model deployment matches \"gemma\"; see `dotc model list`"
         );
         assert_eq!(
             lines(&Failure::from_error(&ambiguous), false),
             [
-                "✘ 2 model deployments are named Qwen",
-                "  model-2",
-                "  model-3",
+                "✘ 2 model deployments match qwen",
+                "  ID                 NAME",
+                "  qwen3-8-27b-3cfmn  Qwen 3.8 27B",
+                "  qwen3-8-8b-7tq2m   Qwen 3.8 8B",
                 "Next",
                 "  › Pass one of these ids instead",
             ]
         );
         assert_eq!(
             chain_line(&ambiguous),
-            "2 model deployments are named \"Qwen\": model-2, model-3; pass one of the ids \
-             instead"
+            "2 model deployments match \"qwen\": qwen3-8-27b-3cfmn (Qwen 3.8 27B), \
+             qwen3-8-8b-7tq2m (Qwen 3.8 8B); pass one of the ids instead"
+        );
+        assert_eq!(
+            lines(&Failure::from_error(&unknown_node), false),
+            [
+                "✘ No node matches gpu9",
+                "  ID         NAME",
+                "  node-00aa  gpu1",
+                "  node-00bb  gpu2",
+                "Next",
+                "  › Pass one of these ids instead",
+            ]
+        );
+        assert_eq!(
+            chain_line(&unknown_node),
+            "no node matches \"gpu9\"; known nodes: node-00aa (gpu1), node-00bb (gpu2)"
+        );
+        assert_eq!(
+            lines(&Failure::from_error(&ambiguous_route), false),
+            [
+                "✘ 2 inference routes match co",
+                "  NAME",
+                "  code",
+                "  coder",
+                "Next",
+                "  › Pass one of these names instead",
+            ]
+        );
+        assert_eq!(
+            chain_line(&ambiguous_route),
+            "2 inference routes match \"co\": code, coder; pass one of the names instead"
         );
     }
 
@@ -1271,7 +1369,7 @@ mod tests {
         assert_eq!(
             lines(&Failure::from_error(&error), false),
             [
-                "✘ No ready inference route is named draft",
+                "✘ No ready inference route matches draft",
                 "  chat",
                 "  code",
                 "Next",

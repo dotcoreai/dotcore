@@ -10,12 +10,14 @@ parameterSchema:
     - groupId: "expert-memory"
       displayName: "Expert memory"
       description: "Where the model keeps its experts. Experts in accelerator memory run fastest, then host memory; the rest are read from disk."
+      summary: "Where the model keeps its experts; faster memory runs it faster."
   parameters:
     # Shared parameters: the engine adapter in backend/core/src/model/engine/ maps them to flags.
     - parameterId: "total-context"
       displayName: "Total context"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "Memory the model holds for all requests at once. Each parallel request gets its own share as large as the context per request, so it is always the parallel requests times the context per request; change those two instead."
+      summary: "Context memory for all requests: always context per request times parallel requests."
       # At least Dotcore's context floor. No Strata argument: the adapter keeps it the parallel
       # requests times the context per request.
       unsignedInteger:
@@ -25,6 +27,7 @@ parameterSchema:
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "Largest context one request may use. The server sets this much aside for every parallel request from the start, used or not, so keep it as small as your longest request needs."
+      summary: "Longest conversation one request can hold, set aside for every request."
       # At least Dotcore's context floor, above the 256 that Strata's Qwen3.6 (`qwen35moe`) path
       # refuses below (`engine/src/qwen35/q36_engine.cu`). The wrapper passes it as `--max-context` to the
       # `strata` engine; every other model stays on the main path, which refuses 2^31 - 8 or more,
@@ -38,6 +41,7 @@ parameterSchema:
       displayName: "Parallel requests"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "Requests generated at once; more wait for a free one. Each holds its own context per request, so raising it multiplies the memory used; raise it only when several callers use the model together."
+      summary: "How many requests run at the same time; each adds its own context memory."
       # 1 to 8, as Dotcore's wrapper enforces (`MAX_PARALLEL`, `engines/strata/start.py`); Strata's own
       # launcher allows more (`check_parallel`, `terminal/strata_cli/launch/settings.py`).
       unsignedInteger:
@@ -50,6 +54,7 @@ parameterSchema:
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
       groupId: "expert-memory"
       description: "Accelerator memory for the model's most used experts; the others run from host memory or disk, which is slower. The model's sizing sets it; raise it to speed up generation if memory allows, or lower it to free accelerator memory. Where the model offers expert host memory, lowering this one leaves the extra experts on disk unless you raise that one too."
+      summary: "Accelerator memory for the most used experts; more runs the model faster."
       # The wrapper requires a positive count (`engines/strata/start.py`); Strata caps nothing above,
       # since the expert cache never holds more than one slot per expert.
       unsignedInteger:
@@ -61,6 +66,7 @@ parameterSchema:
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
       groupId: "expert-memory"
       description: "Host memory kept for the most used experts that don't fit in expert accelerator memory; the rest are read from disk when needed, which is slower. 0 reads all of them from disk. Room beyond those experts keeps long prompts from reading experts from disk. The model's sizing sets it; lower it to free host memory, or raise it to speed up generation when you lower expert accelerator memory."
+      summary: "Host memory for experts beyond accelerator memory; the rest are read from disk."
       # Strata takes any budget and trims one above the free host memory (`--resident-budget-gib`
       # in upstream's `engine/src/program/generate.cpp`), so no maximum.
       unsignedInteger:

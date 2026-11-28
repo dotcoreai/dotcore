@@ -30,10 +30,10 @@ pub(crate) struct TelemetryCommand {
 
 #[derive(Debug, Subcommand)]
 enum TelemetryAction {
-    /// Fit a model binding's sizing constants on one hardware class from recorded workload resources.
+    /// Fit a model binding's sizing constants from recorded workload resources
     Fit(FitArgs),
 
-    /// Check a model binding's stored sizing constants on one hardware class against recorded workload resources.
+    /// Check a model binding's sizing constants against recorded workload resources
     Check(CheckArgs),
 }
 

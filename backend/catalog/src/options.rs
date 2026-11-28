@@ -406,6 +406,7 @@ mod tests {
         ["mtp", "dflash"]
             .into_iter()
             .map(|option_id| ModelOption {
+                summary: "Summary.".into(),
                 option_id: option_id.to_owned(),
                 display_name: option_id.to_uppercase(),
                 description: "Fixture option.".to_owned(),

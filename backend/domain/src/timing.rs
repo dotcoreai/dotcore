@@ -116,6 +116,8 @@ impl Timing {
             },
             terminal: TerminalTiming {
                 cursor_query_timeout: Duration::from_secs(2),
+                form_settle: Duration::from_millis(500),
+                form_refresh: Duration::from_millis(50),
             },
         }
     }
@@ -262,6 +264,8 @@ impl Timing {
             // answers costs little.
             terminal: TerminalTiming {
                 cursor_query_timeout: Duration::from_millis(250),
+                form_settle: Duration::from_millis(20),
+                form_refresh: Duration::from_millis(5),
             },
         }
     }
@@ -502,6 +506,13 @@ pub struct TerminalTiming {
     /// Time a terminal may take to answer a cursor-position query before it counts as one that
     /// never answers.
     pub cursor_query_timeout: Duration,
+
+    /// Pause in typing after which a form tells its caller about the edit, so a value is not
+    /// estimated at every key press.
+    pub form_settle: Duration,
+
+    /// How often an open form looks for its caller's answers while they are on their way.
+    pub form_refresh: Duration,
 }
 
 /// Pauses before an attempt runs again while it fails or leaves work pending: the first pause,

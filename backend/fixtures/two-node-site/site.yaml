@@ -36,6 +36,6 @@ executionTargets:
   applicationRuntime: { simulatedRuntime: {} }
 modelDeployments: []
 applicationDeployments: []
-modelDeploymentIdentityAllocator:
-  namespace: 83e8c24d8f4e7a49
+deploymentIdentityAllocator:
+  suffixKey: 83e8c24d8f4e7a49
   nextSequence: '1'

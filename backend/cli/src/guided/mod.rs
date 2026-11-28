@@ -253,7 +253,7 @@ pub async fn collect_guided_initial_site(
     let plan = plan_from_prepared(defaults.site_dir.clone(), host, prepared);
     display_summary(terminal, &plan)?;
     if let Some(warning) = host_warning {
-        terminal.message(&Message::Warning(warning))?;
+        terminal.prompt_context(&Message::Warning(warning))?;
     }
 
     if confirm(terminal)? {

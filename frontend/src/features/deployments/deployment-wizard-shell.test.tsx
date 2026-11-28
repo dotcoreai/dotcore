@@ -98,11 +98,17 @@ describe("DeploymentWizardShell", () => {
     const actions = within(dialog).getByTestId("deployment-dialog-actions");
     const progress = screen.getByRole("list", { name: "Deployment progress" });
     const headers = within(progress).getAllByRole("button");
+    expect(headers.map((header) => header.getAttribute("aria-label"))).toEqual([
+      null,
+      null,
+      null,
+      null,
+    ]);
     expect(headers.map((header) => header.textContent)).toEqual([
-      "1. Profile",
-      "2. DeploymentStep 2 of 4 — Deployment",
-      "3. Runtime",
-      "4. Review",
+      "1. Profile1. Profile",
+      "2. Deployment2. DeploymentStep 2 of 4 — Deployment",
+      "3. Runtime3. Runtime",
+      "4. Review4. Review",
     ]);
     expect(headers.map((header) => header.getAttribute("aria-current"))).toEqual([
       null,
@@ -157,8 +163,74 @@ describe("DeploymentWizardShell", () => {
     expect(items.map((item) => item.classList.contains("hidden"))).toEqual([true, false, true]);
     expect(items.map((item) => item.classList.contains("sm:block"))).toEqual([true, true, true]);
     expect(screen.getByText("Step 2 of 3 — Deployment")).toHaveClass("sm:hidden");
-    expect(within(items[1]).getByText("2. Deployment")).toHaveClass("hidden", "sm:inline");
+    expect(items[1].querySelector("[data-step-label]")).toHaveClass("hidden", "sm:inline");
     expect(within(progress).queryByText(/^Step [13] of 3/)).not.toBeInTheDocument();
+  });
+
+  describe("step labels", () => {
+    const steps = ["Model & machine", "Performance & memory", "Review & deploy"];
+    const stepLabels = { "Model & machine": "Model", "Performance & memory": "Performance" };
+
+    function renderBar() {
+      render(
+        <DeploymentWizardShell
+          currentStep="Performance & memory"
+          onOpenChange={vi.fn()}
+          onPrimary={vi.fn()}
+          onStepChange={vi.fn()}
+          open
+          primaryLabel="Next"
+          resourceColorKey="model-1"
+          resourceName="Test Model"
+          stepLabels={stepLabels}
+          steps={steps}
+          title="Deploy model"
+          visitedSteps={new Set(steps)}
+        >
+          <p>Details</p>
+        </DeploymentWizardShell>,
+      );
+      return screen.getByRole("list", { name: "Deployment progress" });
+    }
+
+    it("shows short names and keeps the full names as accessible names and titles", () => {
+      const progress = renderBar();
+
+      expect(
+        Array.from(progress.querySelectorAll("[data-step-label]"), (label) => label.textContent),
+      ).toEqual(["1. Model", "2. Performance", "3. Review & deploy"]);
+      const buttons = within(progress).getAllByRole("button");
+      // The full name is hidden content, not an aria-label, and names the button.
+      expect(
+        buttons.map((button) => [
+          button.getAttribute("aria-label"),
+          button.querySelector(".sr-only")?.textContent,
+        ]),
+      ).toEqual([
+        [null, "1. Model & machine"],
+        [null, "2. Performance & memory"],
+        [null, "3. Review & deploy"],
+      ]);
+      expect(buttons.map((button) => button.getAttribute("title"))).toEqual(steps);
+    });
+
+    it("keeps only the current step's name when the names don't fit the bar", () => {
+      const widths = vi.spyOn(HTMLElement.prototype, "offsetWidth", "get");
+      const bar = vi.spyOn(HTMLElement.prototype, "clientWidth", "get");
+      widths.mockReturnValue(120);
+      bar.mockReturnValue(300);
+
+      const progress = renderBar();
+
+      expect(
+        Array.from(progress.querySelectorAll("[data-step-label]"), (label) => label.textContent),
+      ).toEqual(["1", "2. Performance", "3"]);
+      expect(
+        within(progress)
+          .getAllByRole("button")
+          .map((button) => button.querySelector(".sr-only")?.textContent),
+      ).toEqual(["1. Model & machine", "2. Performance & memory", "3. Review & deploy"]);
+    });
   });
 
   it("keeps the current step and visited steps by name when the step list changes", async () => {

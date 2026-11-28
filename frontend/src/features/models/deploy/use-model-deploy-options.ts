@@ -84,6 +84,9 @@ export function useModelDeployOptions({
   }
 
   const speculativeOptions = configurationSpeculativeOptions(model, configuration, profile);
+  const speculativeModelOption = model.options.find(
+    (option) => option.optionId === speculativeOptions[0]?.optionId,
+  );
   const kvCachePrecisionOption = configurationKvCachePrecision(model, configuration, profile);
   const visionOption = configurationVisionOption(model, configuration, profile);
   // Each control the configuration declares, by the visibility its option declares; speculative
@@ -183,9 +186,7 @@ export function useModelDeployOptions({
     speculative: {
       choice: speculativeChoice,
       countRef: speculativeCountRef,
-      description: model.options.find(
-        (option) => option.optionId === speculativeOptions[0]?.optionId,
-      )?.description,
+      description: speculativeModelOption?.description,
       // Validates at once: a deferred check would run after a method change that the blur
       // precedes and overwrite its error with the previous method's verdict.
       onCountBlur: () => {
@@ -213,6 +214,7 @@ export function useModelDeployOptions({
         setFieldError("speculativeCount", speculativeChoiceError(speculativeOptions, nextChoice));
       },
       options: speculativeOptions,
+      summary: speculativeModelOption?.summary,
     },
     /** The basic choices for the summary, such as "Vision: On". */
     summary: controlsAt(ParameterVisibility.BASIC).flatMap((control) => {

@@ -1,7 +1,7 @@
 import type { RefObject } from "react";
 
+import { CountStepper } from "@/components/ui/count-stepper";
 import { Field } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { integerBounds } from "@/domain/parameter-view";
 import type { SpeculativeOption } from "@/features/models/profiles/model-row";
@@ -20,6 +20,8 @@ interface SpeculativeDecodingFieldProps {
   onMethodChange: (optionId: string) => void;
   /** The speculative options the selected profile's configuration declares, never empty. */
   options: readonly SpeculativeOption[];
+  /** One line telling a newcomer what speculative decoding does, from the catalog. */
+  summary?: string;
 }
 
 /**
@@ -37,6 +39,7 @@ export function SpeculativeDecodingField({
   onCountChange,
   onMethodChange,
   options,
+  summary,
 }: SpeculativeDecodingFieldProps) {
   const chosen = options.find((candidate) => candidate.optionId === choice.optionId);
   const option = chosen?.switch ? undefined : chosen;
@@ -45,7 +48,6 @@ export function SpeculativeDecodingField({
 
   return (
     <Field
-      className="min-w-0 gap-2 rounded-lg border border-border bg-card p-4"
       controlId={methodId}
       error={error}
       facts={
@@ -59,6 +61,7 @@ export function SpeculativeDecodingField({
       }
       help={description || undefined}
       label="Speculative decoding"
+      summary={summary || undefined}
     >
       {(control) => (
         <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -77,17 +80,18 @@ export function SpeculativeDecodingField({
           </NativeSelect>
           {option ? (
             <>
-              <Input
+              <CountStepper
                 aria-describedby={control["aria-describedby"]}
                 aria-invalid={error ? "true" : undefined}
                 aria-label="Speculative token count"
-                className="w-20 text-right"
                 disabled={disabled}
                 id={countId}
-                inputMode="numeric"
+                inputRef={countRef}
+                label="Speculative token count"
+                maximum={option.maximum}
+                minimum={speculativeEnabledMinimum(option)}
                 onBlur={onCountBlur}
-                onChange={(event) => onCountChange(event.target.value)}
-                ref={countRef}
+                onChange={onCountChange}
                 value={choice.count}
               />
               <span className="text-xs text-muted-foreground">tokens</span>

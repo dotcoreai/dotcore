@@ -338,6 +338,7 @@ fn generated_bindings_preserve_exact_ordered_custom_argument_tokens_in_preview_a
         engine_parameter_schema: Some(EngineParameterSchema {
             schema_id: "llama-cpp-b10156-v1".to_owned(),
             parameters: vec![ParameterDefinition {
+                summary: "Summary.".into(),
                 parameter_id: "total-context".to_owned(),
                 display_name: "Total context".to_owned(),
                 parameter_type: Some(EngineParameterType::UnsignedInteger(
@@ -546,6 +547,7 @@ fn generated_bindings_round_trip_model_configurations_and_typed_context_schema()
         schema_id: "llama-cpp-b10156-v1".to_owned(),
         parameters: vec![
             ParameterDefinition {
+                summary: "Summary.".into(),
                 parameter_id: "total-context".to_owned(),
                 display_name: "Total context".to_owned(),
                 parameter_type: Some(EngineParameterType::UnsignedInteger(
@@ -563,6 +565,7 @@ fn generated_bindings_round_trip_model_configurations_and_typed_context_schema()
                 group_id: None,
             },
             ParameterDefinition {
+                summary: "Summary.".into(),
                 parameter_id: "context-per-request".to_owned(),
                 display_name: "Context per request".to_owned(),
                 parameter_type: Some(EngineParameterType::UnsignedInteger(
@@ -718,6 +721,7 @@ fn generated_bindings_preserve_typed_option_defaults_overrides_and_resolved_valu
     let model = Model {
         model_id: "fixture-model".to_owned(),
         options: vec![ModelOption {
+            summary: "Summary.".into(),
             option_id: "vision".to_owned(),
             display_name: "Vision".to_owned(),
             description: "Fixture option.".to_owned(),
@@ -1049,6 +1053,7 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
             ("parameter_id", 1, "TYPE_STRING"),
             ("display_name", 2, "TYPE_STRING"),
             ("description", 3, "TYPE_STRING"),
+            ("summary", 12, "TYPE_STRING"),
             ("visibility", 7, ".dotcore.catalog.v1.ParameterVisibility"),
             ("group_id", 10, "TYPE_STRING"),
             ("enabled_by_parameter_id", 11, "TYPE_STRING"),
@@ -1073,6 +1078,7 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
             ("group_id", 1, "TYPE_STRING"),
             ("display_name", 2, "TYPE_STRING"),
             ("description", 3, "TYPE_STRING"),
+            ("summary", 5, "TYPE_STRING"),
             ("switch_parameter_id", 4, "TYPE_STRING"),
         ]
     );
@@ -1239,6 +1245,7 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
             ("option_id", 1),
             ("display_name", 2),
             ("description", 6),
+            ("summary", 8),
             ("visibility", 7),
             ("vision", 3),
             ("speculative_decoding", 4),

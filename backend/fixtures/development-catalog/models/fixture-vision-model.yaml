@@ -8,11 +8,13 @@ options:
   - optionId: "vision"
     displayName: "Vision"
     description: "Fixture option."
+    summary: "Fixture summary."
     visibility: "PARAMETER_VISIBILITY_ADVANCED"
     vision: {}
   - optionId: "mtp"
     displayName: "MTP"
     description: "Fixture option."
+    summary: "Fixture summary."
     visibility: "PARAMETER_VISIBILITY_ADVANCED"
     speculativeDecoding: { method: "SPECULATIVE_DECODING_METHOD_MTP" }
 artifacts:

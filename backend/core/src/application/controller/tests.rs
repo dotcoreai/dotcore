@@ -7,7 +7,6 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
     },
-    time::UNIX_EPOCH,
 };
 
 use dotcore_catalog::{CatalogBuilder, OciArtifactPolicy};
@@ -74,7 +73,6 @@ use dotcore_site::{
 use tokio::{io::AsyncWriteExt, sync::Notify};
 use tonic::Request;
 
-use super::identity::allocate_deployment_id;
 use super::launch::{configuration_attachments, secret_attachments};
 use super::launch::{deployment_data, workload_group_launch};
 use super::observation::{exact_owned_observation, stale_owned_group};
@@ -3785,38 +3783,6 @@ fn display_name_never_changes_runtime_identity_or_generation() {
 
     assert_eq!(first_launch.group_id, renamed_launch.group_id);
     assert_eq!(first_launch.correlation, renamed_launch.correlation);
-}
-
-#[test]
-fn deployment_id_is_bounded_and_retries_declared_collisions() {
-    let now = UNIX_EPOCH + Duration::from_secs(1_786_543_445);
-    let active = allocate_deployment_id(
-        "application-with-the-longest-valid-identifier-01234567890123456789",
-        now,
-        std::iter::empty(),
-        [Ok(0x12_ab_cd_ef_01)],
-    )
-    .expect("bounded deployment ID");
-    let allocated = allocate_deployment_id(
-        "application-with-the-longest-valid-identifier-01234567890123456789",
-        now,
-        [active.as_str()],
-        [Ok(0x12_ab_cd_ef_01), Ok(0x12_ab_cd_ef_02)],
-    )
-    .expect("collision retry");
-
-    assert_eq!(active.len(), 40);
-    assert!(active.starts_with("applicat-"));
-    let without_suffix = active.rsplit_once('-').expect("suffix").0;
-    assert_eq!(
-        without_suffix.rsplit_once('-').expect("timestamp").1.len(),
-        14
-    );
-    assert!(active.ends_with("-12abcdef01"));
-    assert!(
-        allocated.ends_with("-12abcdef02"),
-        "a declared identity is never allocated again"
-    );
 }
 
 #[test]

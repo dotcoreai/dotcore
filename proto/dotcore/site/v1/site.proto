@@ -31,8 +31,8 @@ message Site {
   // Site-wide current hardware observation policy.
   HardwareObservationConfiguration hardware_observation = 7;
 
-  // Inference-controller-owned allocation state for never-reused model deployment IDs.
-  ModelDeploymentIdentityAllocator model_deployment_identity_allocator = 8;
+  // Site-owned allocation state for never-reused model and application deployment IDs.
+  DeploymentIdentityAllocator deployment_identity_allocator = 8;
 
   // Site-wide console settings shared by every browser; never part of node desired views.
   ConsoleSettings console_settings = 9;
@@ -44,10 +44,10 @@ message ConsoleSettings {
   bool get_started_hidden = 1;
 }
 
-// Durable allocator for model deployment identities within this site.
-message ModelDeploymentIdentityAllocator {
-  // Fixed lowercase hexadecimal namespace separating new IDs from legacy IDs.
-  string namespace = 1;
+// Durable allocator for the deployment IDs of every kind within this site.
+message DeploymentIdentityAllocator {
+  // Random 16-digit lowercase hexadecimal key, chosen at site creation, scrambling ID suffixes.
+  string suffix_key = 1;
 
   // Next sequence to reserve; values below it are never reused.
   uint64 next_sequence = 2;

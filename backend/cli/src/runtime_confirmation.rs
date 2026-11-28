@@ -83,11 +83,11 @@ pub(crate) fn approve_runtime_removal(
         );
     }
 
-    terminal.message(&Message::Heading(format!(
+    terminal.prompt_context(&Message::Heading(format!(
         "{} owns these resources",
         approval.subject
     )))?;
-    terminal.message(&Message::KeyValues(
+    terminal.prompt_context(&Message::KeyValues(
         inventory
             .resources
             .iter()

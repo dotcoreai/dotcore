@@ -54,8 +54,6 @@ export interface DeployWizard<Step extends string> {
    * whether one did. The default owners are every step with fields.
    */
   revealFirstError: (owners?: readonly Step[]) => boolean;
-  /** The errors of the latest blocked navigation; a new value opens the sections they flag. */
-  revealedErrors: FieldErrors;
   step: Step;
   steps: readonly Step[];
   toggleAdvanced: (advanced: boolean) => void;
@@ -85,7 +83,6 @@ export function useDeployWizard<Step extends string>({
   const { advanced } = advancedMode;
   // The steps basic mode shows, fixed when leaving the first step.
   const [lockedBasic, setLockedBasic] = useState<readonly Step[]>();
-  const [revealedErrors, setRevealedErrors] = useState<FieldErrors>(new Map());
   const pendingFocusRef = useRef<FieldErrors | undefined>(undefined);
 
   const basicSteps = () => order.filter(basicShows);
@@ -106,13 +103,11 @@ export function useDeployWizard<Step extends string>({
     if (leavingFirstStep) onLeaveFirstStep?.();
     wizard.goTo(next);
   };
-  // Focus waits for the render that shows the errors, which also opens a collapsed section or
-  // group holding an invalid field.
+  // Focus waits for the render that shows the errors.
   const exposeErrors = (errors: FieldErrors): boolean => {
     setFieldErrors(errors);
     pendingFocusRef.current = errors.size ? errors : undefined;
     if (!errors.size) return true;
-    setRevealedErrors(errors);
     return false;
   };
   const revealFirstError = (owners: readonly Step[] = stepsFor(true)): boolean => {
@@ -154,7 +149,6 @@ export function useDeployWizard<Step extends string>({
       if (exposeErrors(errorsFor(step))) goTo(steps[steps.indexOf(step) + 1]);
     },
     revealFirstError,
-    revealedErrors,
     step,
     steps,
     toggleAdvanced: (next) => {

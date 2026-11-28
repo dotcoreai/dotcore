@@ -17,9 +17,12 @@ export function deployWizardShellProps<Step extends string>(
   {
     labels = deploySubmitLabels,
     pending,
+    stepLabels,
   }: {
     labels?: DeploySubmitLabels;
     pending: boolean;
+    /** Shorter step bar names by step. */
+    stepLabels?: Readonly<Record<string, string>>;
   },
 ): Pick<
   DeploymentWizardShellProps,
@@ -29,6 +32,7 @@ export function deployWizardShellProps<Step extends string>(
   | "onPrimary"
   | "onStepChange"
   | "primaryLabel"
+  | "stepLabels"
   | "steps"
   | "visitedSteps"
 > {
@@ -51,6 +55,7 @@ export function deployWizardShellProps<Step extends string>(
       if (step) wizard.changeStep(step);
     },
     primaryLabel: lastStep ? (pending ? labels.pending : labels.submit) : "Next",
+    stepLabels,
     steps: wizard.steps,
     visitedSteps: wizard.visited,
   };

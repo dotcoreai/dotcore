@@ -1,13 +1,16 @@
-//! Arrow-key prompts with colors for guided `dotc site init` and reset, drawn
-//! inline on the controlling terminal below the existing scrollback.
+//! Arrow-key prompts and forms with colors for guided commands, drawn inline
+//! on the controlling terminal below the existing scrollback.
 //!
 //! Each prompt takes a few rows while it is open, then collapses to one
-//! summary line such as `✔ Site host · 127.0.0.1`; messages print as styled
-//! lines. There is no full-screen mode or mouse capture, Ctrl-C and Esc cancel
-//! any prompt, and the terminal is always restored when a prompt ends. Opening
-//! fails without drawing anything when the terminal cannot report its cursor
-//! position, which the inline prompts need.
+//! summary line, while a form is erased and leaves the summary to its caller;
+//! messages print as styled lines. There is no full-screen mode or mouse
+//! capture, Ctrl-C cancels any prompt and Esc any prompt but a form that can go
+//! back, a resized window redraws the prompt where it was, and the terminal is
+//! always restored when a prompt ends. Opening fails without drawing anything
+//! when the terminal cannot report its cursor position, which the inline
+//! prompts need.
 
+mod form;
 mod theme;
 mod tty;
 mod view;
@@ -29,11 +32,13 @@ use ratatui::{
 };
 
 use super::{
-    ConfirmPrompt, CountdownPrompt, InputPrompt, Message, MultiSelectPrompt, PromptError,
-    SelectPrompt, Terminal, TerminalCondition,
+    ConfirmPrompt, CountdownPrompt, FormAnswer, FormPrompt, FormSession, InputPrompt, Message,
+    MultiSelectPrompt, PromptError, SelectPrompt, Terminal, TerminalCondition,
     line::LineTerminal,
+    output::Output,
     render::{LastOutput, Symbols, colors_enabled},
 };
+use form::FormView;
 use theme::Theme;
 use tty::{RawModeGuard, TtyBackend, probe_cursor_reports};
 use view::{
@@ -52,6 +57,9 @@ pub(super) struct RichTerminal {
 
     /// Real-time bounds of the terminal's answers.
     timing: TerminalTiming,
+
+    /// Where command output goes.
+    output: Output,
 }
 
 impl RichTerminal {
@@ -70,6 +78,7 @@ impl RichTerminal {
             symbols: Symbols::detect(),
             last: LastOutput::Nothing,
             timing,
+            output: Output::stdout(true),
         })
     }
 
@@ -99,8 +108,7 @@ impl RichTerminal {
         self.ensure_interactive()?;
         if self.last.blank_before(false) {
             // Written before the inline viewport opens, which then starts on the row below.
-            self.write_lines(vec![Line::default()])
-                .map_err(PromptError::Io)?;
+            write_lines(&mut self.tty, vec![Line::default()]).map_err(PromptError::Io)?;
         }
         // A cancelled prompt still leaves its summary line.
         self.last = LastOutput::Message;
@@ -114,21 +122,14 @@ impl RichTerminal {
         guard: &RawModeGuard,
         view: &mut V,
     ) -> io::Result<Result<V::Output, PromptError>> {
-        let backend = TtyBackend::new(self.tty.try_clone()?, self.timing)?;
-        let rows = backend.size()?.height.max(1);
-        let height = view.height(rows).clamp(1, rows);
-        let mut terminal = ratatui::Terminal::with_options(
-            backend,
-            TerminalOptions {
-                viewport: Viewport::Inline(height),
-            },
-        )?;
+        let mut terminal = self.open_viewport(view)?;
         let theme = self.theme;
 
         let outcome = loop {
-            terminal.draw(|frame| view.render(frame, &theme))?;
+            draw(&mut terminal, |frame| view.render(frame, &theme))?;
             // The completed frame reports a viewport-relative area; the terminal knows the row.
-            guard.track_viewport(terminal.get_frame().area().y);
+            let top = terminal.get_frame().area().y;
+            guard.track_viewport(top);
             let event = match view.wake_at() {
                 Some(at) => {
                     let wait = at.saturating_duration_since(Instant::now());
@@ -139,7 +140,10 @@ impl RichTerminal {
             let step = match event {
                 None => view.on_wake(Instant::now()),
                 Some(event::Event::Resize(..)) => {
-                    terminal.autoresize()?;
+                    // Reopening the viewport where it was keeps the scrollback; letting ratatui
+                    // resize it clears the whole screen when the window narrows.
+                    terminal.backend_mut().erase_from(top)?;
+                    terminal = self.open_viewport(view)?;
                     Step::Continue
                 }
                 Some(event) => handle_event(view, event),
@@ -151,8 +155,16 @@ impl RichTerminal {
             }
         };
 
+        let top = terminal.get_frame().area().y;
+        if outcome.is_ok() && !view.leaves_answer() {
+            // The caller reports the outcome itself, starting where the view was.
+            let backend = terminal.backend_mut();
+            backend.erase_from(top)?;
+            backend.show_cursor()?;
+            return Ok(outcome);
+        }
         let answer = outcome.as_ref().ok().map(|output| view.answer_text(output));
-        terminal.draw(|frame| {
+        draw(&mut terminal, |frame| {
             let area = frame.area();
             let summary = match &answer {
                 Some(answer) => answer_line(&theme, view.title(), answer, area.width),
@@ -168,18 +180,35 @@ impl RichTerminal {
         Ok(outcome)
     }
 
-    fn write_lines(&mut self, lines: Vec<Line<'static>>) -> io::Result<()> {
-        for line in lines {
-            for span in line.spans {
-                let style = span.style.patch(line.style).into_crossterm();
-                crossterm::queue!(
-                    self.tty,
-                    PrintStyledContent(crossterm::style::StyledContent::new(style, span.content))
-                )?;
-            }
-            self.tty.write_all(b"\n")?;
+    /// Opens an inline viewport at the cursor, as tall as `view` wants on this terminal.
+    fn open_viewport<V: View>(&self, view: &V) -> io::Result<ratatui::Terminal<TtyBackend>> {
+        let backend = TtyBackend::new(self.tty.try_clone()?, self.timing)?;
+        let rows = backend.size()?.height.max(1);
+        let height = view.height(rows).clamp(1, rows);
+        ratatui::Terminal::with_options(
+            backend,
+            TerminalOptions {
+                viewport: Viewport::Inline(height),
+            },
+        )
+    }
+
+    /// Lays out a message with the theme and the prompts' spacing: on stdout when `on_output` is
+    /// set, which then shares the prompts' screen, else on the controlling terminal.
+    fn show(&mut self, message: &Message, on_output: bool) -> Result<(), PromptError> {
+        let rendered = message.render(self.symbols);
+        let mut lines = Vec::new();
+        if self.last.blank_before(rendered.blank_before) {
+            lines.push(Line::default());
         }
-        self.tty.flush()
+        lines.extend(rendered.lines.iter().map(|line| self.theme.line(line)));
+        self.last = LastOutput::Message;
+        let writer: &mut dyn Write = if on_output {
+            self.output.writer()
+        } else {
+            &mut self.tty
+        };
+        write_lines(writer, lines).map_err(PromptError::Io)
     }
 }
 
@@ -225,15 +254,68 @@ impl Terminal for RichTerminal {
         }
     }
 
-    fn message(&mut self, message: &Message) -> Result<(), PromptError> {
-        self.ensure_interactive()?;
-        let rendered = message.render(self.symbols);
-        let mut lines = Vec::new();
-        if self.last.blank_before(rendered.blank_before) {
-            lines.push(Line::default());
-        }
-        lines.extend(rendered.lines.iter().map(|line| self.theme.line(line)));
+    fn form(
+        &mut self,
+        prompt: &mut FormPrompt,
+        session: &mut dyn FormSession,
+    ) -> Result<FormAnswer, PromptError> {
+        let (symbols, timing) = (self.symbols, self.timing);
+        let answer = self.run(FormView::new(
+            prompt,
+            session,
+            symbols,
+            timing.form_settle,
+            timing.form_refresh,
+        ));
+        // An erased form leaves no answer line, so the caller's summary follows without a gap.
         self.last = LastOutput::Message;
-        self.write_lines(lines).map_err(PromptError::Io)
+        answer
     }
+
+    fn live_footer(&mut self) -> bool {
+        true
+    }
+
+    fn message(&mut self, message: &Message) -> Result<(), PromptError> {
+        if matches!(message, Message::Warning(_)) {
+            return self.output.write_warning(message).map_err(PromptError::Io);
+        }
+        self.ensure_interactive()?;
+        if self.output.shares_screen() {
+            return self.show(message, true);
+        }
+        let rendered = message.render(self.symbols);
+        self.output.write_plain(&rendered).map_err(PromptError::Io)
+    }
+
+    fn prompt_context(&mut self, message: &Message) -> Result<(), PromptError> {
+        self.ensure_interactive()?;
+        self.show(message, false)
+    }
+}
+
+/// Draws one frame inside a synchronized update, so the terminal shows it whole.
+fn draw(
+    terminal: &mut ratatui::Terminal<TtyBackend>,
+    render: impl FnOnce(&mut ratatui::Frame),
+) -> io::Result<()> {
+    terminal.backend_mut().synchronize(true)?;
+    let drawn = terminal.draw(render).map(|_| ());
+    terminal.backend_mut().synchronize(false)?;
+    drawn
+}
+
+/// Writes styled lines to `writer`, one per row.
+fn write_lines(mut writer: &mut dyn Write, lines: Vec<Line<'static>>) -> io::Result<()> {
+    for line in lines {
+        for span in line.spans {
+            let style = span.style.patch(line.style).into_crossterm();
+            crossterm::queue!(
+                &mut writer,
+                PrintStyledContent(crossterm::style::StyledContent::new(style, span.content))
+            )?;
+        }
+        writer.write_all(b"\n")?;
+    }
+    writer.flush()
 }

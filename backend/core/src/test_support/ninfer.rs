@@ -173,6 +173,7 @@ pub(crate) fn release() -> EngineRelease {
             .map(
                 |(parameter_id, display_name, minimum, maximum, unit, default_value)| {
                     ParameterDefinition {
+                        summary: "Summary.".into(),
                         parameter_id: parameter_id.to_owned(),
                         display_name: display_name.to_owned(),
                         parameter_type: Some(parameter_definition::ParameterType::UnsignedInteger(
@@ -218,6 +219,7 @@ pub(crate) fn model() -> Model {
         model_id: "fixture-ninfer-model".to_owned(),
         options: vec![
             ModelOption {
+                summary: "Summary.".into(),
                 option_id: "vision".to_owned(),
                 display_name: "Vision".to_owned(),
                 description: "Fixture option.".to_owned(),
@@ -226,6 +228,7 @@ pub(crate) fn model() -> Model {
                 kind: Some(model_option::Kind::Vision(VisionModelOption {})),
             },
             ModelOption {
+                summary: "Summary.".into(),
                 option_id: "mtp".to_owned(),
                 display_name: "MTP".to_owned(),
                 description: "Fixture option.".to_owned(),

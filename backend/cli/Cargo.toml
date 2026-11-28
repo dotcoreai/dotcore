@@ -45,6 +45,7 @@ ratatui = { version = "0.30.2", default-features = false, features = ["crossterm
 
 [dev-dependencies]
 dotcore = { path = "../core", features = ["test-support"] }
+serde_yaml_ng.workspace = true
 tempfile.workspace = true
 tonic.workspace = true
 vt100 = "0.18.1"

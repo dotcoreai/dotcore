@@ -729,6 +729,7 @@ mod tests {
         model
             .options
             .push(dotcore_proto::dotcore::catalog::v1::ModelOption {
+                summary: "Summary.".into(),
                 option_id: "kv-cache".to_owned(),
                 display_name: "KV cache precision".to_owned(),
                 description: "Fixture option.".to_owned(),
@@ -1021,10 +1022,10 @@ version: "1"
 parameterSchema:
   schemaId: "fixture-ninfer-v2"
   parameters:
-    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", description: "total-context", unsignedInteger: { minimum: "512", unit: "tokens" } }
-    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", description: "context-per-request", unsignedInteger: { minimum: "512", maximum: "4294967295", unit: "tokens", defaultValue: "8192" } }
-    - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_BASIC", description: "parallel-requests", unsignedInteger: { minimum: "1", maximum: "8", unit: "requests", defaultValue: "4" } }
-    - { parameterId: "host-context-mib", displayName: "Host context memory", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "host-context-mib", unsignedInteger: { minimum: "0", maximum: "17592186044415", unit: "MiB" } }
+    - { parameterId: "total-context", displayName: "Total context", summary: "Summary.", visibility: "PARAMETER_VISIBILITY_BASIC", description: "total-context", unsignedInteger: { minimum: "512", unit: "tokens" } }
+    - { parameterId: "context-per-request", displayName: "Context per request", summary: "Summary.", visibility: "PARAMETER_VISIBILITY_BASIC", description: "context-per-request", unsignedInteger: { minimum: "512", maximum: "4294967295", unit: "tokens", defaultValue: "8192" } }
+    - { parameterId: "parallel-requests", displayName: "Parallel requests", summary: "Summary.", visibility: "PARAMETER_VISIBILITY_BASIC", description: "parallel-requests", unsignedInteger: { minimum: "1", maximum: "8", unit: "requests", defaultValue: "4" } }
+    - { parameterId: "host-context-mib", displayName: "Host context memory", summary: "Summary.", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "host-context-mib", unsignedInteger: { minimum: "0", maximum: "17592186044415", unit: "MiB" } }
 artifacts:
   - artifactId: "linux-amd64-cuda"
     oci:
@@ -1042,8 +1043,8 @@ displayName: "Fixture ninfer model"
 version: "1"
 maximumContextTokens: 262144
 options:
-  - { optionId: "vision", displayName: "Vision", description: "Fixture option.", visibility: "PARAMETER_VISIBILITY_ADVANCED", vision: {} }
-  - { optionId: "mtp", displayName: "MTP", description: "Fixture option.", visibility: "PARAMETER_VISIBILITY_ADVANCED", speculativeDecoding: { method: "SPECULATIVE_DECODING_METHOD_MTP" } }
+  - { optionId: "vision", displayName: "Vision", summary: "Summary.", description: "Fixture option.", visibility: "PARAMETER_VISIBILITY_ADVANCED", vision: {} }
+  - { optionId: "mtp", displayName: "MTP", summary: "Summary.", description: "Fixture option.", visibility: "PARAMETER_VISIBILITY_ADVANCED", speculativeDecoding: { method: "SPECULATIVE_DECODING_METHOD_MTP" } }
 artifacts:
   - artifactId: "fixture-ninfer-artifact"
     weightQuantization: "NVFP4"

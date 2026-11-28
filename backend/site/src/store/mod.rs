@@ -266,20 +266,6 @@ fn validate_lifecycle_records(state: &SiteCurrentState) -> Result<(), StoreError
     Ok(())
 }
 
-/// Derives the stable random-looking deployment identity namespace for one site.
-/// The namespace is independent of mutable site declarations and survives ordinary rewrites.
-pub fn model_deployment_identity_namespace(site_id: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(b"dotcore.model-deployment-namespace.v1\0");
-    hasher.update(site_id.as_bytes());
-    hasher
-        .finalize()
-        .iter()
-        .take(8)
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
-}
-
 /// Digests one cleanup evidence identity: exactly its deployment and teardown lifecycle generation.
 pub fn cleanup_evidence_digest(model_deployment_id: &str, lifecycle_generation: u64) -> String {
     evidence_identity_digest(

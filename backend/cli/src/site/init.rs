@@ -13,12 +13,13 @@ use dotcore_site::initial::input_store::{
 use super::{
     HostAwareIdentityGenerator, SiteInitArgs, SiteLocation, SiteResetArgs,
     collection::{CollectionAdapters, CollectionMode, collect_initial_site},
-    output::write_transaction_success,
+    output::{SiteDocument, SiteReport},
     recorded_host, reset, system_initial_site_prober, system_listener_host, validator,
 };
 use crate::{
     RootPathArgs,
     hosts::{ListenerHost, SystemHostEnvironment},
+    output::{OutputFormat, write_yaml},
     terminal::open_terminal,
 };
 
@@ -26,6 +27,7 @@ use crate::{
 pub(super) async fn initialize(
     arguments: SiteInitArgs,
     paths: &RootPathArgs,
+    format: OutputFormat,
 ) -> anyhow::Result<()> {
     if arguments.replace && arguments.force {
         return reset::reset(
@@ -34,6 +36,7 @@ pub(super) async fn initialize(
                 removal: arguments.removal,
             },
             paths,
+            format,
         )
         .await;
     }
@@ -46,7 +49,12 @@ pub(super) async fn initialize(
             .map_err(|error| initialization_transaction_failure(error, site_dir))?
         {
             InitialSitePresence::Missing => {}
-            InitialSitePresence::Initialized => return Ok(()),
+            InitialSitePresence::Initialized => {
+                if format == OutputFormat::Yaml {
+                    write_yaml(&SiteDocument::at("alreadyInitialized", site_dir)?)?;
+                }
+                return Ok(());
+            }
         }
     }
     let listener = system_listener_host(&arguments.configuration).await?;
@@ -67,17 +75,19 @@ pub(super) async fn initialize(
             identities: &mut identities,
         },
     )
-    .await
+    .await?
+    .print(format)
 }
 
-/// Collects the site in `mode`, then writes it unless an existing site already matches.
+/// Collects the site in `mode`, then writes it unless an existing site already matches, and
+/// returns what to report.
 async fn initialize_site(
     arguments: SiteInitArgs,
     location: &SiteLocation,
     listener: Option<&ListenerHost>,
     mode: CollectionMode<'_>,
     adapters: CollectionAdapters<'_>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<SiteReport> {
     let site_dir = location.site_dir.as_path();
     let recorded = if arguments.replace {
         None
@@ -93,7 +103,7 @@ async fn initialize_site(
         adapters,
     )
     .await?;
-    let prepared = &collected.prepared;
+    let prepared = collected.prepared;
     let writer = InitialSiteInputWriter::new(validator(location.catalog_dir.as_deref()));
     let outcome = writer
         .initialize(
@@ -103,13 +113,13 @@ async fn initialize_site(
             arguments.replace,
         )
         .map_err(|error| initialization_transaction_failure(error, site_dir))?;
-    write_transaction_success(
+    Ok(SiteReport::written(
         outcome,
         site_dir,
-        &prepared.inputs,
-        &prepared.request,
-        collected.unreported_host.as_ref(),
-    )
+        prepared.inputs,
+        prepared.request,
+        collected.unreported_host,
+    ))
 }
 
 fn initialization_transaction_failure(
@@ -158,10 +168,11 @@ mod tests {
     use super::initialize_site;
     use crate::{
         hosts::test_support::{FakeHostEnvironment, TAILNET_NAME, listener_host},
+        output::plain_text,
         site::{
             ApplicationsChoice, InferenceChoice, NativeWorkloadLifetimeChoice,
             collection::{CollectionAdapters, CollectionMode},
-            output::success_records,
+            output::site_messages,
             prepare_initial_site,
             test_support::{
                 FakeApple, FakeDocker, SiteRoot, UnavailableNvidia, adapters, flagged_request,
@@ -380,15 +391,17 @@ mod tests {
             InitialSiteInputs::load(&site_dir, &dotcore::model::site_declaration_rules())
                 .expect("existing site inputs");
         assert_eq!(
-            success_records(
-                "Site already initialized",
-                &site_dir,
-                &existing,
-                &flagged_request(&matching_arguments.configuration),
-            )
-            .expect("success records"),
+            plain_text(
+                &site_messages(
+                    "Site already initialized",
+                    &site_dir,
+                    &existing,
+                    &flagged_request(&matching_arguments.configuration),
+                )
+                .expect("site messages")
+            ),
             format!(
-                "Site already initialized\nDOTCORE_SITE_DIR={}\nDOTCORE_SITE_ID=site-test\nDOTCORE_NODE_ID=node-test\nDOTCORE_NODE_HOST=192.0.2.10\nDOTCORE_INFERENCE=simulated\nDOTCORE_APPLICATIONS=docker\n",
+                "✔ Site already initialized\n  directory     {}\n  site id       site-test\n  node id       node-test\n  node host     192.0.2.10\n  inference     simulated\n  applications  docker\n",
                 site_dir.display()
             )
         );

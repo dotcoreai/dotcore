@@ -15,6 +15,6 @@ executionTargets:
         acceleratorTransport: "DOCKER_ACCELERATOR_TRANSPORT_CDI"
 modelDeployments: []
 applicationDeployments: []
-modelDeploymentIdentityAllocator:
-  namespace: 57ed05b65395e4c3
+deploymentIdentityAllocator:
+  suffixKey: 57ed05b65395e4c3
   nextSequence: '1'

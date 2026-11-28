@@ -265,7 +265,7 @@ describe("Application deployment dialog", () => {
       ["idle — Unavailable (No eligible text member)", false],
     ]);
     expect(screen.queryByLabelText("Execution target")).not.toBeInTheDocument();
-    expect(stepLabels()).toEqual(["1. Inference route", "2. Target", "3. Deploy"]);
+    expect(stepLabels()).toEqual(["1. Route", "2. Target", "3. Deploy"]);
 
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByLabelText("Execution target")).toHaveValue("machine-a");
@@ -838,7 +838,7 @@ describe("Application deployment dialog", () => {
 
     const dialog = screen.getByRole("dialog", { name: "OpenWebUI — Deploy application" });
     await openAdvanced(user, within(dialog));
-    expect(stepLabels()).toEqual(["1. Inference route", "2. Target", "3. Deploy"]);
+    expect(stepLabels()).toEqual(["1. Route", "2. Target", "3. Deploy"]);
     expect(within(dialog).getByText("Step 2 of 3 — Target")).toBeVisible();
     expect(within(dialog).getByLabelText("Execution target")).toBeVisible();
     expect(
@@ -1010,7 +1010,7 @@ describe("Application deployment dialog", () => {
     );
     const view = render(dialog([machine, applicationTarget("spare")]));
 
-    expect(stepLabels()).toEqual(["1. Inference route", "2. Target", "3. Deploy"]);
+    expect(stepLabels()).toEqual(["1. Route", "2. Target", "3. Deploy"]);
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByLabelText("Execution target")).toHaveValue("local");
     await user.click(screen.getByRole("button", { name: "Next" }));
@@ -1021,14 +1021,14 @@ describe("Application deployment dialog", () => {
     ).toHaveTextContent(
       "The selected execution target is no longer eligible. Return to Target and select an eligible execution target.",
     );
-    expect(stepLabels()).toEqual(["1. Inference route", "2. Target", "3. Deploy"]);
+    expect(stepLabels()).toEqual(["1. Route", "2. Target", "3. Deploy"]);
     await user.click(screen.getByRole("button", { name: "Deploy" }));
     expect(screen.getByText("Step 2 of 3 — Target")).toBeVisible();
     expect(screen.getByRole("checkbox", { name: "Advanced" })).not.toBeChecked();
     expect(onSubmit).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Back" }));
-    expect(stepLabels()).toEqual(["1. Inference route", "2. Deploy"]);
+    expect(stepLabels()).toEqual(["1. Route", "2. Deploy"]);
   });
 
   it("summarizes resolved values and keeps advanced values when Back returns to the first step", async () => {
@@ -1108,7 +1108,7 @@ describe("Application deployment dialog", () => {
     await user.click(within(progress).getByRole("button", { name: "1. Inference route" }));
     expect(screen.getByText("Step 1 of 3 — Inference route")).toBeVisible();
     await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
-    expect(stepLabels()).toEqual(["1. Inference route", "2. Target", "3. Deploy"]);
+    expect(stepLabels()).toEqual(["1. Route", "2. Target", "3. Deploy"]);
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByLabelText("Execution target")).toHaveValue("remote");
   });

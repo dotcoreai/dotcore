@@ -15,8 +15,9 @@ use std::{
 };
 
 use super::{
-    ConfirmPrompt, CountdownPrompt, InputPrompt, Message, MultiSelectPrompt, PromptError,
-    SelectItem, SelectPrompt, Terminal, TerminalCondition,
+    ConfirmPrompt, CountdownPrompt, FormAnswer, FormPrompt, FormSession, InputPrompt, Message,
+    MultiSelectPrompt, PromptError, SelectItem, SelectPrompt, Terminal, TerminalCondition, form,
+    output::Output,
     render::{LastOutput, Symbols, plain_text},
 };
 
@@ -32,6 +33,9 @@ pub(super) struct LineTerminal {
 
     /// What was printed last, which decides the blank line before the next output.
     last: LastOutput,
+
+    /// Where command output goes.
+    output: Output,
 }
 
 struct LineIo {
@@ -51,6 +55,7 @@ impl LineTerminal {
                 echo_control: None,
                 symbols: Symbols::ASCII,
                 last: LastOutput::Nothing,
+                output: Output::stdout(false),
             };
         };
         let condition = if writer.is_terminal() {
@@ -59,7 +64,8 @@ impl LineTerminal {
             TerminalCondition::NonInteractive
         };
         let echo_control = writer.try_clone().ok();
-        let mut terminal = Self::with_io(condition, BufReader::new(reader), writer);
+        let output = Output::stdout(condition == TerminalCondition::Interactive);
+        let mut terminal = Self::with_io(condition, BufReader::new(reader), writer, output);
         terminal.echo_control = echo_control;
         terminal.symbols = Symbols::detect();
         terminal
@@ -69,6 +75,7 @@ impl LineTerminal {
         condition: TerminalCondition,
         reader: impl BufRead + 'static,
         writer: impl Write + 'static,
+        output: Output,
     ) -> Self {
         Self {
             condition,
@@ -79,6 +86,7 @@ impl LineTerminal {
             echo_control: None,
             symbols: Symbols::UNICODE,
             last: LastOutput::Nothing,
+            output,
         }
     }
 
@@ -142,19 +150,30 @@ impl Terminal for LineTerminal {
     fn select(&mut self, prompt: &SelectPrompt) -> Result<usize, PromptError> {
         self.answered(|terminal| {
             terminal.write_line(prompt.title())?;
-            for (index, item) in prompt.items().iter().enumerate() {
-                terminal.write_line(&item_line(index, "", item))?;
-            }
-
-            let question = format!("Choice [{}]", prompt.default() + 1);
+            // The items listed, by index; part of a label lists only the items it matches.
+            let mut listed = (0..prompt.items().len()).collect::<Vec<_>>();
             loop {
-                let answer = terminal.ask(&question)?;
-                match parse_select_answer(prompt, &answer) {
-                    Some(index) => return Ok(index),
-                    None => terminal.write_line(&format!(
-                        "Choice must be a number from 1 to {} or a listed label.",
-                        prompt.items().len()
-                    ))?,
+                for (number, index) in listed.iter().enumerate() {
+                    terminal.write_line(&item_line(number, "", &prompt.items()[*index]))?;
+                }
+                let default = listed
+                    .iter()
+                    .position(|index| *index == prompt.default())
+                    .unwrap_or(0);
+                let question = format!("Choice [{}]", default + 1);
+                loop {
+                    let answer = terminal.ask(&question)?;
+                    match parse_select_answer(prompt, &listed, default, &answer) {
+                        SelectAnswer::One(index) => return Ok(index),
+                        SelectAnswer::Several(matches) => {
+                            listed = matches;
+                            break;
+                        }
+                        SelectAnswer::NoMatch => terminal.write_line(&format!(
+                            "Choice must be a number from 1 to {} or part of a listed label.",
+                            listed.len()
+                        ))?,
+                    }
                 }
             }
         })
@@ -229,6 +248,18 @@ impl Terminal for LineTerminal {
         })
     }
 
+    fn form(
+        &mut self,
+        prompt: &mut FormPrompt,
+        session: &mut dyn FormSession,
+    ) -> Result<FormAnswer, PromptError> {
+        form::ask_each_field(self, prompt, session)
+    }
+
+    fn live_footer(&mut self) -> bool {
+        false
+    }
+
     fn countdown(&mut self, _prompt: &CountdownPrompt) -> Result<bool, PromptError> {
         // A line answer needs Enter, and Ctrl-C without raw mode stops the process instead of
         // skipping, so line prompts never start an action by themselves.
@@ -236,6 +267,24 @@ impl Terminal for LineTerminal {
     }
 
     fn message(&mut self, message: &Message) -> Result<(), PromptError> {
+        if matches!(message, Message::Warning(_)) {
+            return self.output.write_warning(message).map_err(PromptError::Io);
+        }
+        let rendered = message.render(self.symbols);
+        if !self.output.shares_screen() {
+            return self.output.write_plain(&rendered).map_err(PromptError::Io);
+        }
+        if self.last.blank_before(rendered.blank_before) {
+            writeln!(self.output.writer()).map_err(PromptError::Io)?;
+        }
+        self.output
+            .write_plain(&rendered)
+            .map_err(PromptError::Io)?;
+        self.last = LastOutput::Message;
+        Ok(())
+    }
+
+    fn prompt_context(&mut self, message: &Message) -> Result<(), PromptError> {
         let rendered = message.render(self.symbols);
         if self.last.blank_before(rendered.blank_before) {
             self.write_line("")?;
@@ -303,13 +352,57 @@ fn numbers(indices: &BTreeSet<usize>) -> String {
         .join(", ")
 }
 
-/// Resolves an item number (1-based) or a case-insensitive label; empty chooses the default.
-fn parse_select_answer(prompt: &SelectPrompt, answer: &str) -> Option<usize> {
+/// What a select answer picks among the `listed` items.
+enum SelectAnswer {
+    /// The item at this index.
+    One(usize),
+
+    /// The items, by index, that part of a label or description matches; list them again.
+    Several(Vec<usize>),
+
+    /// Nothing listed matches.
+    NoMatch,
+}
+
+/// Resolves a select answer among the `listed` items: empty takes the listed `default`, a
+/// number (1-based) or a case-insensitive label picks its item, and part of a label or
+/// description picks the one item it matches or narrows the list to several.
+fn parse_select_answer(
+    prompt: &SelectPrompt,
+    listed: &[usize],
+    default: usize,
+    answer: &str,
+) -> SelectAnswer {
     let answer = answer.trim();
+    let items = prompt.items();
     if answer.is_empty() {
-        return Some(prompt.default());
+        return SelectAnswer::One(listed[default]);
     }
-    item_index(prompt.items(), answer)
+    if let Ok(number) = answer.parse::<usize>() {
+        return match number
+            .checked_sub(1)
+            .and_then(|position| listed.get(position))
+        {
+            Some(index) => SelectAnswer::One(*index),
+            None => SelectAnswer::NoMatch,
+        };
+    }
+    if let Some(index) = listed
+        .iter()
+        .find(|index| items[**index].label().eq_ignore_ascii_case(answer))
+    {
+        return SelectAnswer::One(*index);
+    }
+    let matches = listed
+        .iter()
+        .copied()
+        .filter(|index| items[*index].matches(answer))
+        .collect::<Vec<_>>();
+    match matches.as_slice() {
+        [] => SelectAnswer::NoMatch,
+        [index] => SelectAnswer::One(*index),
+        _ => SelectAnswer::Several(matches),
+    }
 }
 
 /// Resolves comma-separated item numbers or labels of available items; empty keeps the
@@ -362,7 +455,7 @@ mod tests {
     use super::LineTerminal;
     use crate::terminal::{
         ConfirmPrompt, InputPrompt, Message, MultiSelectPrompt, NextStep, PromptError, SelectItem,
-        SelectPrompt, Terminal, TerminalCondition, render::Symbols,
+        SelectPrompt, Terminal, TerminalCondition, output::Output, render::Symbols,
     };
 
     #[test]
@@ -450,8 +543,39 @@ mod tests {
         assert_eq!(
             output.text(),
             "Host\n  1) 127.0.0.1\nChoice [1]: \
-             Choice must be a number from 1 to 1 or a listed label.\nChoice [1]: \
-             Choice must be a number from 1 to 1 or a listed label.\nChoice [1]: "
+             Choice must be a number from 1 to 1 or part of a listed label.\nChoice [1]: \
+             Choice must be a number from 1 to 1 or part of a listed label.\nChoice [1]: "
+        );
+    }
+
+    #[test]
+    fn select_takes_part_of_a_label_and_lists_the_matches_when_several() {
+        let prompt = SelectPrompt::new(
+            "Model",
+            [
+                SelectItem::new("Qwen 3.8 27B").with_description("qwen3-8-27b"),
+                SelectItem::new("Gemma 4 E4B").with_description("gemma-4-e4b"),
+                SelectItem::new("Qwen 3 Coder").with_description("qwen3-coder"),
+            ],
+        )
+        .with_default(2);
+
+        let (mut terminal, output) = line_terminal("gemma\n");
+        assert_eq!(terminal.select(&prompt).expect("one match"), 1);
+        assert_eq!(
+            output.text(),
+            "Model\n  1) Qwen 3.8 27B  qwen3-8-27b\n  2) Gemma 4 E4B  gemma-4-e4b\n  \
+             3) Qwen 3 Coder  qwen3-coder\nChoice [3]: "
+        );
+
+        let (mut terminal, output) = line_terminal("QWEN\nllama\n1\n");
+        assert_eq!(terminal.select(&prompt).expect("narrowed"), 0);
+        assert_eq!(
+            output.text(),
+            "Model\n  1) Qwen 3.8 27B  qwen3-8-27b\n  2) Gemma 4 E4B  gemma-4-e4b\n  \
+             3) Qwen 3 Coder  qwen3-coder\nChoice [3]: \
+             \x20 1) Qwen 3.8 27B  qwen3-8-27b\n  2) Qwen 3 Coder  qwen3-coder\nChoice [2]: \
+             Choice must be a number from 1 to 2 or part of a listed label.\nChoice [2]: "
         );
     }
 
@@ -547,7 +671,7 @@ mod tests {
             .input(&InputPrompt::new("Node name"))
             .expect("name");
         terminal
-            .message(&Message::Info(
+            .prompt_context(&Message::Info(
                 "Accelerator detection: nvidia detected".to_owned(),
             ))
             .expect("context");
@@ -555,10 +679,10 @@ mod tests {
             .select(&SelectPrompt::new("Inference", [SelectItem::new("nvidia")]))
             .expect("inference");
         terminal
-            .message(&Message::Heading("Initial site plan".to_owned()))
+            .prompt_context(&Message::Heading("Initial site plan".to_owned()))
             .expect("heading");
         terminal
-            .message(&Message::Hint("Workers connect to this host.".to_owned()))
+            .prompt_context(&Message::Hint("Workers connect to this host.".to_owned()))
             .expect("hint");
         terminal
             .confirm(&ConfirmPrompt::new("Write this site configuration?", true))
@@ -578,6 +702,61 @@ mod tests {
              Write this site configuration? [yes]: \n\
              ✔ Written\n"
         );
+    }
+
+    #[test]
+    fn redirected_output_is_spaced_apart_from_the_prompts_and_their_context() {
+        let screen = SharedOutput::default();
+        let stdout = SharedOutput::default();
+        let mut terminal = LineTerminal::with_io(
+            TerminalCondition::Interactive,
+            Cursor::new(b"y\n".to_vec()),
+            screen.clone(),
+            Output::new(Box::new(stdout.clone()), Box::new(io::sink()), false),
+        );
+
+        terminal
+            .message(&Message::Heading("Nodes".to_owned()))
+            .expect("heading");
+        terminal
+            .prompt_context(&Message::Heading("Remove gpu1".to_owned()))
+            .expect("review");
+        terminal
+            .confirm(&ConfirmPrompt::new("Remove it?", false))
+            .expect("confirmation");
+        terminal
+            .message(&Message::Success("Removed gpu1".to_owned()))
+            .expect("outcome");
+        terminal
+            .message(&Message::Heading("Next".to_owned()))
+            .expect("block");
+
+        assert_eq!(screen.text(), "Remove gpu1\nRemove it? [no]: ");
+        assert_eq!(stdout.text(), "Nodes\n✔ Removed gpu1\n\nNext\n");
+    }
+
+    #[test]
+    fn outcome_warnings_go_to_stderr_and_leave_the_output_alone() {
+        let screen = SharedOutput::default();
+        let stdout = SharedOutput::default();
+        let stderr = SharedOutput::default();
+        let mut terminal = LineTerminal::with_io(
+            TerminalCondition::Interactive,
+            Cursor::new(Vec::new()),
+            screen.clone(),
+            Output::new(Box::new(stdout.clone()), Box::new(stderr.clone()), false),
+        );
+
+        terminal
+            .message(&Message::Success("Removed gpu1".to_owned()))
+            .expect("outcome");
+        terminal
+            .message(&Message::Warning("gpu1 keeps its workloads".to_owned()))
+            .expect("warning");
+
+        assert_eq!(screen.text(), "");
+        assert_eq!(stdout.text(), "✔ Removed gpu1\n");
+        assert_eq!(stderr.text(), "! gpu1 keeps its workloads\n");
     }
 
     #[test]
@@ -621,6 +800,27 @@ mod tests {
     }
 
     #[test]
+    fn messages_without_a_terminal_go_to_stdout_while_prompts_still_fail() {
+        let stdout = SharedOutput::default();
+        let mut terminal = LineTerminal::with_io(
+            TerminalCondition::NonInteractive,
+            Cursor::new(Vec::new()),
+            io::sink(),
+            Output::new(Box::new(stdout.clone()), Box::new(io::sink()), false),
+        );
+
+        terminal
+            .message(&Message::Success("Written".to_owned()))
+            .expect("message");
+
+        assert_eq!(stdout.text(), "✔ Written\n");
+        assert!(matches!(
+            terminal.input(&InputPrompt::new("Site")),
+            Err(PromptError::NotInteractive)
+        ));
+    }
+
+    #[test]
     fn missing_controlling_terminal_is_non_interactive() {
         let mut terminal = LineTerminal::from_tty(None);
 
@@ -631,14 +831,16 @@ mod tests {
         ));
     }
 
+    /// A terminal whose prompts and output share one screen.
     fn line_terminal(input: &str) -> (LineTerminal, SharedOutput) {
-        let output = SharedOutput::default();
+        let screen = SharedOutput::default();
         let terminal = LineTerminal::with_io(
             TerminalCondition::Interactive,
             Cursor::new(input.as_bytes().to_vec()),
-            output.clone(),
+            screen.clone(),
+            Output::new(Box::new(screen.clone()), Box::new(io::sink()), true),
         );
-        (terminal, output)
+        (terminal, screen)
     }
 
     #[derive(Clone, Default)]

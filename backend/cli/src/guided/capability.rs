@@ -124,7 +124,7 @@ pub(crate) fn collect_inference(
         .apple
         .as_ref()
         .expect("unresolved inference must have an Apple probe");
-    terminal.message(&Message::Info(summary(
+    terminal.prompt_context(&Message::Info(summary(
         "Accelerator detection",
         &[("nvidia", nvidia.state()), ("apple", apple.state())],
     )))?;
@@ -160,7 +160,7 @@ pub(crate) fn collect_inference(
         offers.push(Some((InitialInferenceRuntime::Simulated, None)));
     }
     if items.is_empty() {
-        terminal.message(&Message::Info(
+        terminal.prompt_context(&Message::Info(
             "No inference: this node runs no local models.".to_owned(),
         ))?;
         return Ok(inference_pick(nvidia, &[]));
@@ -180,7 +180,7 @@ pub(crate) fn collect_inference(
             .iter()
             .any(|(runtime, _)| *runtime == InitialInferenceRuntime::Simulated);
         if simulated && picked.len() > 1 {
-            terminal.message(&Message::Warning(
+            terminal.prompt_context(&Message::Warning(
                 "Simulated hardware replaces the real GPUs: check one or the other.".to_owned(),
             ))?;
             continue;
@@ -192,7 +192,7 @@ pub(crate) fn collect_inference(
         .iter()
         .any(|(runtime, _)| *runtime == InitialInferenceRuntime::Simulated);
     if picked.is_empty() {
-        terminal.message(&Message::Info(
+        terminal.prompt_context(&Message::Info(
             "No inference: this node runs no local models.".to_owned(),
         ))?;
     }
@@ -228,7 +228,7 @@ fn collect_simulated_hardware(terminal: &mut dyn Terminal) -> anyhow::Result<Vec
             .collect::<Vec<_>>();
         match MachineDescription::simulated(&picked, std::env::consts::ARCH) {
             Ok(_) => return Ok(picked),
-            Err(error) => terminal.message(&Message::Warning(format!("{error}.")))?,
+            Err(error) => terminal.prompt_context(&Message::Warning(format!("{error}.")))?,
         }
     }
 }
@@ -248,7 +248,7 @@ pub(crate) fn collect_applications(
         .docker
         .as_ref()
         .expect("unresolved applications must have a Docker probe");
-    terminal.message(&Message::Info(summary(
+    terminal.prompt_context(&Message::Info(summary(
         "Applications detection",
         &[("docker", docker.state())],
     )))?;
@@ -278,7 +278,7 @@ pub(crate) fn collect_applications(
         })
         .collect::<BTreeSet<_>>();
     if applications.is_empty() {
-        terminal.message(&Message::Info(
+        terminal.prompt_context(&Message::Info(
             "No applications: this node runs no applications.".to_owned(),
         ))?;
     }

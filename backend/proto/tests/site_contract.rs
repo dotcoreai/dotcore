@@ -464,7 +464,7 @@ fn complete_model_snapshot() -> ModelDeploymentSnapshot {
                 engine_parameter_schema_id: "schema-one".to_owned(),
                 engine_parameter_schema: Some(EngineParameterSchema {
                     schema_id: "schema-one".to_owned(),
-                    parameters: vec![ParameterDefinition {
+                    parameters: vec![ParameterDefinition { summary: "Summary.".into(),
                         parameter_id: "total-context".to_owned(),
                         display_name: "Total context".to_owned(),
                         parameter_type: Some(
@@ -739,7 +739,7 @@ fn generated_descriptors_preserve_site_inventory_contracts() {
     assert_eq!(field_number(site, "Site", "inference_routes"), 6);
     assert_eq!(field_number(site, "Site", "hardware_observation"), 7);
     assert_eq!(
-        field_number(site, "Site", "model_deployment_identity_allocator"),
+        field_number(site, "Site", "deployment_identity_allocator"),
         8
     );
     assert_eq!(

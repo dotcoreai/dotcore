@@ -1138,13 +1138,13 @@ version: "1"
 parameterSchema:
   schemaId: "fixture-vllm-v2"
   parameters:
-    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "512", maximum: "16777216", unit: "tokens" } }
-    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "512", maximum: "1048576", unit: "tokens", defaultValue: "8192" } }
-    - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "1", maximum: "1024", unit: "requests", defaultValue: "4" } }
-    - { parameterId: "maximum-batched-tokens", displayName: "Maximum batched tokens", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "1", maximum: "1048576", unit: "tokens" } }
-    - { parameterId: "maximum-cudagraph-capture-size", displayName: "Maximum CUDA graph capture size", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "1", maximum: "1024", unit: "sequences" } }
-    - { parameterId: "kv-cache-memory-bytes", displayName: "KV cache memory", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "1", maximum: "1099511627776", unit: "bytes" } }
-    - { parameterId: "kv-offloading-size-gib", displayName: "KV offloading size", visibility: "PARAMETER_VISIBILITY_ADVANCED", unsignedInteger: { minimum: "0", maximum: "1024", unit: "GiB" } }
+    - { parameterId: "total-context", displayName: "Total context", summary: "Summary.", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "512", maximum: "16777216", unit: "tokens" } }
+    - { parameterId: "context-per-request", displayName: "Context per request", summary: "Summary.", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "512", maximum: "1048576", unit: "tokens", defaultValue: "8192" } }
+    - { parameterId: "parallel-requests", displayName: "Parallel requests", summary: "Summary.", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "1", maximum: "1024", unit: "requests", defaultValue: "4" } }
+    - { parameterId: "maximum-batched-tokens", displayName: "Maximum batched tokens", summary: "Summary.", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "1", maximum: "1048576", unit: "tokens" } }
+    - { parameterId: "maximum-cudagraph-capture-size", displayName: "Maximum CUDA graph capture size", summary: "Summary.", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "1", maximum: "1024", unit: "sequences" } }
+    - { parameterId: "kv-cache-memory-bytes", displayName: "KV cache memory", summary: "Summary.", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "1", maximum: "1099511627776", unit: "bytes" } }
+    - { parameterId: "kv-offloading-size-gib", displayName: "KV offloading size", summary: "Summary.", visibility: "PARAMETER_VISIBILITY_ADVANCED", unsignedInteger: { minimum: "0", maximum: "1024", unit: "GiB" } }
 artifacts:
   - artifactId: "linux-amd64-cuda"
     oci:
@@ -1162,7 +1162,7 @@ displayName: "Fixture vLLM model"
 version: "1"
 maximumContextTokens: 262144
 options:
-  - { optionId: "mtp", displayName: "MTP", description: "Fixture option.", visibility: "PARAMETER_VISIBILITY_ADVANCED", speculativeDecoding: { method: "SPECULATIVE_DECODING_METHOD_MTP" } }
+  - { optionId: "mtp", displayName: "MTP", summary: "Summary.", description: "Fixture option.", visibility: "PARAMETER_VISIBILITY_ADVANCED", speculativeDecoding: { method: "SPECULATIVE_DECODING_METHOD_MTP" } }
 artifacts:
   - artifactId: "snapshot"
     source:
@@ -1348,6 +1348,7 @@ profiles:
     fn kv_cache_precision_declaration() -> (Model, ModelEngineConfiguration) {
         let model = Model {
             options: vec![dotcore_proto::dotcore::catalog::v1::ModelOption {
+                summary: "Summary.".into(),
                 option_id: "kv-cache".to_owned(),
                 display_name: "KV cache precision".to_owned(),
                 description: "Fixture option.".to_owned(),

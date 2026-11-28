@@ -6,38 +6,44 @@
 //! the write. Both show what the removal changes and ask for confirmation. A node that still has
 //! deployments is refused unless the operator chose to forget them, which also deletes the routes
 //! only those deployments serve; the running manager forgets them only for a node that is not
-//! connected.
+//! connected. Asked for YAML, the command never asks, so it needs `--yes`, and prints the
+//! manager's removal response, which the stopped site's removal reports in the same shape.
+
+use std::path::Path;
 
 use anyhow::Context;
 use clap::Args;
 use dotcore::model::engine::declaration_validator;
-use dotcore_proto::dotcore::site::v1::{
-    ExecutionTarget, ListMachinesRequest, MachineRemovalDeployment, MachineRemovalDeploymentKind,
-    MachineRemovalPlan, MachineRemovalRefusal, RemoveMachineRequest,
-    execution_target::RuntimeBinding, remove_machine_response,
+use dotcore_proto::{
+    dotcore::site::v1::{
+        ExecutionTarget, ListMachinesRequest, Machine, MachineRemovalDeployment,
+        MachineRemovalDeploymentKind, MachineRemovalPlan, MachineRemovalRefusal,
+        RemoveMachineRequest, RemoveMachineResponse, SiteNode, execution_target::RuntimeBinding,
+        remove_machine_response,
+    },
+    google::protobuf::Empty,
 };
 use dotcore_site::{
     SITE_FILE,
     initial::validation::SiteInputBundleValidator,
-    membership::{NodeRemoval, NodeRemovalPlan, OfflineSite, OfflineSiteError, looks_like_node_id},
+    membership::{
+        NodeRemoval, NodeRemovalPlan, OfflineSite, OfflineSiteError, list_site_nodes,
+        looks_like_node_id, removal_plan,
+    },
 };
 
-use super::{Notices, boxed, record_value, write_records};
+use super::{Notices, boxed};
 use crate::{
     RootPathArgs,
     management::{ManagementError, ManagerArgs, single_line},
-    terminal::{
-        ConfirmPrompt, Message, NextStep, PromptError, Terminal, TerminalCondition,
-        controlling_terminal_condition, open_terminal,
-    },
+    output::{OutputFormat, require_consent, write_yaml},
+    reference::{Referable, ReferenceError, ReferenceKind, resolve},
+    terminal::{ConfirmPrompt, Message, PromptError, Terminal, open_terminal},
 };
 
 /// Arguments of `dotc node remove`.
 #[derive(Debug, Args)]
 pub struct NodeRemoveArgs {
-    #[command(flatten)]
-    manager: ManagerArgs,
-
     /// Display name or node id of the worker node to remove.
     #[arg(value_name = "NODE")]
     pub node: String,
@@ -51,6 +57,9 @@ pub struct NodeRemoveArgs {
     /// Remove the node without asking for confirmation.
     #[arg(long)]
     pub yes: bool,
+
+    #[command(flatten)]
+    manager: ManagerArgs,
 }
 
 /// Removes the node after the operator confirms: through the site manager when it holds the site,
@@ -58,27 +67,29 @@ pub struct NodeRemoveArgs {
 pub(crate) async fn node_remove(
     paths: &RootPathArgs,
     arguments: NodeRemoveArgs,
+    format: OutputFormat,
 ) -> anyhow::Result<()> {
-    if !arguments.yes && controlling_terminal_condition() != TerminalCondition::Interactive {
-        anyhow::bail!(
-            "removing a node needs a terminal; run in a terminal or pass --yes to remove it without confirmation"
-        );
-    }
-    match open_stopped_site(paths)? {
-        Some(site) => remove_from_stopped_site(&site, &arguments),
-        None => remove_from_running_site(&arguments).await,
+    require_consent(
+        arguments.yes,
+        format,
+        "removing a node needs a terminal; run in a terminal or pass --yes to remove it without confirmation",
+        "removing a node needs confirmation, which --yaml never asks for; pass --yes to remove it",
+    )?;
+    let site_dir = paths.site_dir()?;
+    match open_stopped_site(&site_dir)? {
+        Some(site) => remove_from_stopped_site(&site, &site_dir, &arguments, format),
+        None => remove_from_running_site(&arguments, format).await,
     }
 }
 
 /// Opens the stopped site under the exclusive lock; `None` when there is no site here or a
 /// running manager holds it, so the removal goes through the manager.
-fn open_stopped_site(paths: &RootPathArgs) -> anyhow::Result<Option<OfflineSite>> {
-    let site_dir = paths.site_dir()?;
+fn open_stopped_site(site_dir: &Path) -> anyhow::Result<Option<OfflineSite>> {
     if !site_dir.join(SITE_FILE).exists() {
         return Ok(None);
     }
     match OfflineSite::open(
-        &site_dir,
+        site_dir,
         &SiteInputBundleValidator::new(
             declaration_validator(),
             dotcore::model::site_declaration_rules(),
@@ -94,15 +105,32 @@ fn open_stopped_site(paths: &RootPathArgs) -> anyhow::Result<Option<OfflineSite>
 }
 
 /// Plans, confirms and applies the removal on the stopped site.
-fn remove_from_stopped_site(site: &OfflineSite, arguments: &NodeRemoveArgs) -> anyhow::Result<()> {
+fn remove_from_stopped_site(
+    site: &OfflineSite,
+    site_dir: &Path,
+    arguments: &NodeRemoveArgs,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
+    let nodes = list_site_nodes(site_dir, &dotcore::model::site_declaration_rules())
+        .with_context(|| {
+            format!(
+                "cannot remove a node from the site at {}",
+                site_dir.display()
+            )
+        })?
+        .nodes
+        .into_iter()
+        .map(|listed| listed.node)
+        .collect::<Vec<_>>();
+    let node_id = node_id(&arguments.node, &nodes)?;
     let plan = match site
-        .plan_node_removal(&arguments.node, arguments.forget_deployments)
+        .plan_node_removal(&node_id, arguments.forget_deployments)
         .with_context(|| format!("cannot remove node {:?}", arguments.node))?
     {
         NodeRemoval::Planned(plan) => plan,
         NodeRemoval::AlreadyRemoved { node_id } => {
             let mut terminal = (!arguments.yes).then(open_terminal);
-            return report_already_removed(boxed(&mut terminal), &node_id);
+            return report_already_removed(boxed(&mut terminal), &node_id, format);
         }
     };
 
@@ -113,11 +141,15 @@ fn remove_from_stopped_site(site: &OfflineSite, arguments: &NodeRemoveArgs) -> a
     }
     site.remove_node(&plan)
         .with_context(|| format!("cannot remove node {:?}", plan.node.display_name))?;
-    report_removed(boxed(&mut terminal), &review, false)
+    let response = removed_response(removal_plan(&plan));
+    report_removed(boxed(&mut terminal), &review, false, &response, format)
 }
 
 /// Previews, confirms and applies the removal through the running site manager.
-async fn remove_from_running_site(arguments: &NodeRemoveArgs) -> anyhow::Result<()> {
+async fn remove_from_running_site(
+    arguments: &NodeRemoveArgs,
+    format: OutputFormat,
+) -> anyhow::Result<()> {
     let manager = arguments
         .manager
         .connect()
@@ -145,7 +177,7 @@ async fn remove_from_running_site(arguments: &NodeRemoveArgs) -> anyhow::Result<
         Some(remove_machine_response::Outcome::WouldRemove(plan)) => RemovalReview::running(&plan),
         Some(remove_machine_response::Outcome::AlreadyRemoved(_)) => {
             let mut terminal = (!arguments.yes).then(open_terminal);
-            return report_already_removed(boxed(&mut terminal), &request.node_id);
+            return report_already_removed(boxed(&mut terminal), &request.node_id, format);
         }
         Some(remove_machine_response::Outcome::Refused(refusal)) => {
             return Err(refused(&arguments.node, &refusal));
@@ -168,10 +200,12 @@ async fn remove_from_running_site(arguments: &NodeRemoveArgs) -> anyhow::Result<
         .outcome;
     match removed {
         Some(remove_machine_response::Outcome::Removed(plan)) => {
-            report_removed(boxed(&mut terminal), &RemovalReview::running(&plan), true)
+            let review = RemovalReview::running(&plan);
+            let response = removed_response(plan);
+            report_removed(boxed(&mut terminal), &review, true, &response, format)
         }
         Some(remove_machine_response::Outcome::AlreadyRemoved(_)) => {
-            report_already_removed(boxed(&mut terminal), &request.node_id)
+            report_already_removed(boxed(&mut terminal), &request.node_id, format)
         }
         Some(remove_machine_response::Outcome::Refused(refusal)) => {
             Err(refused(&arguments.node, &refusal))
@@ -182,8 +216,7 @@ async fn remove_from_running_site(arguments: &NodeRemoveArgs) -> anyhow::Result<
     }
 }
 
-/// Finds the node id of the machine named by `selector`, its id or its display name. An unknown
-/// id is passed on, so a removal that already finished reports so; an unknown name is an error.
+/// Finds the node id of the running site's machine that `selector` names.
 async fn resolve_node(
     manager: &crate::management::Manager,
     selector: &str,
@@ -195,41 +228,44 @@ async fn resolve_node(
         .map_err(|status| call_failed("list the machines", &status))?
         .into_inner()
         .machines;
-    if machines
-        .iter()
-        .any(|machine| machine.machine_id == selector)
-    {
-        return Ok(selector.to_owned());
+    Ok(node_id(selector, &machines)?)
+}
+
+/// Finds the node id of the node `selector` names among the site's nodes. An unknown selector
+/// shaped like a node id is passed on, so a removal that already finished reports so; any other
+/// unknown selector is an error.
+fn node_id(selector: &str, nodes: &[impl Referable]) -> Result<String, ReferenceError> {
+    match resolve(ReferenceKind::Node, selector, nodes) {
+        Ok(node) => Ok(node.id().to_owned()),
+        Err(ReferenceError::Unknown { .. }) if looks_like_node_id(selector) => {
+            Ok(selector.to_owned())
+        }
+        Err(error) => Err(error),
     }
-    let named = machines
-        .iter()
-        .filter(|machine| machine.display_name == selector)
-        .collect::<Vec<_>>();
-    match named.as_slice() {
-        [machine] => Ok(machine.machine_id.clone()),
-        [] if looks_like_node_id(selector) => Ok(selector.to_owned()),
-        [] => anyhow::bail!(
-            "no node {selector:?} in this site; declared nodes: {}",
-            machines
-                .iter()
-                .map(|machine| format!("{:?} ({})", machine.display_name, machine.machine_id))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        _ => anyhow::bail!(
-            "several nodes are named {selector:?}; select the node to remove by its id: {}",
-            named
-                .iter()
-                .map(|machine| machine.machine_id.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
+}
+
+impl Referable for Machine {
+    fn id(&self) -> &str {
+        &self.machine_id
+    }
+
+    fn name(&self) -> &str {
+        &self.display_name
+    }
+}
+
+impl Referable for SiteNode {
+    fn id(&self) -> &str {
+        &self.node_id
+    }
+
+    fn name(&self) -> &str {
+        &self.display_name
     }
 }
 
 /// What the operator reviews before a removal, and what is reported after it.
 struct RemovalReview {
-    node_id: String,
     name: String,
 
     /// Facts about the node, such as its host and execution targets.
@@ -245,7 +281,6 @@ struct RemovalReview {
 impl RemovalReview {
     fn stopped(plan: &NodeRemovalPlan) -> Self {
         Self {
-            node_id: plan.node.node_id.clone(),
             name: plan.node.display_name.clone(),
             facts: vec![
                 ("host".to_owned(), plan.node.host.clone()),
@@ -275,7 +310,6 @@ impl RemovalReview {
 
     fn running(plan: &MachineRemovalPlan) -> Self {
         Self {
-            node_id: plan.node_id.clone(),
             name: plan.display_name.clone(),
             facts: vec![(
                 "targets".to_owned(),
@@ -306,16 +340,16 @@ impl RemovalReview {
 
 /// Shows the node, its execution targets, and every declaration the removal drops, then asks.
 fn confirm(terminal: &mut dyn Terminal, review: &RemovalReview) -> anyhow::Result<()> {
-    terminal.message(&Message::Heading(format!(
+    terminal.prompt_context(&Message::Heading(format!(
         "Remove {} from the site",
         review.name
     )))?;
-    terminal.message(&Message::KeyValues(review.facts.clone()))?;
+    terminal.prompt_context(&Message::KeyValues(review.facts.clone()))?;
     if !review.forgotten.is_empty() {
-        terminal.message(&Message::Warning(
+        terminal.prompt_context(&Message::Warning(
             "These deployments are dropped without cleaning up the node".to_owned(),
         ))?;
-        terminal.message(&Message::KeyValues(
+        terminal.prompt_context(&Message::KeyValues(
             review
                 .forgotten
                 .iter()
@@ -324,10 +358,10 @@ fn confirm(terminal: &mut dyn Terminal, review: &RemovalReview) -> anyhow::Resul
         ))?;
     }
     if !review.routes.is_empty() {
-        terminal.message(&Message::Warning(
+        terminal.prompt_context(&Message::Warning(
             "These routes only served those deployments and are deleted".to_owned(),
         ))?;
-        terminal.message(&Message::KeyValues(
+        terminal.prompt_context(&Message::KeyValues(
             review
                 .routes
                 .iter()
@@ -367,49 +401,33 @@ fn target_summary(targets: &[ExecutionTarget]) -> String {
     }
 }
 
-/// Reports the removal, on the terminal when interactive, else as records. A running site's
-/// manager has already told the machine to stop.
+/// The manager's response to a removal that went through, with what it changed.
+fn removed_response(plan: MachineRemovalPlan) -> RemoveMachineResponse {
+    RemoveMachineResponse {
+        outcome: Some(remove_machine_response::Outcome::Removed(plan)),
+    }
+}
+
+/// Reports the removal as YAML when asked, else as a success line. A running site's manager has already told the machine to stop.
 fn report_removed(
     terminal: Option<&mut dyn Terminal>,
     review: &RemovalReview,
     running: bool,
+    response: &RemoveMachineResponse,
+    format: OutputFormat,
 ) -> anyhow::Result<()> {
     let mut notices = Notices::new(terminal);
-    if notices.terminal.is_some() {
-        notices.success(&format!("Removed {}", review.name))?;
+    if format == OutputFormat::Yaml {
+        write_yaml(response)?;
     } else {
-        let mut records = format!(
-            "Node removed\nDOTCORE_NODE_ID={}\nDOTCORE_NODE_NAME={}\n",
-            record_value(&review.node_id)?,
-            record_value(&review.name)?,
-        );
-        for (id, _, _) in &review.forgotten {
-            records.push_str(&format!(
-                "DOTCORE_FORGOTTEN_DEPLOYMENT={}\n",
-                record_value(id)?
-            ));
-        }
-        for (id, _) in &review.routes {
-            records.push_str(&format!("DOTCORE_DELETED_ROUTE={}\n", record_value(id)?));
-        }
-        write_records(&records)?;
+        notices.success(&format!("Removed {}", review.name))?;
     }
     if running {
-        notices.instruct(
-            vec![
-                NextStep::new("The machine stops Dotcore by itself. To clean it up, run there:")
-                    .with_command("dotc node leave"),
-            ],
-            "The removed machine stops Dotcore by itself; run `dotc node leave` on it to stop its workloads and delete its node folder.",
+        notices.notice(
+            "The removed machine stops Dotcore by itself; its workloads and node folder remain",
         )
     } else {
-        notices.instruct(
-            vec![
-                NextStep::new("On that machine, stop its server, then run:")
-                    .with_command("dotc node leave"),
-            ],
-            "Stop the removed node's server, then run `dotc node leave` on that machine to stop its workloads and delete its node folder.",
-        )
+        notices.notice("The removed machine keeps its workloads and node folder")
     }
 }
 
@@ -417,19 +435,14 @@ fn report_removed(
 fn report_already_removed(
     terminal: Option<&mut dyn Terminal>,
     node_id: &str,
+    format: OutputFormat,
 ) -> anyhow::Result<()> {
-    match terminal {
-        Some(terminal) => {
-            terminal.message(&Message::Success(format!(
-                "{node_id} is already removed from the site"
-            )))?;
-            Ok(())
-        }
-        None => write_records(&format!(
-            "Node already removed\nDOTCORE_NODE_ID={}\n",
-            record_value(node_id)?
-        )),
+    if format == OutputFormat::Yaml {
+        return write_yaml(&RemoveMachineResponse {
+            outcome: Some(remove_machine_response::Outcome::AlreadyRemoved(Empty {})),
+        });
     }
+    Notices::new(terminal).success(&format!("{node_id} is already removed from the site"))
 }
 
 /// The manager's refusal; its message names the deployments, routes or applications that block

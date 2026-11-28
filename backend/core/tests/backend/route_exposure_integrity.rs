@@ -205,7 +205,7 @@ async fn local_deployments_are_independent_and_a_conflicting_route_is_atomic() {
     );
     let mut expected = accepted_site;
     expected
-        .model_deployment_identity_allocator
+        .deployment_identity_allocator
         .as_mut()
         .expect("deployment identity allocator")
         .next_sequence += 1;

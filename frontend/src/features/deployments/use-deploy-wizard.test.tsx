@@ -93,7 +93,6 @@ describe("useDeployWizard", () => {
     expect(result.current.announcement).toBe("Advanced on to fix advanced settings");
     expect(result.current.step).toBe("Advanced");
     expect(setFieldErrors).toHaveBeenLastCalledWith(errors);
-    expect(result.current.revealedErrors).toBe(errors);
     expect(document.activeElement).toBe(control);
   });
 

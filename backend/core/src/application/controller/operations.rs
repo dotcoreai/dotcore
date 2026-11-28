@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use dotcore_domain::{SiteNodeId, diagnostic::diagnostic_chain, real_time};
+use dotcore_domain::{SiteNodeId, diagnostic::diagnostic_chain};
 use dotcore_proto::dotcore::{
     application::v1::{
         ApplicationDeploymentDeclaration, ApplicationDeploymentDesiredState,
@@ -632,15 +632,10 @@ where
             )
             .map_err(ApplicationLifecycleError::InferenceRoute)?;
     }
-    let deployment_id = super::identity::allocate_deployment_id(
-        &application.application_id,
-        real_time::wall_now(),
-        snapshot
-            .deployments
-            .iter()
-            .map(|deployment| deployment.application_deployment_id.as_str()),
-        (0..32).map(|_| super::identity::random_collision_suffix()),
-    )?;
+    let deployment_id = owner
+        .desired
+        .reserve_deployment_id(&application.application_id)
+        .map_err(declaration_error)?;
     let published_port = allocate_published_port(
         PUBLISHED_PORT_RANGE,
         deployment_start_offset(&deployment_id),

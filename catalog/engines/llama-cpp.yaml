@@ -12,6 +12,7 @@ parameterSchema:
       displayName: "Total context"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "Memory the model holds for all requests at once; each active request stores its tokens in it, even when prompts start the same. It follows the context per request times the parallel requests unless you set it. When it fills, idle requests give up their share first, kept in the prompt cache when it is on, then active ones fail."
+      summary: "Context memory shared by all requests."
       # At least Dotcore's context floor. `--ctx-size` (`common/arg.cpp`) takes an int, so at most
       # the int32 maximum; llama.cpp pads it to whole 256-token blocks (`src/llama-context.cpp`).
       unsignedInteger:
@@ -22,6 +23,7 @@ parameterSchema:
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "Largest context one request may use. It reserves nothing: requests draw from the total context as they grow. Lower it to stop one long request from filling the total context."
+      summary: "Longest conversation one request can hold."
       # At least Dotcore's context floor; `--kv-unified-per-slot` (`common/arg.cpp`) takes an int,
       # so at most the int32 maximum.
       unsignedInteger:
@@ -33,6 +35,7 @@ parameterSchema:
       displayName: "Parallel requests"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "Requests generated at once; more wait in a queue. The total context grows with them unless you set it, so each added request adds memory; raise it when several people or agents use the model together."
+      summary: "How many requests run at the same time."
       # The server's `-np` refuses 0 (`common/arg.cpp`), and at most `LLAMA_MAX_SEQ` sequences
       # (`src/llama-cparams.h`); `src/llama-context.cpp` refuses more.
       # A model with classifier-free guidance doubles its sequences (`common/common.cpp`), so it
@@ -46,6 +49,7 @@ parameterSchema:
       displayName: "Prompt cache memory"
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
       description: "Host memory used to reuse repeated prompts, such as agent system prompts, without processing them again. Raise it if the same long prompts come back often; on unified-memory machines it competes with the model, and 0 turns it off."
+      summary: "Host memory to reuse repeated prompts; 0 turns it off."
       # `--cache-ram` (`common/arg.cpp`) takes an int in MiB, and 0 turns the cache off: 0 to the
       # int32 maximum. Its negative "no limit" has no unsigned form.
       unsignedInteger:

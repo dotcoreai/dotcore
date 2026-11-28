@@ -289,7 +289,7 @@ fn an_unknown_route_fails_listing_the_ready_routes() {
 
     assert_eq!(
         text(&output.stderr),
-        "no ready inference route is named \"disabled\"; ready routes: chat, code\n"
+        "no ready inference route matches \"disabled\"; ready routes: chat, code\n"
     );
     assert_eq!(output.status.code(), Some(1));
     assert!(!sandbox.agent_ran());

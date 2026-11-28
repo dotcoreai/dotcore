@@ -9,7 +9,7 @@ use dotcore_proto::dotcore::model::v1::{
     ModelDeployment, ModelDeploymentDesiredState, ModelDeploymentStatus, model_deployment_snapshot,
 };
 
-use crate::management::Addressable;
+use crate::reference::Referable;
 
 /// The status the operator sees: a requested teardown reads as unloading, and a requested pause
 /// reads as pausing until the workload is paused or unavailable.
@@ -100,7 +100,7 @@ pub(crate) fn model_display_name(deployment: &ModelDeployment) -> &str {
     }
 }
 
-impl Addressable for ModelDeployment {
+impl Referable for ModelDeployment {
     fn id(&self) -> &str {
         &self.model_deployment_id
     }
@@ -109,8 +109,8 @@ impl Addressable for ModelDeployment {
         presentation_name(self)
     }
 
-    fn stored_name(&self) -> &str {
-        &self.model_deployment_name
+    fn aliases(&self) -> Vec<&str> {
+        vec![&self.model_deployment_name]
     }
 }
 

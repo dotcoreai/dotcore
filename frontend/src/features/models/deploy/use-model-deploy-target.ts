@@ -112,7 +112,19 @@ export function useModelDeployTarget({
       : undefined;
   if (startKey && compatibility && sizingRead && !frozenStarts.has(startKey))
     setFrozenStarts(new Map(frozenStarts).set(startKey, readStart));
-  const start = startKey && frozenStarts.has(startKey) ? frozenStarts.get(startKey) : readStart;
+  const knownStart =
+    startKey && frozenStarts.has(startKey) ? frozenStarts.get(startKey) : readStart;
+  // Until the current context's read lands, the last read's largest total fit on the target caps a
+  // following total, so it doesn't show more than fits and then drop when the read arrives.
+  const lastVerdict =
+    !knownStart && compatibility && selectedExecutionTarget
+      ? profileTargetVerdict(compatibility, model.modelId, profileId, selectedExecutionTarget)
+      : undefined;
+  const start =
+    knownStart ??
+    (lastVerdict?.largestTotalContextTokens === undefined
+      ? undefined
+      : { totalCeilingTokens: lastVerdict.largestTotalContextTokens });
   const placementNodeId = selectedExecutionTarget?.siteNodeId;
   const placementTargetId = selectedExecutionTarget?.executionTargetId;
   const placement = useMemo(

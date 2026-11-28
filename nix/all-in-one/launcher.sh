@@ -395,14 +395,13 @@ runtime_root="$(mktemp -d "$runtime_parent/dotcore.XXXXXXXX")"
 chmod 0700 "$runtime_root"
 umask "$old_umask"
 
-config_file="$runtime_root/effective-config.json"
-if ! run_tracked "$dotc_command" ${path_args[@]+"${path_args[@]}"} config show --format json >"$config_file"; then
+config_file="$runtime_root/effective-config.yaml"
+if ! run_tracked "$dotc_command" ${path_args[@]+"${path_args[@]}"} --yaml config show >"$config_file"; then
   echo "dotcore: cannot inspect effective process paths" >&2
   exit 1
 fi
-config_json="$(cat "$config_file")"
-site_dir="$(jq -er '.siteDir | strings' <<< "$config_json")"
-role="$(jq -er '.role | strings' <<< "$config_json")" || role=""
+site_dir="$(yq -e '.siteDir' "$config_file")"
+role="$(yq -e '.role' "$config_file")" || role=""
 
 # The backend owns role detection. A joined node folder runs the backend alone: it has no console,
 # Caddy, or public listeners, only the private listener its folder declares.
@@ -452,11 +451,11 @@ if [[ ! -f "$site_dir/site.yaml" || ! -f "$site_dir/node.yaml" ]]; then
 fi
 
 # The public listeners bind the node host the site records, which setup chooses on a first run.
-if ! run_tracked "$dotc_command" ${path_args[@]+"${path_args[@]}"} config show --format json >"$config_file"; then
+if ! run_tracked "$dotc_command" ${path_args[@]+"${path_args[@]}"} --yaml config show >"$config_file"; then
   echo "dotcore: cannot read the node host of the site" >&2
   exit 1
 fi
-if ! node_host="$(jq -er '.nodeHost | strings' "$config_file")"; then
+if ! node_host="$(yq -e '.nodeHost' "$config_file")"; then
   echo "dotcore: the site at $site_dir records no node host; run dotc site validate --site-dir $site_dir" >&2
   exit 1
 fi

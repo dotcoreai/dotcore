@@ -27,6 +27,10 @@ skill to bump an engine. [`engines/AGENTS.md`](../engines/AGENTS.md) says where 
   ([catalog spec](../docs/specs/catalog.md#invariants)).
 - Group parameters that belong together under `parameterGroups`, and set each member's `groupId`;
   members are contiguous. A plain group has a display name and a description.
+- Every engine parameter (hidden ones too, since a profile may unhide them), app parameter, plain
+  group and model option has a `summary`: one line that tells a newcomer what the field does for
+  the operator, without restating the label, at most 100 characters. The description keeps the
+  detail. A switched group has no summary; its switch parameter's is shown.
 - Only apps declare conditions. For an optional set of parameters, make a switched group whose
   `switchParameterId` is its boolean first member: that parameter titles the group and enables the
   others. For one dependent parameter, set `enabledByParameterId`. A disabled parameter keeps no

@@ -65,6 +65,11 @@ const APPLICATION_DEPLOY_STEPS = [
 
 type ApplicationDeployStep = (typeof APPLICATION_DEPLOY_STEPS)[number];
 
+/** The step bar's short names, which keep its labels on one line. */
+const APPLICATION_DEPLOY_STEP_LABELS: Readonly<Partial<Record<ApplicationDeployStep, string>>> = {
+  "Inference route": "Route",
+};
+
 export interface DeploymentCreationOptions {
   applicationDeploymentName?: string;
   inferenceRouteId?: string;
@@ -286,11 +291,6 @@ export function ApplicationDeployDialog({
     setFieldErrors,
   });
   const { step } = wizard;
-  // Converted once per blocked navigation, since a new map is what opens the groups.
-  const revealedParameterErrors = useMemo(
-    () => parameterIdErrors(wizard.revealedErrors),
-    [wizard.revealedErrors],
-  );
 
   const submit = async () => {
     if (wizard.revealFirstError()) return;
@@ -357,7 +357,6 @@ export function ApplicationDeployDialog({
       const view = parameterView(parameterId);
       if (view && fieldErrors.has(key)) setFieldError(key, parameterInputError(view, input));
     },
-    revealedErrors: revealedParameterErrors,
   };
   const targetNotice = !effectiveExecutionTargetsCurrent
     ? undefined
@@ -371,7 +370,7 @@ export function ApplicationDeployDialog({
 
   return (
     <DeploymentWizardShell
-      {...deployWizardShellProps(wizard, { pending })}
+      {...deployWizardShellProps(wizard, { pending, stepLabels: APPLICATION_DEPLOY_STEP_LABELS })}
       onOpenChange={onOpenChange}
       open={open}
       openerRef={openerRef}

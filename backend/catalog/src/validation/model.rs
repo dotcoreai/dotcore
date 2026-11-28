@@ -36,8 +36,8 @@ use crate::{
         resolution_applies_default,
     },
     typed_parameters::{
-        check_value, default_value, is_declared_visibility, is_secret, unsigned_range_contains,
-        unsigned_range_text,
+        check_value, default_value, is_declared_visibility, is_secret, summary_problem,
+        unsigned_range_contains, unsigned_range_text,
     },
     validation::{
         EngineDeclarationValidator, configuration_engine_release, release_for_configuration,
@@ -151,6 +151,12 @@ fn validate_model_options(model: &Model, errors: &mut Vec<anyhow::Error>) {
         if option.description.trim().is_empty() {
             errors.push(anyhow::anyhow!(
                 "model option {:?} requires a description",
+                option.option_id
+            ));
+        }
+        if let Some(problem) = summary_problem(&option.summary) {
+            errors.push(anyhow::anyhow!(
+                "model option {:?} {problem}",
                 option.option_id
             ));
         }
@@ -1413,6 +1419,32 @@ mod tests {
     }
 
     #[test]
+    fn option_summary_must_be_one_non_blank_line_within_the_limit() {
+        for (summary, expected) in [
+            (String::new(), "model option \"mtp\" requires a summary"),
+            ("  ".to_owned(), "model option \"mtp\" requires a summary"),
+            (
+                "First.\nSecond.".to_owned(),
+                "model option \"mtp\" summary must be one line of at most 100 characters",
+            ),
+            (
+                "x".repeat(101),
+                "model option \"mtp\" summary must be one line of at most 100 characters",
+            ),
+        ] {
+            let mut model = speculative_model();
+            model.options[0].summary = summary.clone();
+
+            assert_eq!(option_errors(&model), vec![expected], "{summary:?}");
+        }
+
+        let mut model = speculative_model();
+        model.options[0].summary = "x".repeat(100);
+
+        assert_eq!(option_errors(&model), Vec::<String>::new());
+    }
+
+    #[test]
     fn speculative_options_with_the_fixed_shape_are_accepted() {
         assert_eq!(option_errors(&speculative_model()), Vec::<String>::new());
     }
@@ -1744,6 +1776,7 @@ mod tests {
             options: option_ids
                 .into_iter()
                 .map(|option_id| ModelOption {
+                    summary: "Summary.".into(),
                     option_id: option_id.to_owned(),
                     display_name: option_id.to_uppercase(),
                     description: "Drafts tokens ahead.".to_owned(),
@@ -1791,6 +1824,7 @@ mod tests {
     fn kv_cache_model() -> Model {
         let mut model = speculative_model();
         model.options = vec![ModelOption {
+            summary: "Summary.".into(),
             option_id: "kv-cache".to_owned(),
             display_name: "KV cache precision".to_owned(),
             description: "Stores the cache at lower precision.".to_owned(),
