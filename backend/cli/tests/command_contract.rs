@@ -6903,6 +6903,7 @@ fn node_leave_command(node_dir: &Path) -> Command {
         .args(["node", "leave", "--yes", "--site-dir"])
         .arg(node_dir)
         .clear_test_environment();
+    detach_from_controlling_terminal(&mut command);
     command
 }
 

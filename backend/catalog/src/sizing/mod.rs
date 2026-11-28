@@ -1673,6 +1673,7 @@ mod tests {
             )),
             visibility: ParameterVisibility::Advanced as i32,
             description: "Host offload size.".to_owned(),
+            summary: String::new(),
             enabled_by_parameter_id: None,
             group_id: None,
         });

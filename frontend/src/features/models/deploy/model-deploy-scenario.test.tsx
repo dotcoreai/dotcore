@@ -850,7 +850,10 @@ describe("ModelDeployDialog shared context", () => {
       await waitFor(() => expect(release).toHaveLength(1));
       expect(total).toHaveValue(shown);
 
-      await act(async () => release[0]());
+      await act(async () => {
+        release[0]();
+        await Promise.resolve();
+      });
       expect(total).toHaveValue(shown);
     },
   );

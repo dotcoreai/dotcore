@@ -55,7 +55,14 @@ describe("model option fields", () => {
           onCountChange={noop}
           onMethodChange={noop}
           options={[
-            { defaultCount: 2, displayName: "MTP", maximum: 5, minimum: 1, optionId: "mtp" },
+            {
+              defaultCount: 2,
+              displayName: "MTP",
+              maximum: 5,
+              minimum: 1,
+              optionId: "mtp",
+              switch: false,
+            },
           ]}
         />
       </>,
